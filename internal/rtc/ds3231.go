@@ -81,7 +81,6 @@ func (clk *DS3231) SetAlarm(id AlarmID, duration time.Duration) error {
 		if err != nil {
 			return err
 		}
-
 		return clk.device.SetEnabledAlarm1(true)
 
 	case DSAlarm2:
@@ -89,7 +88,6 @@ func (clk *DS3231) SetAlarm(id AlarmID, duration time.Duration) error {
 		if err != nil {
 			return err
 		}
-
 		return clk.device.SetEnabledAlarm2(true)
 
 	default:
