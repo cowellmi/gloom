@@ -1,5 +1,6 @@
 # Build artifacts
 *.bin
+*.elf
 build/
 
 # The tinygo extension handles project level settings.

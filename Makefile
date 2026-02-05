@@ -17,7 +17,7 @@ PORT ?= $(shell ls \
 .PHONY: build flash clean monitor
 
 build:
-	tinygo build -target=$(TARGET) -o $(BIN) .
+	tinygo -size short build -target $(TARGET) -o $(BIN) .
 
 flash: build
 	@set -e; \
