@@ -14,16 +14,22 @@ const (
 )
 
 type Logger struct {
+	minLevel      Level
 	serialEnabled bool
 }
 
-func NewLogger(serialEnabled bool) *Logger {
+func NewLogger(minLevel Level, serialEnabled bool) *Logger {
 	return &Logger{
+		minLevel:      minLevel,
 		serialEnabled: serialEnabled,
 	}
 }
 
 func (l *Logger) Log(t time.Time, level Level, msg string) {
+	if level < l.minLevel {
+		return
+	}
+
 	if l.serialEnabled {
 		logToSerial(t, level, msg)
 	}
