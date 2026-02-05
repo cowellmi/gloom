@@ -1,10 +1,6 @@
 TARGET = feather-m0
-BIN    = main.bin
-
-BOSSAC ?= $(HOME)/Library/Arduino15/packages/arduino/tools/bossac/1.7.0-arduino3/bossac
-
-export GOTOOLCHAIN=go1.25.5
-
+BIN = main.bin
+BOSSAC ?= $(shell which bossac)
 PORT ?= $(shell ls \
 	/dev/cu.usbmodem* \
 	/dev/cu.usbserial* \
@@ -17,7 +13,7 @@ PORT ?= $(shell ls \
 .PHONY: build flash clean monitor
 
 build:
-	tinygo -size short build -target $(TARGET) -o $(BIN) .
+	tinygo build -size=short -target=$(TARGET) -o=$(BIN) .
 
 flash: build
 	@set -e; \
