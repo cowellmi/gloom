@@ -1,16 +1,20 @@
 TARGET = feather-m0
 BIN    = main.bin
-OFFSET = 0x2000
 
-# Auto-detect serial port (macOS + Linux)
+BOSSAC ?= $(HOME)/Library/Arduino15/packages/arduino/tools/bossac/1.7.0-arduino3/bossac
+
+export GOTOOLCHAIN=go1.25.5
+
 PORT ?= $(shell ls \
 	/dev/cu.usbmodem* \
 	/dev/cu.usbserial* \
+	/dev/tty.usbmodem* \
+	/dev/tty.usbserial* \
 	/dev/ttyACM* \
 	/dev/ttyUSB* \
 	2>/dev/null | head -n 1)
 
-.PHONY: flash clean
+.PHONY: build flash clean monitor
 
 build:
 	tinygo build -target=$(TARGET) -o $(BIN) .
@@ -22,7 +26,10 @@ flash: build
 		exit 1; \
 	fi; \
 	echo "Flashing on $(PORT)..."; \
-	bossac -p $(PORT) -a -o $(OFFSET) -e -w -v -b $(BIN) -R
+	$(BOSSAC) -p "$(PORT)" -e -w -v "$(BIN)" -R
 
 clean:
 	rm -f $(BIN)
+
+monitor:
+	screen $(PORT) 115200
