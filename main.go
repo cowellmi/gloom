@@ -6,14 +6,17 @@ import (
 
 	"github.com/cowellmi/gloom/internal/hypnos"
 	"github.com/cowellmi/gloom/internal/log"
-	"github.com/cowellmi/gloom/internal/rtc"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
+
+type sleeper interface {
+	Sleep() error
+}
 
 type manager struct {
 	sensors []sensor.Sensor
 	logger  *log.Logger
-	clock   rtc.Clock
+	sleeper sleeper
 }
 
 func main() {
@@ -23,7 +26,19 @@ func main() {
 		BaudRate: 115200,
 	})
 	if err != nil {
-		println("Failed to configure Serial")
+		println("Serial:", err)
+		return
+	}
+
+	err = machine.I2C0.Configure(machine.I2CConfig{})
+	if err != nil {
+		println("I2C:", err)
+		return
+	}
+
+	hypnos, err := hypnos.New(machine.I2C0)
+	if err != nil {
+		println("Hypnos:", err)
 		return
 	}
 
@@ -33,33 +48,17 @@ func main() {
 	}
 	println("connected!")
 
-	hypnos.Configure()
-	hypnos.PowerUp()
-	time.Sleep(500 * time.Millisecond)
-
-	err = machine.I2C0.Configure(machine.I2CConfig{}) // default config
-	if err != nil {
-		println("I2C:", err)
-		return
-	}
-
 	sensors := []sensor.Sensor{&sensor.Fake{}}
 
 	logger := log.NewLogger(log.LevelDebug, true)
 
-	clock, err := rtc.NewDS3231(machine.I2C0)
-	if err != nil {
-		println("DS3231:", err)
-	}
-
 	man := manager{
 		sensors: sensors,
 		logger:  logger,
-		clock:   clock,
 	}
 
 	for {
-		t, err := man.clock.ReadTime()
+		t, err := hypnos.RTC.ReadTime()
 		if err != nil {
 			t = time.Now() // fallback to system clock
 			msg := "failed to read time from RTC; falling back to system time"

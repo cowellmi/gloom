@@ -9,10 +9,7 @@ import (
 	"tinygo.org/x/drivers/ds3231"
 )
 
-const (
-	DSAlarm1 AlarmID = 1
-	DSAlarm2 AlarmID = 2
-)
+type AlarmID uint8
 
 type DS3231 struct {
 	device ds3231.Device
