@@ -1,4 +1,4 @@
-package sensor
+package sensors
 
 type Measurement struct {
 	Label string

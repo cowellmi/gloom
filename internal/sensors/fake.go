@@ -1,4 +1,4 @@
-package sensor
+package sensors
 
 import (
 	"math/rand/v2"

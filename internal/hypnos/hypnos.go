@@ -14,17 +14,31 @@ const (
 	Rail5V = machine.D6
 )
 
-type Hypnos struct {
-	RTC ds3231.Device
+type Board struct {
+	rtc *ds3231.Device
 }
 
-// Creates a new hypnos connection. The I2C bus must already be configured.
-func New(bus drivers.I2C) (*Hypnos, error) {
+func (h *Board) Now() time.Time {
+	t, _ := h.rtc.ReadTime()
+	return t
+}
+
+func (h *Board) Sleep(d time.Duration) {
+	railsOff()
+
+	time.Sleep(d)
+	// TODO: enter standby mode
+
+	railsOn()
+}
+
+// Probe I2C for Hypnos components. The I2C bus must already be configured.
+func Probe(bus drivers.I2C) (*Board, error) {
 	var err error
 
 	defer func() {
 		if err != nil {
-			railsOff()
+			railsOff() // Reset machine pins.
 		}
 	}()
 
@@ -52,14 +66,7 @@ func New(bus drivers.I2C) (*Hypnos, error) {
 		return nil, err
 	}
 
-	return &Hypnos{RTC: rtc}, nil
-}
-
-// Hypnos implements gloom.Sleeper interface.
-func (h *Hypnos) Sleep() error {
-	railsOff()
-
-	return nil
+	return &Board{rtc: &rtc}, nil
 }
 
 func railsOn() {

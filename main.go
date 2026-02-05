@@ -6,21 +6,35 @@ import (
 
 	"github.com/cowellmi/gloom/internal/hypnos"
 	"github.com/cowellmi/gloom/internal/log"
-	"github.com/cowellmi/gloom/internal/sensor"
+	"github.com/cowellmi/gloom/internal/sensors"
 )
 
-type sleeper interface {
-	Sleep() error
+type Platform interface {
+	Now() time.Time
+	Sleep(d time.Duration)
+	// ReadConfig() Config
 }
 
-type manager struct {
-	sensors []sensor.Sensor
+type Manager struct {
+	sys     Platform
 	logger  *log.Logger
-	sleeper sleeper
+	sensors []sensors.Sensor
 }
 
 func main() {
 	var err error
+
+	err = machine.I2C0.Configure(machine.I2CConfig{})
+	if err != nil {
+		println("I2C:", err)
+		return
+	}
+
+	sys, err := hypnos.Probe(machine.I2C0)
+	if err != nil {
+		println("Hypnos:", err)
+		return
+	}
 
 	err = machine.Serial.Configure(machine.UARTConfig{
 		BaudRate: 115200,
@@ -30,40 +44,24 @@ func main() {
 		return
 	}
 
-	err = machine.I2C0.Configure(machine.I2CConfig{})
-	if err != nil {
-		println("I2C:", err)
-		return
-	}
-
-	hypnos, err := hypnos.New(machine.I2C0)
-	if err != nil {
-		println("Hypnos:", err)
-		return
-	}
-
 	// Wait for serial connection
 	for !machine.Serial.DTR() {
 		time.Sleep(100 * time.Millisecond)
 	}
 	println("connected!")
 
-	sensors := []sensor.Sensor{&sensor.Fake{}}
+	sensors := []sensors.Sensor{&sensors.Fake{}}
 
 	logger := log.NewLogger(log.LevelDebug, true)
 
-	man := manager{
-		sensors: sensors,
+	man := Manager{
+		sys:     sys,
 		logger:  logger,
+		sensors: sensors,
 	}
 
 	for {
-		t, err := hypnos.RTC.ReadTime()
-		if err != nil {
-			t = time.Now() // fallback to system clock
-			msg := "failed to read time from RTC; falling back to system time"
-			man.logger.Log(t, log.LevelWarn, msg)
-		}
+		t := man.sys.Now()
 
 		for _, sen := range man.sensors {
 			man.logger.Log(t, log.LevelDebug, sen.Name())
@@ -79,6 +77,6 @@ func main() {
 			}
 		}
 
-		time.Sleep(1 * time.Second)
+		man.sys.Sleep(1 * time.Second)
 	}
 }
