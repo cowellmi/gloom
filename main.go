@@ -43,14 +43,13 @@ func main() {
 		return
 	}
 
-	sensors := []sensor.Sensor{}
+	sensors := []sensor.Sensor{&sensor.Fake{}}
 
-	logger := log.NewLogger(true)
+	logger := log.NewLogger(log.LevelDebug, true)
 
 	clock, err := rtc.NewDS3231(machine.I2C0)
 	if err != nil {
 		println("DS3231:", err)
-		return
 	}
 
 	man := manager{
@@ -62,10 +61,25 @@ func main() {
 	for {
 		t, err := man.clock.ReadTime()
 		if err != nil {
-			man.logger.Log(time.Time{}, log.LevelError, "can not read time from clock")
-		} else {
-			man.logger.Log(t, log.LevelInfo, "successfully read DS3231")
+			t = time.Now() // fallback to system clock
+			msg := "failed to read time from RTC; falling back to system time"
+			man.logger.Log(t, log.LevelWarn, msg)
 		}
+
+		for _, sen := range man.sensors {
+			man.logger.Log(t, log.LevelDebug, sen.Name())
+			ms, err := sen.Measure()
+			if err != nil {
+				msg := "failed to measure: " + sen.Name() + ": " + err.Error()
+				man.logger.Log(t, log.LevelError, msg)
+			}
+
+			for _, m := range ms {
+				msg := m.Label + ": " + m.Value + " " + m.Unit
+				man.logger.Log(t, log.LevelDebug, msg)
+			}
+		}
+
 		time.Sleep(1 * time.Second)
 	}
 }
