@@ -1,6 +1,6 @@
 module github.com/cowellmi/gloom
 
-go 1.25.5
+go 1.24.0
 
 require tinygo.org/x/drivers v0.34.0
 
