@@ -6,7 +6,8 @@ type Measurement struct {
 	Unit  string
 }
 
-type Sensor interface {
+type Device interface {
+	Init() error
 	Name() string
 	Measure() ([]Measurement, error)
 }

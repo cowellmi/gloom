@@ -18,9 +18,13 @@ type Board struct {
 	rtc *ds3231.Device
 }
 
-func (h *Board) Now() time.Time {
-	t, _ := h.rtc.ReadTime()
-	return t
+func (h *Board) Now() (time.Time, error) {
+	return h.rtc.ReadTime()
+}
+
+func (h *Board) ReadFile(name string) ([]byte, error) {
+	// TODO: read file from SD card
+	return nil, errors.New("hypnos: sd card not yet implemented")
 }
 
 func (h *Board) Sleep(d time.Duration) {
@@ -42,7 +46,7 @@ func Probe(bus drivers.I2C) (*Board, error) {
 		}
 	}()
 
-	// Initialize rails.
+	// Initialize power rails.
 	Rail3V.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	Rail5V.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	railsOn()
