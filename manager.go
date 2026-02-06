@@ -70,7 +70,6 @@ func NewManager() (*Manager, error) {
 	for _, err := range initErrs {
 		man.slog(log.LevelError, "init: "+err.Error())
 	}
-	man.slog(log.LevelInfo, "platform: "+man.sys.Name())
 
 	return &man, nil
 }
@@ -86,6 +85,7 @@ func (man *Manager) Run() {
 			man.heartbeat()
 		}
 
+		man.slog(log.LevelInfo, "platform: "+man.sys.Name())
 		man.logMem()
 	}
 }

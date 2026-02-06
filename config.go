@@ -7,7 +7,6 @@ import (
 
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensors"
-	"github.com/cowellmi/gloom/internal/sensors/fake"
 )
 
 type Config struct {
@@ -23,11 +22,10 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		SampleInterval:    5 * time.Second,
-		HeartbeatInterval: 0, // Disabled by default.
+		HeartbeatInterval: 0, // disabled
 		SerialEnabled:     true,
 		WaitForSerial:     true,
 		LogLevel:          log.LevelDebug,
-		Sensors:           []sensors.Device{fake.NewDevice()},
 	}
 }
 
