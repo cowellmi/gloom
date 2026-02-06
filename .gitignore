@@ -9,3 +9,6 @@ build/
 
 # See .envrc.example
 .envrc
+
+# LLM
+AGENT/

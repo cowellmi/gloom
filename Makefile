@@ -37,4 +37,4 @@ clean:
 	rm -f $(BIN)
 
 monitor:
-	screen $(PORT) 115200
+	tio /dev/tty.usbmodem*

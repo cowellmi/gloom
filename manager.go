@@ -102,13 +102,23 @@ func (man *Manager) Run() {
 }
 
 func (man *Manager) sleep() hardware.WakeReason {
-	man.slog(log.LevelDebug, "sleep: sample="+man.config.SampleInterval.String()+
-		" heartbeat="+man.config.HeartbeatInterval.String())
+	// Log intervals
+	sampleInterval := man.config.SampleInterval.String()
+	if man.config.SampleInterval == 0 {
+		sampleInterval = "disabled"
+	}
+	heartbeatInterval := man.config.HeartbeatInterval.String()
+	if man.config.SampleInterval == 0 {
+		heartbeatInterval = "disabled"
+	}
+	man.slog(log.LevelDebug, "sleep: sample="+sampleInterval+" heartbeat="+heartbeatInterval)
 
+	// Put system to sleep. Execution halts here until wake from sleep.
 	reason, err := man.sys.Sleep(man.config.SampleInterval, man.config.HeartbeatInterval)
 	if err != nil {
 		man.slog(log.LevelError, "sleep: "+err.Error())
 	}
+	// Resume execution after wake from sleep.
 
 	// Update wake up time.
 	t, err := man.sys.ReadTime()
@@ -116,7 +126,6 @@ func (man *Manager) sleep() hardware.WakeReason {
 		t = time.Now()
 		man.logger.Log(t, log.LevelError, "rtc: "+err.Error())
 	}
-
 	man.wakeTime = t
 
 	return reason
