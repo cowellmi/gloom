@@ -68,65 +68,65 @@ func NewManager() (*Manager, error) {
 
 	man.logger = log.NewLogger(man.config.LogLevel, man.config.SerialEnabled)
 	for _, err := range initErrs {
-		man.Log(log.LevelError, "init: "+err.Error())
+		man.slog(log.LevelError, "init: "+err.Error())
 	}
-	man.Log(log.LevelInfo, "platform: "+man.sys.Name())
+	man.slog(log.LevelInfo, "platform: "+man.sys.Name())
 
 	return &man, nil
 }
 
-func (man *Manager) Sleep() hardware.WakeReason {
-	man.Log(log.LevelDebug, "sleep: sample="+man.config.SampleInterval.String()+
+func (man *Manager) Run() {
+	for {
+		reason := man.sleep()
+
+		if reason&hardware.WakeSample != 0 {
+			man.sample()
+		}
+		if reason&hardware.WakeHeartbeat != 0 {
+			man.heartbeat()
+		}
+
+		man.logMem()
+	}
+}
+
+func (man *Manager) sleep() hardware.WakeReason {
+	man.slog(log.LevelDebug, "sleep: sample="+man.config.SampleInterval.String()+
 		" heartbeat="+man.config.HeartbeatInterval.String())
 
 	reason, err := man.sys.Sleep(man.config.SampleInterval, man.config.HeartbeatInterval)
 	if err != nil {
-		man.Log(log.LevelError, "sleep: "+err.Error())
+		man.slog(log.LevelError, "sleep: "+err.Error())
 	}
 
 	return reason
 }
 
-func (man *Manager) Run() {
-	for {
-		reason := man.Sleep()
-
-		switch reason {
-		case hardware.WakeSample:
-			man.sample()
-		case hardware.WakeHeartbeat:
-			man.heartbeat()
-		}
-
-		man.LogMem()
-	}
-}
-
 func (man *Manager) sample() {
 	for _, s := range man.config.Sensors {
 		if err := s.Init(); err != nil {
-			man.Log(log.LevelError, "failed to initialize: "+s.Name()+": "+err.Error())
+			man.slog(log.LevelError, "failed to initialize: "+s.Name()+": "+err.Error())
 			continue
 		}
 
 		ms, err := s.Measure()
 		if err != nil {
-			man.Log(log.LevelError, "failed to measure: "+s.Name()+": "+err.Error())
+			man.slog(log.LevelError, "failed to measure: "+s.Name()+": "+err.Error())
 			continue
 		}
 
 		for _, m := range ms {
-			man.Log(log.LevelInfo, s.Name()+": "+m.Label+": "+m.Value+" "+m.Unit)
+			man.slog(log.LevelInfo, s.Name()+": "+m.Label+": "+m.Value+" "+m.Unit)
 		}
 	}
 }
 
 func (man *Manager) heartbeat() {
-	man.Log(log.LevelDebug, "heartbeat")
+	man.slog(log.LevelDebug, "heartbeat")
 	// TODO: transmit keep-alive message
 }
 
-func (man *Manager) Log(level log.Level, msg string) {
+func (man *Manager) slog(level log.Level, msg string) {
 	t, err := man.sys.ReadTime()
 	if err != nil {
 		t = time.Now()
@@ -141,10 +141,10 @@ func formatBytes(b uint64) string {
 	return strconv.FormatUint(whole, 10)
 }
 
-func (man *Manager) LogMem() {
+func (man *Manager) logMem() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	man.Log(log.LevelDebug, "mem: heap_alloc="+formatBytes(m.HeapAlloc)+"kb"+
+	man.slog(log.LevelDebug, "mem: heap_alloc="+formatBytes(m.HeapAlloc)+"kb"+
 		" heap_sys="+formatBytes(m.HeapSys)+"kb")
 }

@@ -5,8 +5,8 @@ import "time"
 type WakeReason uint8
 
 const (
-	WakeSample WakeReason = iota
-	WakeHeartbeat
+	WakeSample    WakeReason = 1 << 0
+	WakeHeartbeat WakeReason = 1 << 1
 )
 
 type Platform interface {
@@ -19,5 +19,5 @@ type Platform interface {
 	// heartbeat interval alarm, or an external sensor interrupt.
 	//
 	// A zero duration disables that alarm.
-	Sleep(sample, heartbeat time.Duration) (WakeReason, error)
+	Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeReason, error)
 }
