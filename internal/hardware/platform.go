@@ -3,7 +3,8 @@ package hardware
 import "time"
 
 type Platform interface {
-	Now() (time.Time, error)
-	Sleep(d time.Duration)
+	Name() string
 	ReadFile(name string) ([]byte, error)
+	ReadTime() (time.Time, error)
+	Sleep(d time.Duration) error
 }

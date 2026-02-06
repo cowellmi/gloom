@@ -60,18 +60,18 @@ func printTwoDigits(n int) {
 func printLevel(level Level) {
 	switch level {
 	case LevelDebug:
-		print("DEBUG")
+		print("DBG")
 
 	case LevelInfo:
-		print("INFO")
+		print("INF")
 
 	case LevelWarn:
-		print("WARNING")
+		print("WRN")
 
 	case LevelError:
-		print("ERROR")
+		print("ERR")
 
 	default:
-		print("INVALID_LEVEL")
+		print("???")
 	}
 }

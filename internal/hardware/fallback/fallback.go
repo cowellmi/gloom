@@ -5,20 +5,24 @@ import (
 	"time"
 )
 
-type Board struct{}
+type Platform struct{}
 
-func NewBoard() *Board {
-	return &Board{}
+func New() *Platform {
+	return &Platform{}
 }
 
-func (*Board) Now() (time.Time, error) {
+func (*Platform) Name() string { return "Fallback" }
+
+func (*Platform) ReadFile(name string) ([]byte, error) {
+	return nil, errors.New("fallback: no storage available")
+}
+
+func (*Platform) ReadTime() (time.Time, error) {
 	return time.Now(), nil
 }
 
-func (*Board) Sleep(d time.Duration) {
+func (*Platform) Sleep(d time.Duration) error {
 	time.Sleep(d)
-}
 
-func (*Board) ReadFile(name string) ([]byte, error) {
-	return nil, errors.New("fallback: no storage available")
+	return nil
 }

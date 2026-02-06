@@ -18,16 +18,14 @@ type Config struct {
 	Sensors       []sensors.Device
 }
 
-var sensorRegistry = map[string]func() sensors.Device{
-	"fake": func() sensors.Device { return fake.NewDevice() },
-}
-
+// Default values for debugging.
 func DefaultConfig() Config {
 	return Config{
-		SleepInterval: 60 * time.Second,
+		SleepInterval: 5 * time.Second,
 		SerialEnabled: true,
 		WaitForSerial: true,
-		LogLevel:      log.LevelInfo,
+		LogLevel:      log.LevelDebug,
+		Sensors:       []sensors.Device{fake.NewDevice()},
 	}
 }
 

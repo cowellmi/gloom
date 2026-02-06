@@ -2,6 +2,8 @@ package main
 
 import (
 	"machine"
+	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/cowellmi/gloom/internal/hardware"
@@ -18,16 +20,13 @@ type Manager struct {
 
 func NewManager() (*Manager, error) {
 	var man Manager
-
-	err := machine.Serial.Configure(machine.UARTConfig{
-		BaudRate: 115200,
-	})
-	if err != nil {
-		return nil, err
-	}
+	var err error
+	var initErrs []error // Keep track of init errors until logger is setup
 
 	// Setup I2C
-	err = machine.I2C0.Configure(machine.I2CConfig{})
+	err = machine.I2C0.Configure(machine.I2CConfig{
+		Frequency: 100e3, // 100 kHz
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -35,47 +34,75 @@ func NewManager() (*Manager, error) {
 	// Probe for platforms
 	man.sys, err = hypnos.Probe(machine.I2C0)
 	if err != nil {
-		println("Hypnos:", err)
-		println("Falling back.")
-		man.sys = fallback.NewBoard()
+		initErrs = append(initErrs, err)
+		man.sys = fallback.New()
 	}
 
 	// Parse config
 	man.config = DefaultConfig()
 	data, err := man.sys.ReadFile("config.txt")
 	if err != nil {
-		println("config: using defaults:", err)
+		initErrs = append(initErrs, err)
 	} else {
 		err = ParseConfig(data, &man.config)
 		if err != nil {
-			println("config: parse error:", err)
+			initErrs = append(initErrs, err)
 		}
 	}
 
-	if man.config.WaitForSerial {
-		for !machine.Serial.DTR() {
-			time.Sleep(100 * time.Millisecond)
+	// Serial configuration
+	if man.config.SerialEnabled {
+		err = machine.Serial.Configure(machine.UARTConfig{
+			BaudRate: 115200,
+		})
+		if err != nil {
+			initErrs = append(initErrs, err)
+		}
+
+		if man.config.WaitForSerial {
+			for !machine.Serial.DTR() {
+				time.Sleep(100 * time.Millisecond)
+			}
 		}
 	}
 
 	man.logger = log.NewLogger(man.config.LogLevel, man.config.SerialEnabled)
-
-	for _, s := range man.config.Sensors {
-		if err := s.Init(); err != nil {
-			msg := "init error for " + s.Name() + ": " + err.Error()
-			man.Log(log.LevelError, msg)
-		}
+	for _, err := range initErrs {
+		man.Log(log.LevelError, "init: "+err.Error())
 	}
+	man.Log(log.LevelInfo, "platform: "+man.sys.Name())
 
 	return &man, nil
 }
 
+func (man *Manager) Sleep() {
+	man.Log(log.LevelDebug, "sleep: "+man.config.SleepInterval.String())
+
+	err := man.sys.Sleep(man.config.SleepInterval)
+	if err != nil {
+		man.Log(log.LevelError, "sleep: "+err.Error())
+	}
+}
+
 func (man *Manager) Log(level log.Level, msg string) {
-	t, err := man.sys.Now()
+	t, err := man.sys.ReadTime()
 	if err != nil {
 		t = time.Now()
 		man.logger.Log(t, log.LevelError, "rtc: "+err.Error())
 	}
 
 	man.logger.Log(t, level, msg)
+}
+
+func formatBytes(b uint64) string {
+	whole := b / 1024
+	return strconv.FormatUint(whole, 10)
+}
+
+func (man *Manager) LogMem() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	man.Log(log.LevelDebug, "mem: heap_alloc="+formatBytes(m.HeapAlloc)+"kb"+
+		" heap_sys="+formatBytes(m.HeapSys)+"kb")
 }
