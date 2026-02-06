@@ -87,6 +87,45 @@ func (man *Manager) Sleep() hardware.WakeReason {
 	return reason
 }
 
+func (man *Manager) Run() {
+	for {
+		reason := man.Sleep()
+
+		switch reason {
+		case hardware.WakeSample:
+			man.sample()
+		case hardware.WakeHeartbeat:
+			man.heartbeat()
+		}
+
+		man.LogMem()
+	}
+}
+
+func (man *Manager) sample() {
+	for _, s := range man.config.Sensors {
+		if err := s.Init(); err != nil {
+			man.Log(log.LevelError, "failed to initialize: "+s.Name()+": "+err.Error())
+			continue
+		}
+
+		ms, err := s.Measure()
+		if err != nil {
+			man.Log(log.LevelError, "failed to measure: "+s.Name()+": "+err.Error())
+			continue
+		}
+
+		for _, m := range ms {
+			man.Log(log.LevelInfo, s.Name()+": "+m.Label+": "+m.Value+" "+m.Unit)
+		}
+	}
+}
+
+func (man *Manager) heartbeat() {
+	man.Log(log.LevelDebug, "heartbeat")
+	// TODO: transmit keep-alive message
+}
+
 func (man *Manager) Log(level log.Level, msg string) {
 	t, err := man.sys.ReadTime()
 	if err != nil {
