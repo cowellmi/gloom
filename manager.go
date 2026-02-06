@@ -12,10 +12,15 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 )
 
+const (
+	maxWaitForSerialDTR = 1200
+)
+
 type Manager struct {
-	sys    hardware.Platform
-	config Config
-	logger *log.Logger
+	sys      hardware.Platform
+	config   Config
+	logger   *log.Logger
+	wakeTime time.Time
 }
 
 func NewManager() (*Manager, error) {
@@ -60,7 +65,13 @@ func NewManager() (*Manager, error) {
 		}
 
 		if man.config.WaitForSerial {
+			attempt := 0
 			for !machine.Serial.DTR() {
+				attempt += 1
+				if attempt > maxWaitForSerialDTR {
+					break
+				}
+
 				time.Sleep(100 * time.Millisecond)
 			}
 		}
@@ -99,6 +110,15 @@ func (man *Manager) sleep() hardware.WakeReason {
 		man.slog(log.LevelError, "sleep: "+err.Error())
 	}
 
+	// Update wake up time.
+	t, err := man.sys.ReadTime()
+	if err != nil {
+		t = time.Now()
+		man.logger.Log(t, log.LevelError, "rtc: "+err.Error())
+	}
+
+	man.wakeTime = t
+
 	return reason
 }
 
@@ -127,13 +147,7 @@ func (man *Manager) heartbeat() {
 }
 
 func (man *Manager) slog(level log.Level, msg string) {
-	t, err := man.sys.ReadTime()
-	if err != nil {
-		t = time.Now()
-		man.logger.Log(t, log.LevelError, "rtc: "+err.Error())
-	}
-
-	man.logger.Log(t, level, msg)
+	man.logger.Log(man.wakeTime, level, msg)
 }
 
 func formatBytes(b uint64) string {

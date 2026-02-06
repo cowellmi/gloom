@@ -50,7 +50,7 @@ func (h *Hypnos) Sleep(sampleInterval, heartbeatInterval time.Duration) (hardwar
 	// Only restore sensor power rails for a sample wake.
 	if reason&hardware.WakeSample != 0 {
 		railsOn()
-		if waitErr := waitForRTC(h.rtc); waitErr != nil && err == nil {
+		if waitErr := waitForRTC(h.rtc); waitErr != nil {
 			err = waitErr
 		}
 	}
@@ -80,7 +80,10 @@ func (h *Hypnos) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (
 			return 0, err
 		}
 	} else {
-		h.rtc.SetEnabledAlarm1(false)
+		err := h.rtc.SetEnabledAlarm1(false)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	// Arm Alarm 2 (heartbeat interval, minute resolution).
@@ -96,7 +99,10 @@ func (h *Hypnos) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (
 			return 0, err
 		}
 	} else {
-		h.rtc.SetEnabledAlarm2(false)
+		err := h.rtc.SetEnabledAlarm2(false)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	// Arm the EIC interrupt for the RTC INT pin (falling edge).
