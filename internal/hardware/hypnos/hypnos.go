@@ -5,6 +5,7 @@ import (
 	"machine"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/hardware"
 	"tinygo.org/x/drivers"
 	"tinygo.org/x/drivers/ds3231"
 )
@@ -24,19 +25,22 @@ func (h *Board) ReadTime() (time.Time, error) {
 	return h.rtc.ReadTime()
 }
 
-func (h *Board) Sleep(d time.Duration) error {
+func (h *Board) Sleep(sample, heartbeat time.Duration) (hardware.WakeReason, error) {
 	railsOff()
 
-	time.Sleep(d)
-	// TODO: enter standby mode
+	time.Sleep(sample) // TODO: use RTC alarms + deep sleep
+	reason := hardware.WakeSample
 
-	railsOn()
-
-	if err := waitForRTC(h.rtc); err != nil {
-		return err
+	// Only restore sensor power rails for a sample wake.
+	if reason == hardware.WakeSample {
+		railsOn()
 	}
 
-	return nil
+	if err := waitForRTC(h.rtc); err != nil {
+		return reason, err
+	}
+
+	return reason, nil
 }
 
 const (

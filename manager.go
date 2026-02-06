@@ -75,13 +75,16 @@ func NewManager() (*Manager, error) {
 	return &man, nil
 }
 
-func (man *Manager) Sleep() {
-	man.Log(log.LevelDebug, "sleep: "+man.config.SleepInterval.String())
+func (man *Manager) Sleep() hardware.WakeReason {
+	man.Log(log.LevelDebug, "sleep: sample="+man.config.SampleInterval.String()+
+		" heartbeat="+man.config.HeartbeatInterval.String())
 
-	err := man.sys.Sleep(man.config.SleepInterval)
+	reason, err := man.sys.Sleep(man.config.SampleInterval, man.config.HeartbeatInterval)
 	if err != nil {
 		man.Log(log.LevelError, "sleep: "+err.Error())
 	}
+
+	return reason
 }
 
 func (man *Manager) Log(level log.Level, msg string) {

@@ -11,21 +11,23 @@ import (
 )
 
 type Config struct {
-	SleepInterval time.Duration
-	SerialEnabled bool
-	WaitForSerial bool
-	LogLevel      log.Level
-	Sensors       []sensors.Device
+	SampleInterval    time.Duration
+	HeartbeatInterval time.Duration
+	SerialEnabled     bool
+	WaitForSerial     bool
+	LogLevel          log.Level
+	Sensors           []sensors.Device
 }
 
 // Default values for debugging.
 func DefaultConfig() Config {
 	return Config{
-		SleepInterval: 5 * time.Second,
-		SerialEnabled: true,
-		WaitForSerial: true,
-		LogLevel:      log.LevelDebug,
-		Sensors:       []sensors.Device{fake.NewDevice()},
+		SampleInterval:    5 * time.Second,
+		HeartbeatInterval: 0, // Disabled by default.
+		SerialEnabled:     true,
+		WaitForSerial:     true,
+		LogLevel:          log.LevelDebug,
+		Sensors:           []sensors.Device{fake.NewDevice()},
 	}
 }
 
@@ -46,12 +48,19 @@ func ParseConfig(data []byte, config *Config) error {
 		value = strings.TrimSpace(value)
 
 		switch key {
-		case "sleep_interval":
+		case "sample_interval":
 			d, err := time.ParseDuration(value)
 			if err != nil {
 				return err
 			}
-			config.SleepInterval = d
+			config.SampleInterval = d
+
+		case "heartbeat_interval":
+			d, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			config.HeartbeatInterval = d
 
 		case "serial":
 			config.SerialEnabled = value == "true"
