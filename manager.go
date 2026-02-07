@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"machine"
 	"runtime"
 	"strconv"
@@ -12,10 +13,6 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 )
 
-const (
-	maxWaitForSerialDTR = 1200
-)
-
 type Manager struct {
 	sys      hardware.Platform
 	config   Config
@@ -25,25 +22,26 @@ type Manager struct {
 
 func NewManager() (*Manager, error) {
 	var man Manager
-	var err error
-	var initErrs []error // Keep track of init errors until logger is setup
 
-	// Setup I2C
-	err = machine.I2C0.Configure(machine.I2CConfig{
+	// Keep track of non-fatal int errors until logger is setup.
+	var initErrs []error
+
+	// Setup I2C.
+	err := machine.I2C0.Configure(machine.I2CConfig{
 		Frequency: 100e3, // 100 kHz
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Probe for platforms
+	// Probe hardware stack.
 	man.sys, err = hypnos.Probe(machine.I2C0)
 	if err != nil {
 		initErrs = append(initErrs, err)
 		man.sys = fallback.New()
 	}
 
-	// Parse config
+	// Parse config file.
 	man.config = DefaultConfig()
 	data, err := man.sys.ReadFile("config.txt")
 	if err != nil {
@@ -55,7 +53,7 @@ func NewManager() (*Manager, error) {
 		}
 	}
 
-	// Serial configuration
+	// Setup serial.
 	if man.config.SerialEnabled {
 		err = machine.Serial.Configure(machine.UARTConfig{
 			BaudRate: 115200,
@@ -65,18 +63,14 @@ func NewManager() (*Manager, error) {
 		}
 
 		if man.config.WaitForSerial {
-			attempt := 0
-			for !machine.Serial.DTR() {
-				attempt += 1
-				if attempt > maxWaitForSerialDTR {
-					break
-				}
-
-				time.Sleep(100 * time.Millisecond)
+			err = man.waitForSerial()
+			if err != nil {
+				initErrs = append(initErrs, err)
 			}
 		}
 	}
 
+	// Create logger with config values.
 	man.logger = log.NewLogger(man.config.LogLevel, man.config.SerialEnabled)
 	for _, err := range initErrs {
 		man.slog(log.LevelError, "init: "+err.Error())
@@ -170,4 +164,20 @@ func (man *Manager) logMem() {
 
 	man.slog(log.LevelDebug, "mem: heap_alloc="+formatBytes(m.HeapAlloc)+"kb"+
 		" heap_sys="+formatBytes(m.HeapSys)+"kb")
+}
+
+const waitForSerialInterval = 100 * time.Millisecond
+
+func (man *Manager) waitForSerial() error {
+	var waitDuration time.Duration
+	for !machine.Serial.DTR() {
+		if waitDuration > man.config.MaxWaitForSerial {
+			return errors.New("wait for serial timed out")
+		}
+		time.Sleep(waitForSerialInterval)
+		waitDuration += waitForSerialInterval
+	}
+
+	// Serial connection established.
+	return nil
 }

@@ -14,6 +14,7 @@ type Config struct {
 	HeartbeatInterval time.Duration
 	SerialEnabled     bool
 	WaitForSerial     bool
+	MaxWaitForSerial  time.Duration
 	LogLevel          log.Level
 	Sensors           []sensors.Device
 }
@@ -25,6 +26,7 @@ func DefaultConfig() Config {
 		HeartbeatInterval: 0, // disabled
 		SerialEnabled:     true,
 		WaitForSerial:     true,
+		MaxWaitForSerial:  5 * time.Minute,
 		LogLevel:          log.LevelDebug,
 	}
 }

@@ -12,3 +12,4 @@ build/
 
 # LLM
 AGENT/
+agent.sh
