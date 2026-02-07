@@ -82,6 +82,12 @@ func NewManager() (*Manager, error) {
 func (man *Manager) Run() {
 	for {
 		reason := man.sleep()
+		if man.config.WaitForSerial {
+			err := man.waitForSerial()
+			if err != nil {
+				man.slog(log.LevelError, err.Error())
+			}
+		}
 
 		if reason&hardware.WakeSample != 0 {
 			man.sample()
@@ -90,8 +96,11 @@ func (man *Manager) Run() {
 			man.heartbeat()
 		}
 
-		man.slog(log.LevelInfo, "platform: "+man.sys.Name())
+		man.slog(log.LevelDebug, "platform: "+man.sys.Name())
 		man.logMem()
+
+		// Force GC to collect per-cycle allocations.
+		runtime.GC()
 	}
 }
 
@@ -102,7 +111,7 @@ func (man *Manager) sleep() hardware.WakeReason {
 		sampleInterval = "disabled"
 	}
 	heartbeatInterval := man.config.HeartbeatInterval.String()
-	if man.config.SampleInterval == 0 {
+	if man.config.HeartbeatInterval == 0 {
 		heartbeatInterval = "disabled"
 	}
 	man.slog(log.LevelDebug, "sleep: sample="+sampleInterval+" heartbeat="+heartbeatInterval)
@@ -169,6 +178,13 @@ func (man *Manager) logMem() {
 const waitForSerialInterval = 100 * time.Millisecond
 
 func (man *Manager) waitForSerial() error {
+	// After standby wake, the USB CDC line state (DTR) carries
+	// a stale value from before sleep. Pause to let the host
+	// re-enumerate USB and the terminal reopen the port so that
+	// a fresh SET_CONTROL_LINE_STATE overwrites the stale DTR
+	// before waitForSerial checks it.
+	time.Sleep(time.Second)
+
 	var waitDuration time.Duration
 	for !machine.Serial.DTR() {
 		if waitDuration > man.config.MaxWaitForSerial {

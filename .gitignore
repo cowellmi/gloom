@@ -13,3 +13,7 @@ build/
 # LLM
 AGENT/
 agent.sh
+.cursorignore
+
+# Other
+*.log
