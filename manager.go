@@ -7,14 +7,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cowellmi/gloom/internal/hardware"
-	"github.com/cowellmi/gloom/internal/hardware/fallback"
-	"github.com/cowellmi/gloom/internal/hardware/hypnos"
+	"github.com/cowellmi/gloom/internal/hardware/platform"
+	"github.com/cowellmi/gloom/internal/hardware/platform/fallback"
+	"github.com/cowellmi/gloom/internal/hardware/platform/hypnos"
 	"github.com/cowellmi/gloom/internal/log"
 )
 
 type Manager struct {
-	sys      hardware.Platform
+	sys      platform.System
 	config   Config
 	logger   *log.Logger
 	wakeTime time.Time
@@ -53,7 +53,10 @@ func NewManager() (*Manager, error) {
 		}
 	}
 
-	// Setup serial.
+	if man.config.EnableMachineLED {
+		machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	}
+
 	if man.config.SerialEnabled {
 		err = machine.Serial.Configure(machine.UARTConfig{
 			BaudRate: 115200,
@@ -82,50 +85,71 @@ func NewManager() (*Manager, error) {
 func (man *Manager) Run() {
 	for {
 		reason := man.sleep()
-		if man.config.WaitForSerial {
-			err := man.waitForSerial()
-			if err != nil {
-				man.slog(log.LevelError, err.Error())
-			}
-		}
 
-		if reason&hardware.WakeSample != 0 {
+		if reason&platform.WakeSample != 0 {
 			man.sample()
 		}
-		if reason&hardware.WakeHeartbeat != 0 {
+		if reason&platform.WakeHeartbeat != 0 {
 			man.heartbeat()
 		}
 
-		man.slog(log.LevelDebug, "platform: "+man.sys.Name())
-		man.logMem()
+		if man.config.LogLevel == log.LevelDebug {
+			man.slog(log.LevelDebug, "platform: "+man.sys.Name())
+			man.logMem()
+		}
 
 		// Force GC to collect per-cycle allocations.
 		runtime.GC()
 	}
 }
 
-func (man *Manager) sleep() hardware.WakeReason {
-	// Log intervals
-	sampleInterval := man.config.SampleInterval.String()
-	if man.config.SampleInterval == 0 {
-		sampleInterval = "disabled"
+func (man *Manager) sleep() platform.WakeReason {
+	if man.config.LogLevel == log.LevelDebug {
+		// Log sleep intervals.
+		sampleInterval := man.config.SampleInterval.String()
+		if man.config.SampleInterval == 0 {
+			sampleInterval = "disabled"
+		}
+		heartbeatInterval := man.config.HeartbeatInterval.String()
+		if man.config.HeartbeatInterval == 0 {
+			heartbeatInterval = "disabled"
+		}
+		man.slog(log.LevelDebug, "sleep: sample="+sampleInterval+" heartbeat="+heartbeatInterval)
 	}
-	heartbeatInterval := man.config.HeartbeatInterval.String()
-	if man.config.HeartbeatInterval == 0 {
-		heartbeatInterval = "disabled"
+
+	if man.config.EnableMachineLED {
+		machine.LED.Low()
 	}
-	man.slog(log.LevelDebug, "sleep: sample="+sampleInterval+" heartbeat="+heartbeatInterval)
 
 	// Put system to sleep. Execution halts here until wake from sleep.
 	reason, err := man.sys.Sleep(man.config.SampleInterval, man.config.HeartbeatInterval)
 	if err != nil {
+		// We could handle any specific errors here but for now just log.
 		man.slog(log.LevelError, "sleep: "+err.Error())
 	}
 	// Resume execution after wake from sleep.
 
-	// Update wake up time.
+	if man.config.EnableMachineLED {
+		machine.LED.High()
+	}
+
+	// We check this here because this can be a long running
+	// process and we cache the wake time immediately after.
+	if man.config.WaitForSerial {
+		err := man.waitForSerial()
+		if err != nil {
+			man.slog(log.LevelError, err.Error())
+		}
+	}
+
+	// Update wake time. A good thing to note explicitly: doing
+	// this makes the timestamp for sensors reading less accurate
+	// since we are caching the time here instead of immediately
+	// before each sensor.Measure() execution. In practice it
+	// shouldn't be much of a difference.
 	t, err := man.sys.ReadTime()
 	if err != nil {
+		// Fallback to system clock.
 		t = time.Now()
 		man.logger.Log(t, log.LevelError, "rtc: "+err.Error())
 	}
@@ -170,7 +194,6 @@ func formatBytes(b uint64) string {
 func (man *Manager) logMem() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-
 	man.slog(log.LevelDebug, "mem: heap_alloc="+formatBytes(m.HeapAlloc)+"kb"+
 		" heap_sys="+formatBytes(m.HeapSys)+"kb")
 }

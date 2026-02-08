@@ -1,4 +1,4 @@
-package hardware
+package platform
 
 import "time"
 
@@ -9,7 +9,7 @@ const (
 	WakeHeartbeat WakeReason = 1 << 1
 )
 
-type Platform interface {
+type System interface {
 	Name() string
 	ReadFile(name string) ([]byte, error)
 	ReadTime() (time.Time, error)

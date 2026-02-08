@@ -1,7 +1,7 @@
 // A lot of this was ported via LLM from ArduinoLowPower library:
 // https://github.com/arduino-libraries/ArduinoLowPower/blob/master/src/samd/ArduinoLowPower.cpp
 
-package hardware
+package samd
 
 import (
 	"device/arm"

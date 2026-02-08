@@ -16,6 +16,7 @@ type Config struct {
 	WaitForSerial     bool
 	MaxWaitForSerial  time.Duration
 	LogLevel          log.Level
+	EnableMachineLED  bool
 	Sensors           []sensors.Device
 }
 
@@ -28,6 +29,7 @@ func DefaultConfig() Config {
 		WaitForSerial:     true,
 		MaxWaitForSerial:  5 * time.Minute,
 		LogLevel:          log.LevelDebug,
+		EnableMachineLED:  true,
 	}
 }
 
