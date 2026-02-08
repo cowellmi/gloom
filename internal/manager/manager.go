@@ -77,6 +77,11 @@ func (m *Manager) Run() {
 func (m *Manager) step() {
 	reason := m.doSleep()
 
+	// Simulate work and also give time to enter reset mode while
+	// USB is attached before entering standby mode.
+	m.log(log.LevelDebug, "doing work...")
+	time.Sleep(2 * time.Second)
+
 	if reason&hal.WakeSample != 0 {
 		m.doSample()
 	}
