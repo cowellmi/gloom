@@ -5,7 +5,6 @@ TEST_PKGS = \
 	./internal/config/ \
 	./internal/log/ \
 	./internal/manager/ \
-	./internal/hal/base/ \
 	./internal/sensor/... \
 	./internal/sink/...
 

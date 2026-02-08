@@ -325,3 +325,38 @@ func TestParse_MaxWaitForSerialInvalid(t *testing.T) {
 		t.Fatal("Parse() expected error for bad duration, got nil")
 	}
 }
+
+func TestParse_NegativeDurations(t *testing.T) {
+	tests := []struct {
+		key   string
+		input string
+	}{
+		{"sample_interval", "sample_interval = -5s"},
+		{"heartbeat_interval", "heartbeat_interval = -1m"},
+		{"max_wait_for_serial", "max_wait_for_serial = -10s"},
+	}
+
+	for _, tt := range tests {
+		cfg := Default()
+		err := Parse([]byte(tt.input), &cfg)
+		if err == nil {
+			t.Errorf("Parse(%q) expected error for negative duration, got nil", tt.key)
+			continue
+		}
+	}
+}
+
+func TestParse_ZeroDuration(t *testing.T) {
+	// Zero means "disabled" for all duration fields -- should be accepted.
+	keys := []string{
+		"sample_interval = 0s",
+		"heartbeat_interval = 0s",
+		"max_wait_for_serial = 0s",
+	}
+	for _, input := range keys {
+		cfg := Default()
+		if err := Parse([]byte(input), &cfg); err != nil {
+			t.Errorf("Parse(%q) unexpected error: %v", input, err)
+		}
+	}
+}

@@ -18,15 +18,16 @@ import (
 const sinkBufSize = 512
 
 type Manager struct {
-	sys           hal.Platform
-	cfg           config.Config
-	sensors       []sensor.Device
-	sinks         []sink.Sink
-	buf           [sinkBufSize]byte
-	wakeTime      time.Time
-	waitForSerial func() error
-	ledOn         func()
-	ledOff        func()
+	sys         hal.Platform
+	cfg         config.Config
+	sensors     []sensor.Device
+	sinks       []sink.Sink
+	buf         [sinkBufSize]byte
+	wakeTime    time.Time
+	serialReady func() bool
+	ledEnabled  bool
+	ledOn       func()
+	ledOff      func()
 }
 
 func New(sys hal.Platform, cfg config.Config, devices []sensor.Device) *Manager {
@@ -43,17 +44,23 @@ func (m *Manager) AddSink(s sink.Sink) {
 	m.sinks = append(m.sinks, s)
 }
 
-// OnLED sets callbacks invoked when the manager turns the LED off
+// EnableLED sets callbacks invoked when the manager turns the LED off
 // (before sleep) and on (after wake). Nil by default (LED ignored).
-func (m *Manager) OnLED(on, off func()) {
+func (m *Manager) EnableLED(on, off func()) {
+	if on == nil || off == nil {
+		return
+	}
+	m.ledEnabled = true
 	m.ledOn = on
 	m.ledOff = off
 }
 
-// OnWaitForSerial sets a callback invoked after each wake to wait
-// for a serial connection. Nil by default (skipped).
-func (m *Manager) OnWaitForSerial(fn func() error) {
-	m.waitForSerial = fn
+// OnSerialReady sets a polling function that returns true when a
+// serial connection is available (e.g. USB DTR is asserted). The
+// manager polls this after each wake, pulsing the LED while waiting.
+// Nil by default (skipped).
+func (m *Manager) OnSerialReady(fn func() bool) {
+	m.serialReady = fn
 }
 
 func (m *Manager) Run() {
@@ -74,7 +81,7 @@ func (m *Manager) step() {
 		m.doHeartbeat()
 	}
 
-	if m.cfg.LogLevel == log.LevelDebug {
+	if m.cfg.LogLevel <= log.LevelDebug {
 		m.log(log.LevelDebug, "platform: "+m.sys.Identifier())
 		m.logMem()
 	}
@@ -84,13 +91,13 @@ func (m *Manager) step() {
 }
 
 func (m *Manager) doSleep() hal.WakeReason {
-	if m.cfg.LogLevel == log.LevelDebug {
+	if m.cfg.LogLevel <= log.LevelDebug {
 		sampleInterval := m.cfg.SampleInterval.String()
-		if m.cfg.SampleInterval == 0 {
+		if m.cfg.SampleInterval <= 0 {
 			sampleInterval = "disabled"
 		}
 		heartbeatInterval := m.cfg.HeartbeatInterval.String()
-		if m.cfg.HeartbeatInterval == 0 {
+		if m.cfg.HeartbeatInterval <= 0 {
 			heartbeatInterval = "disabled"
 		}
 		m.log(log.LevelDebug, "sleep: sample="+sampleInterval+" heartbeat="+heartbeatInterval)
@@ -99,29 +106,24 @@ func (m *Manager) doSleep() hal.WakeReason {
 	// Flush all sinks before powering down peripherals and sleeping.
 	m.flushSinks()
 
-	if m.ledOff != nil {
+	if m.ledEnabled {
 		m.ledOff()
 	}
 
 	// Put system to sleep. Execution halts here until wake from sleep.
 	reason, err := m.sys.Sleep(m.cfg.SampleInterval, m.cfg.HeartbeatInterval)
 	if err != nil {
-		// We could handle any specific errors here but for now just log.
 		m.log(log.LevelError, "sleep: "+err.Error())
 	}
 	// Resume execution after wake from sleep.
 
-	if m.ledOn != nil {
-		m.ledOn()
+	// Wait for serial connection, pulsing LED to signal "waiting."
+	if m.serialReady != nil {
+		m.waitForSerial()
 	}
 
-	// We check this here because this can be a long running
-	// process and we cache the wake time immediately after.
-	if m.waitForSerial != nil {
-		err := m.waitForSerial()
-		if err != nil {
-			m.log(log.LevelError, err.Error())
-		}
+	if m.ledEnabled {
+		m.ledOn()
 	}
 
 	// Update wake time. A good thing to note explicitly: doing
@@ -140,6 +142,42 @@ func (m *Manager) doSleep() hal.WakeReason {
 	}
 
 	return reason
+}
+
+const (
+	// LED pulse timing during serial wait.
+	serialPollInterval = 100 * time.Millisecond
+	ledPulseOn         = 100 * time.Millisecond
+	ledPulseOff        = 400 * time.Millisecond
+)
+
+// serialSettleDelay is the pause after standby wake to let the host
+// re-enumerate USB before polling DTR.
+var serialSettleDelay = time.Second
+
+// waitForSerial polls serialReady, pulsing the LED while waiting.
+// Times out after cfg.MaxWaitForSerial.
+func (m *Manager) waitForSerial() {
+	time.Sleep(serialSettleDelay)
+
+	var waited time.Duration
+	for !m.serialReady() {
+		if m.cfg.MaxWaitForSerial > 0 && waited >= m.cfg.MaxWaitForSerial {
+			m.log(log.LevelWarn, "wait for serial timed out")
+			return
+		}
+		// Pulse LED: short on, longer off.
+		if m.ledEnabled {
+			m.ledOn()
+			time.Sleep(ledPulseOn)
+			m.ledOff()
+			time.Sleep(ledPulseOff)
+			waited += ledPulseOn + ledPulseOff
+		} else {
+			time.Sleep(serialPollInterval)
+			waited += serialPollInterval
+		}
+	}
 }
 
 func (m *Manager) doSample() {
@@ -162,6 +200,17 @@ func (m *Manager) doSample() {
 }
 
 func (m *Manager) doHeartbeat() {
+	// Double-pulse like a heartbeat: thump-thump.
+	if m.ledEnabled {
+		m.ledOn()
+		time.Sleep(100 * time.Millisecond)
+		m.ledOff()
+		time.Sleep(100 * time.Millisecond)
+		m.ledOn()
+		time.Sleep(100 * time.Millisecond)
+		m.ledOff()
+	}
+
 	m.log(log.LevelDebug, "heartbeat")
 	// TODO: transmit keep-alive message
 }
@@ -179,6 +228,18 @@ func (m *Manager) log(level log.Level, msg string) {
 	}
 }
 
+func (m *Manager) logMem() {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	b := m.buf[:0]
+	b = append(b, "mem: heap_alloc="...)
+	b = strconv.AppendUint(b, ms.HeapAlloc/1024, 10)
+	b = append(b, "kb heap_sys="...)
+	b = strconv.AppendUint(b, ms.HeapSys/1024, 10)
+	b = append(b, "kb"...)
+	m.log(log.LevelDebug, string(b))
+}
+
 // writeMeasurements fans out a measurement batch to all registered sinks.
 func (m *Manager) writeMeasurements(device string, ms []sensor.Measurement) {
 	for _, s := range m.sinks {
@@ -193,16 +254,4 @@ func (m *Manager) flushSinks() {
 	for _, s := range m.sinks {
 		s.Flush()
 	}
-}
-
-func formatBytes(b uint64) string {
-	whole := b / 1024
-	return strconv.FormatUint(whole, 10)
-}
-
-func (m *Manager) logMem() {
-	var ms runtime.MemStats
-	runtime.ReadMemStats(&ms)
-	m.log(log.LevelDebug, "mem: heap_alloc="+formatBytes(ms.HeapAlloc)+"kb"+
-		" heap_sys="+formatBytes(ms.HeapSys)+"kb")
 }

@@ -1,4 +1,4 @@
-// Package samd21 implements mcu.MCU for the Microchip SAMD21 (Cortex-M0+).
+// Package samd21 implements mcu.MCU for the Microchip SAMD21 Cortex M0.
 //
 // Much of this was ported from the ArduinoLowPower library:
 // https://github.com/arduino-libraries/ArduinoLowPower/blob/master/src/samd/ArduinoLowPower.cpp
@@ -11,6 +11,8 @@ import (
 	"machine"
 )
 
+const Name = "ATSAMD21 Cortex M0"
+
 // MCU holds SAMD21-specific state for deep-sleep management.
 type MCU struct {
 	standbyConfigured bool
@@ -20,6 +22,8 @@ type MCU struct {
 func New() *MCU {
 	return &MCU{}
 }
+
+func (m *MCU) Identifier() string { return Name }
 
 // EnableWake sets the EIC.WAKEUP bit for pin so that its external
 // interrupt can wake the SAMD21 from standby sleep.

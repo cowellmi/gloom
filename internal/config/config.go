@@ -56,7 +56,7 @@ func Parse(data []byte, cfg *Config) error {
 
 		switch key {
 		case "sample_interval":
-			d, err := time.ParseDuration(value)
+			d, err := parseDuration(key, value)
 			if err != nil {
 				errs = append(errs, err)
 			} else {
@@ -64,7 +64,7 @@ func Parse(data []byte, cfg *Config) error {
 			}
 
 		case "heartbeat_interval":
-			d, err := time.ParseDuration(value)
+			d, err := parseDuration(key, value)
 			if err != nil {
 				errs = append(errs, err)
 			} else {
@@ -72,7 +72,7 @@ func Parse(data []byte, cfg *Config) error {
 			}
 
 		case "max_wait_for_serial":
-			d, err := time.ParseDuration(value)
+			d, err := parseDuration(key, value)
 			if err != nil {
 				errs = append(errs, err)
 			} else {
@@ -121,3 +121,17 @@ func Parse(data []byte, cfg *Config) error {
 
 	return errors.Join(errs...)
 }
+
+// parseDuration parses a duration string and rejects negative values.
+// Zero is permitted for fields where it means "disabled."
+func parseDuration(key, value string) (time.Duration, error) {
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, err
+	}
+	if d < 0 {
+		return 0, errors.New(key + ": negative duration not allowed: " + value)
+	}
+	return d, nil
+}
+

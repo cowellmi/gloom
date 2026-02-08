@@ -5,6 +5,8 @@ import "machine"
 // MCU abstracts the processor-level operations needed for low-power
 // sleep. Implementations are chip-specific (e.g. SAMD21, nRF52).
 type MCU interface {
+	Identifier() string
+
 	// EnableWake arms pin as a wake source for the next deep sleep.
 	EnableWake(pin machine.Pin)
 

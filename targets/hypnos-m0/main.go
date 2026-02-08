@@ -5,12 +5,11 @@ import (
 	"machine"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/hal/base"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/mcu/samd21"
-	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sink/file"
 	"github.com/cowellmi/gloom/internal/sink/serial"
@@ -37,7 +36,7 @@ func main() {
 	board, err := hypnos.Probe(machine.I2C0, proc)
 	if err != nil {
 		initErrs = append(initErrs, err)
-		sys = base.New()
+		sys = &hal.Fallback{}
 	} else {
 		sys = board
 	}
@@ -75,12 +74,16 @@ func main() {
 		}
 	}
 
-	// Build serial-wait callback.
-	var waitFn func() error
+	// Initial wait for serial before sinks are ready.
 	if cfg.WaitForSerial {
-		waitFn = waitForSerial(cfg.MaxWaitForSerial)
-		if err := waitFn(); err != nil {
-			initErrs = append(initErrs, err)
+		time.Sleep(time.Second) // let host re-enumerate USB
+		deadline := time.Now().Add(cfg.MaxWaitForSerial)
+		for !machine.Serial.DTR() {
+			if cfg.MaxWaitForSerial > 0 && time.Now().After(deadline) {
+				initErrs = append(initErrs, errors.New("wait for serial timed out"))
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
@@ -91,8 +94,10 @@ func main() {
 
 	// Create manager (all runtime output goes through sinks).
 	man := manager.New(sys, cfg, devices)
-	man.OnLED(ledOn, ledOff)
-	man.OnWaitForSerial(waitFn)
+	man.EnableLED(ledOn, ledOff)
+	if cfg.WaitForSerial {
+		man.OnSerialReady(machine.Serial.DTR)
+	}
 
 	// Register sinks.
 	if cfg.SerialEnabled {
@@ -116,25 +121,3 @@ func main() {
 	man.Run()
 }
 
-const waitForSerialInterval = 100 * time.Millisecond
-
-func waitForSerial(maxWait time.Duration) func() error {
-	return func() error {
-		// After standby wake, the USB CDC line state (DTR) carries
-		// a stale value from before sleep. Pause to let the host
-		// re-enumerate USB and the terminal reopen the port so that
-		// a fresh SET_CONTROL_LINE_STATE overwrites the stale DTR
-		// before we check it.
-		time.Sleep(time.Second)
-
-		var waited time.Duration
-		for !machine.Serial.DTR() {
-			if waited > maxWait {
-				return errors.New("wait for serial timed out")
-			}
-			time.Sleep(waitForSerialInterval)
-			waited += waitForSerialInterval
-		}
-		return nil
-	}
-}

@@ -86,6 +86,11 @@ func (m *mockSensor) Measure() ([]sensor.Measurement, error) {
 	return m.measurements, m.measureErr
 }
 
+func init() {
+	// Disable the USB settle delay in tests.
+	serialSettleDelay = 0
+}
+
 // --- helpers ---
 
 func fixedTime() (time.Time, error) {
@@ -231,7 +236,7 @@ func TestStep_LEDCallbacks(t *testing.T) {
 	}
 
 	man, _ := newTestManager(sys, nil)
-	man.OnLED(func() { ledOnCalled = true }, func() { ledOffCalled = true })
+	man.EnableLED(func() { ledOnCalled = true }, func() { ledOffCalled = true })
 	man.step()
 
 	if !ledOffCalled {
@@ -243,7 +248,7 @@ func TestStep_LEDCallbacks(t *testing.T) {
 }
 
 func TestStep_WaitForSerial(t *testing.T) {
-	var waitCalled bool
+	pollCount := 0
 
 	sys := &mockSystem{
 		name:    "mock",
@@ -252,18 +257,18 @@ func TestStep_WaitForSerial(t *testing.T) {
 	}
 
 	man, _ := newTestManager(sys, nil)
-	man.OnWaitForSerial(func() error {
-		waitCalled = true
-		return nil
+	man.OnSerialReady(func() bool {
+		pollCount++
+		return pollCount >= 3 // ready on third poll
 	})
 	man.step()
 
-	if !waitCalled {
-		t.Error("WaitForSerial callback was not called")
+	if pollCount < 3 {
+		t.Errorf("serialReady polled %d times, want >= 3", pollCount)
 	}
 }
 
-func TestStep_WaitForSerialError(t *testing.T) {
+func TestStep_WaitForSerialTimeout(t *testing.T) {
 	sys := &mockSystem{
 		name:    "mock",
 		sleepFn: sampleWake,
@@ -271,13 +276,12 @@ func TestStep_WaitForSerialError(t *testing.T) {
 	}
 
 	man, ms := newTestManager(sys, nil)
-	man.OnWaitForSerial(func() error {
-		return errors.New("serial timeout")
-	})
+	man.cfg.MaxWaitForSerial = 1 * time.Millisecond
+	man.OnSerialReady(func() bool { return false }) // never ready
 	man.step()
 
-	if !ms.hasLog("serial timeout") {
-		t.Errorf("expected serial timeout error in sink logs, got: %v", ms.logEntries)
+	if !ms.hasLog("wait for serial timed out") {
+		t.Errorf("expected timeout warning in sink logs, got: %v", ms.logEntries)
 	}
 }
 
