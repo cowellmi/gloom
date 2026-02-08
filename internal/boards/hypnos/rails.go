@@ -1,8 +1,6 @@
 package hypnos
 
-import (
-	"machine"
-)
+import "machine"
 
 const (
 	Rail3V = machine.D5
@@ -17,9 +15,6 @@ func configureRails() {
 func powerOn() {
 	Rail3V.Low() // Hypnos 3.3V rail is active-low
 	Rail5V.High()
-
-	// Using waitForRTC instead.
-	//time.Sleep(time.Second) // Give time for rails to turn on
 }
 
 func powerOff() {

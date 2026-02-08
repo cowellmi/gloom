@@ -4,7 +4,7 @@ import (
 	"math/rand/v2"
 	"strconv"
 
-	"github.com/cowellmi/gloom/internal/sensors"
+	"github.com/cowellmi/gloom/internal/sensor"
 )
 
 type Device struct{}
@@ -21,13 +21,13 @@ func (*Device) Name() string {
 	return "fake"
 }
 
-func (*Device) Measure() ([]sensors.Measurement, error) {
+func (*Device) Measure() ([]sensor.Measurement, error) {
 	n := rand.Int()
-	m := sensors.Measurement{
+	m := sensor.Measurement{
 		Label: "foo",
 		Value: strconv.Itoa(n),
 		Unit:  "bars",
 	}
 
-	return []sensors.Measurement{m}, nil
+	return []sensor.Measurement{m}, nil
 }

@@ -1,40 +1,21 @@
-TARGET = feather-m0
-BIN = main.bin
+GO ?= go
 
-# User must provide BOSSAC (path to bossac), e.g.
-# make flash BOSSAC=/path/to/bossac
-BOSSAC ?=
+# Pure-Go packages testable with standard go toolchain.
+TEST_PKGS = \
+	./internal/config/ \
+	./internal/log/ \
+	./internal/manager/ \
+	./internal/hal/base/ \
+	./internal/sensor/... \
+	./internal/sink/...
 
-PORT ?= $(shell ls \
-	/dev/cu.usbmodem* \
-	/dev/cu.usbserial* \
-	/dev/tty.usbmodem* \
-	/dev/tty.usbserial* \
-	/dev/ttyACM* \
-	/dev/ttyUSB* \
-	2>/dev/null | head -n 1)
+.PHONY: test vet clean
 
-.PHONY: build flash clean monitor
+test:
+	$(GO) test $(TEST_PKGS)
 
-build:
-	tinygo build -size=short -target=$(TARGET) -o=$(BIN) .
-
-flash: build
-	@set -e; \
-	if [ -z "$(BOSSAC)" ]; then \
-		echo "BOSSAC is not set. Example:"; \
-		echo "  make flash BOSSAC=/absolute/path/to/bossac"; \
-		exit 1; \
-	fi; \
-	if [ -z "$(PORT)" ]; then \
-		echo "No board found. Plug it in (or double-tap reset) and try again."; \
-		exit 1; \
-	fi; \
-	echo "Flashing on $(PORT)..."; \
-	"$(BOSSAC)" -p "$(PORT)" -e -w -v "$(BIN)" -R
+vet:
+	$(GO) vet $(TEST_PKGS)
 
 clean:
-	rm -f $(BIN)
-
-monitor:
-	tio -L --log-file tio.log /dev/tty.usbmodem*
+	$(MAKE) -C targets/hypnos-m0 clean

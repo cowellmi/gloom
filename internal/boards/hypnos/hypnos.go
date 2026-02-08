@@ -5,8 +5,8 @@ import (
 	"machine"
 	"time"
 
-	"github.com/cowellmi/gloom/internal/hardware/platform"
-	"github.com/cowellmi/gloom/internal/hardware/samd"
+	"github.com/cowellmi/gloom/internal/hal"
+	"github.com/cowellmi/gloom/internal/mcu"
 	"tinygo.org/x/drivers"
 	"tinygo.org/x/drivers/ds3231"
 )
@@ -25,14 +25,14 @@ const (
 )
 
 type Board struct {
-	rtc           *ds3231.Device
-	version       string
-	eicConfigured bool
-	ledEnabled    bool
+	proc    mcu.MCU
+	rtc     *ds3231.Device
+	version string
 }
 
-// Probe I2C for Hypnos components. The I2C bus must already be configured.
-func Probe(bus drivers.I2C) (*Board, error) {
+// Probe I2C for Hypnos components. The I2C bus must already be
+// configured. proc provides the processor-level sleep primitives.
+func Probe(bus drivers.I2C, proc mcu.MCU) (*Board, error) {
 	configureRails()
 	powerOn()
 
@@ -42,40 +42,30 @@ func Probe(bus drivers.I2C) (*Board, error) {
 	}
 
 	// TODO: detect board version during probe.
-	return &Board{rtc: rtc, version: "3.3"}, nil
+	return &Board{proc: proc, rtc: rtc, version: "3.3"}, nil
 }
 
-func (b *Board) EnableLED() {
-	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	b.ledEnabled = true
+func (b *Board) Identifier() string { return Name + " " + b.version }
+
+func (b *Board) ReadTime() (time.Time, error) {
+	return b.rtc.ReadTime()
 }
 
-func (h *Board) Name() string { return Name + " " + h.version }
-
-func (h *Board) ReadFile(name string) ([]byte, error) {
-	// TODO: read file from SD card
-	return nil, errors.New("hypnos: sd card not yet implemented")
-}
-
-func (h *Board) ReadTime() (time.Time, error) {
-	return h.rtc.ReadTime()
-}
-
-func (h *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (platform.WakeReason, error) {
-	reason, err := h.sleepStandby(sampleInterval, heartbeatInterval)
+func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.WakeReason, error) {
+	reason, err := b.sleepStandby(sampleInterval, heartbeatInterval)
 	if err != nil {
-		clearAlarmInterrupt()
-		reason = h.sleepIdle(sampleInterval)
+		b.clearAlarmInterrupt()
+		reason = b.sleepIdle(sampleInterval)
 		err = errors.New("hypnos: standby failed: " + err.Error())
 	}
 
-	if reason&platform.WakeSample != 0 {
+	if reason&hal.WakeSample != 0 {
 		// Need to power on rails to give sensors power.
 		// This isn't necessary for WakeHeartbeat reason
 		// because we will just send a keep alive message
 		// using network card.
 		powerOn()
-		if rtcErr := waitForRTC(h.rtc); rtcErr != nil {
+		if rtcErr := waitForRTC(b.rtc); rtcErr != nil {
 			return reason, errors.Join(err, rtcErr)
 		}
 	}
@@ -83,32 +73,27 @@ func (h *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (platform
 	return reason, err
 }
 
-func (h *Board) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (platform.WakeReason, error) {
+func (b *Board) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (hal.WakeReason, error) {
 	AlarmPin.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
 
 	// Register interrupt. The first call also initializes the EIC
 	// peripheral and its default GCLK0 clock routing in TinyGo.
-	err := AlarmPin.SetInterrupt(machine.PinFalling, alarmISR)
+	err := AlarmPin.SetInterrupt(machine.PinFalling, b.alarmISR)
 	if err != nil {
 		return 0, err
 	}
 
 	// Switch GCLK_EIC to OSCULP32K so edge detection works in standby.
-	// Only needed once; the GCLK6 routing persists across sleep/wake
-	// cycles and is not touched by EnterStandby or subsequent
-	// SetInterrupt calls (TinyGo only inits EIC once).
-	if !h.eicConfigured {
-		samd.ConfigureEICStandby()
-		h.eicConfigured = true
-	}
+	// Only needed once; the routing persists across sleep/wake cycles.
+	b.proc.PrepareStandby()
 
-	samd.EnableWakeOnInterrupt(AlarmPin)
+	b.proc.EnableWake(AlarmPin)
 
 	// Clear any pending alarms.
-	if err := h.rtc.ClearAlarm1(); err != nil {
+	if err := b.rtc.ClearAlarm1(); err != nil {
 		return 0, err
 	}
-	if err := h.rtc.ClearAlarm2(); err != nil {
+	if err := b.rtc.ClearAlarm2(); err != nil {
 		return 0, err
 	}
 
@@ -118,33 +103,32 @@ func (h *Board) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (p
 	// for the time.Sleep delay for turning the rails back on.
 	// For example, currently a 5 second interval is more like
 	// 7 seconds due to delays.
-	now, err := h.rtc.ReadTime()
+	now, err := b.rtc.ReadTime()
 	if err != nil {
 		return 0, err
 	}
 
 	target := now.Add(sampleInterval)
-	if err := h.rtc.SetAlarm1(target, ds3231.A1_DATE); err != nil {
+	if err := b.rtc.SetAlarm1(target, ds3231.A1_DATE); err != nil {
 		return 0, err
 	}
 
 	// Kill power to the MOSFET rails.
 	powerOff()
 
-	// Enter SAMD21 standby sleep. This detaches USB, disables SysTick,
-	// issues WFI, and restores USB + SysTick on wake.
-	samd.EnterStandby() // System hangs here until interrupt.
+	// Enter deep sleep. Execution halts here until interrupt.
+	b.proc.Standby()
 
 	// TODO: check which alarm triggered wakeup and change reason
-	reason := platform.WakeSample
+	reason := hal.WakeSample
 
 	return reason, nil
 }
 
-func (h *Board) sleepIdle(sample time.Duration) platform.WakeReason {
+func (b *Board) sleepIdle(sample time.Duration) hal.WakeReason {
 	powerOff()
 	time.Sleep(sample)
-	return platform.WakeSample
+	return hal.WakeSample
 }
 
 func configureRTC(bus drivers.I2C) (*ds3231.Device, error) {
@@ -155,7 +139,7 @@ func configureRTC(bus drivers.I2C) (*ds3231.Device, error) {
 		return nil, err
 	}
 
-	// It way take a few trys to establish I2C connection after powering on.
+	// It may take a few tries to establish I2C connection after powering on.
 	err := waitForRTC(&rtc)
 	if err != nil {
 		return nil, err
@@ -186,4 +170,15 @@ func waitForRTC(rtc *ds3231.Device) error {
 	}
 
 	return errors.New("hypnos: rtc communication timed out")
+}
+
+// clearAlarmInterrupt tears down the RTC alarm interrupt registration.
+// Safe to call whether or not an interrupt is currently registered.
+func (h *Board) clearAlarmInterrupt() {
+	_ = AlarmPin.SetInterrupt(0, nil)
+	h.proc.DisableWake(AlarmPin)
+}
+
+func (h *Board) alarmISR(p machine.Pin) {
+	h.clearAlarmInterrupt()
 }

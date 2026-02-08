@@ -1,0 +1,327 @@
+package config
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cowellmi/gloom/internal/log"
+)
+
+func TestDefault(t *testing.T) {
+	cfg := Default()
+
+	if cfg.SampleInterval != 5*time.Second {
+		t.Errorf("SampleInterval = %v, want 5s", cfg.SampleInterval)
+	}
+	if cfg.HeartbeatInterval != 0 {
+		t.Errorf("HeartbeatInterval = %v, want 0 (disabled)", cfg.HeartbeatInterval)
+	}
+	if !cfg.SerialEnabled {
+		t.Error("SerialEnabled = false, want true")
+	}
+	if !cfg.WaitForSerial {
+		t.Error("WaitForSerial = false, want true")
+	}
+	if cfg.MaxWaitForSerial != 5*time.Minute {
+		t.Errorf("MaxWaitForSerial = %v, want 5m", cfg.MaxWaitForSerial)
+	}
+	if cfg.LogLevel != log.LevelDebug {
+		t.Errorf("LogLevel = %v, want LevelDebug", cfg.LogLevel)
+	}
+	if !cfg.EnableMachineLED {
+		t.Error("EnableMachineLED = false, want true")
+	}
+	if len(cfg.Sensors) != 0 {
+		t.Errorf("Sensors = %v, want empty", cfg.Sensors)
+	}
+}
+
+func TestParse_ValidConfig(t *testing.T) {
+	input := []byte(`
+sample_interval = 10s
+heartbeat_interval = 1m
+serial = false
+wait_for_serial = false
+log_level = info
+sensors = temp, humidity, pressure
+`)
+
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	if cfg.SampleInterval != 10*time.Second {
+		t.Errorf("SampleInterval = %v, want 10s", cfg.SampleInterval)
+	}
+	if cfg.HeartbeatInterval != time.Minute {
+		t.Errorf("HeartbeatInterval = %v, want 1m", cfg.HeartbeatInterval)
+	}
+	if cfg.SerialEnabled {
+		t.Error("SerialEnabled = true, want false")
+	}
+	if cfg.WaitForSerial {
+		t.Error("WaitForSerial = true, want false")
+	}
+	if cfg.LogLevel != log.LevelInfo {
+		t.Errorf("LogLevel = %v, want LevelInfo", cfg.LogLevel)
+	}
+
+	want := []string{"temp", "humidity", "pressure"}
+	if len(cfg.Sensors) != len(want) {
+		t.Fatalf("Sensors = %v, want %v", cfg.Sensors, want)
+	}
+	for i, s := range cfg.Sensors {
+		if s != want[i] {
+			t.Errorf("Sensors[%d] = %q, want %q", i, s, want[i])
+		}
+	}
+}
+
+func TestParse_CommentsAndBlanks(t *testing.T) {
+	input := []byte(`
+# This is a comment
+sample_interval = 3s
+
+# Another comment
+
+serial = false
+`)
+
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	if cfg.SampleInterval != 3*time.Second {
+		t.Errorf("SampleInterval = %v, want 3s", cfg.SampleInterval)
+	}
+	if cfg.SerialEnabled {
+		t.Error("SerialEnabled = true, want false")
+	}
+}
+
+func TestParse_EmptyInput(t *testing.T) {
+	cfg := Default()
+	if err := Parse([]byte(""), &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	// All defaults should be preserved.
+	def := Default()
+	if cfg.SampleInterval != def.SampleInterval {
+		t.Errorf("SampleInterval changed from default")
+	}
+}
+
+func TestParse_InvalidDuration(t *testing.T) {
+	input := []byte("sample_interval = not_a_duration")
+
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("Parse() expected error for invalid duration, got nil")
+	}
+}
+
+func TestParse_LogLevels(t *testing.T) {
+	tests := []struct {
+		value string
+		want  log.Level
+	}{
+		{"debug", log.LevelDebug},
+		{"info", log.LevelInfo},
+		{"warn", log.LevelWarn},
+		{"error", log.LevelError},
+	}
+
+	for _, tt := range tests {
+		cfg := Default()
+		input := []byte("log_level = " + tt.value)
+		if err := Parse(input, &cfg); err != nil {
+			t.Fatalf("Parse(%q) error: %v", tt.value, err)
+		}
+		if cfg.LogLevel != tt.want {
+			t.Errorf("log_level=%q: LogLevel = %v, want %v", tt.value, cfg.LogLevel, tt.want)
+		}
+	}
+}
+
+func TestParse_SensorsWhitespace(t *testing.T) {
+	input := []byte("sensors =  a ,  b  , c ")
+
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	want := []string{"a", "b", "c"}
+	if len(cfg.Sensors) != len(want) {
+		t.Fatalf("Sensors = %v, want %v", cfg.Sensors, want)
+	}
+	for i, s := range cfg.Sensors {
+		if s != want[i] {
+			t.Errorf("Sensors[%d] = %q, want %q", i, s, want[i])
+		}
+	}
+}
+
+func TestParse_SensorsEmpty(t *testing.T) {
+	input := []byte("sensors = ")
+
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	if len(cfg.Sensors) != 0 {
+		t.Errorf("Sensors = %v, want empty", cfg.Sensors)
+	}
+}
+
+func TestParse_PartialOverride(t *testing.T) {
+	input := []byte("sample_interval = 30s")
+
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	if cfg.SampleInterval != 30*time.Second {
+		t.Errorf("SampleInterval = %v, want 30s", cfg.SampleInterval)
+	}
+	// Other fields should keep defaults.
+	if !cfg.SerialEnabled {
+		t.Error("SerialEnabled changed from default")
+	}
+	if cfg.LogLevel != log.LevelDebug {
+		t.Error("LogLevel changed from default")
+	}
+}
+
+func TestParse_LineWithoutEquals(t *testing.T) {
+	input := []byte("no_equals_here")
+
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	// Should be silently ignored, defaults preserved.
+	def := Default()
+	if cfg.SampleInterval != def.SampleInterval {
+		t.Errorf("SampleInterval changed from default")
+	}
+}
+
+func TestParse_MultipleErrors(t *testing.T) {
+	input := []byte("sample_interval = bad\nheartbeat_interval = also_bad\n")
+
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("Parse() expected errors, got nil")
+	}
+
+	// errors.Join separates with newlines; both errors must be present.
+	msg := err.Error()
+	if !strings.Contains(msg, "bad") {
+		t.Errorf("error should mention first bad value, got: %s", msg)
+	}
+	if !strings.Contains(msg, "also_bad") {
+		t.Errorf("error should mention second bad value, got: %s", msg)
+	}
+}
+
+func TestParse_UnknownKey(t *testing.T) {
+	input := []byte("sampl_interval = 10s\n")
+
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("Parse() expected error for unknown key, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown config key: sampl_interval") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestParse_InvalidLogLevel(t *testing.T) {
+	input := []byte("log_level = verbose\n")
+
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("Parse() expected error for invalid log_level, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown log_level: verbose") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestParse_SensorsResetOnReparse(t *testing.T) {
+	cfg := Default()
+
+	first := []byte("sensors = a, b")
+	if err := Parse(first, &cfg); err != nil {
+		t.Fatalf("first Parse() error: %v", err)
+	}
+	if len(cfg.Sensors) != 2 {
+		t.Fatalf("after first parse: Sensors = %v, want [a b]", cfg.Sensors)
+	}
+
+	second := []byte("sensors = x")
+	if err := Parse(second, &cfg); err != nil {
+		t.Fatalf("second Parse() error: %v", err)
+	}
+
+	want := []string{"x"}
+	if len(cfg.Sensors) != len(want) {
+		t.Fatalf("after second parse: Sensors = %v, want %v", cfg.Sensors, want)
+	}
+	if cfg.Sensors[0] != "x" {
+		t.Errorf("Sensors[0] = %q, want %q", cfg.Sensors[0], "x")
+	}
+}
+
+func TestParse_EnableLED(t *testing.T) {
+	input := []byte("enable_led = false")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if cfg.EnableMachineLED {
+		t.Error("EnableMachineLED = true, want false")
+	}
+
+	input = []byte("enable_led = true")
+	cfg = Default()
+	cfg.EnableMachineLED = false // start with false
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if !cfg.EnableMachineLED {
+		t.Error("EnableMachineLED = false, want true")
+	}
+}
+
+func TestParse_MaxWaitForSerial(t *testing.T) {
+	input := []byte("max_wait_for_serial = 30s")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if cfg.MaxWaitForSerial != 30*time.Second {
+		t.Errorf("MaxWaitForSerial = %v, want 30s", cfg.MaxWaitForSerial)
+	}
+}
+
+func TestParse_MaxWaitForSerialInvalid(t *testing.T) {
+	input := []byte("max_wait_for_serial = nope")
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("Parse() expected error for bad duration, got nil")
+	}
+}
