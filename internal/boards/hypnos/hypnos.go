@@ -2,6 +2,7 @@ package hypnos
 
 import (
 	"errors"
+	"io"
 	"machine"
 	"time"
 
@@ -25,9 +26,31 @@ const (
 )
 
 type Board struct {
+	SD      *SDCard // nil if SD card init failed
 	proc    mcu.MCU
 	rtc     *ds3231.Device
 	version string
+}
+
+// SDCard provides file-like access to the Hypnos SD card reader.
+// The caller opens writers for data and logs, and calls Sync to
+// flush buffered writes to the FAT before power-down.
+type SDCard struct {
+	// TODO: FAT filesystem handle, SPI bus reference
+}
+
+// OpenWriter opens a file on the SD card for append-only writing.
+// TODO: implement using TinyFS or a minimal FAT driver.
+func (sd *SDCard) OpenWriter(name string) (io.Writer, error) {
+	_ = name
+	return nil, errors.New("hypnos: sd not yet implemented")
+}
+
+// Sync flushes all buffered writes to the FAT.
+// Must be called before powering down the SD rail.
+// TODO: implement FAT sync.
+func (sd *SDCard) Sync() error {
+	return nil // TODO
 }
 
 // Probe I2C for Hypnos components. The I2C bus must already be
@@ -42,7 +65,12 @@ func Probe(bus drivers.I2C, proc mcu.MCU) (*Board, error) {
 	}
 
 	// TODO: detect board version during probe.
-	return &Board{proc: proc, rtc: rtc, version: "3.3"}, nil
+	b := &Board{proc: proc, rtc: rtc, version: "3.3"}
+
+	// SD card init is non-fatal: RTC and sleep still work without it.
+	// TODO: init SPI, mount FAT, assign b.SD = &SDCard{...}
+
+	return b, nil
 }
 
 func (b *Board) Identifier() string { return Name + " " + b.version }

@@ -12,7 +12,8 @@ import (
 	"github.com/cowellmi/gloom/internal/mcu/samd21"
 	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/sensor"
-	sinkserial "github.com/cowellmi/gloom/internal/sink/serial"
+	"github.com/cowellmi/gloom/internal/sink/file"
+	"github.com/cowellmi/gloom/internal/sink/serial"
 )
 
 func main() {
@@ -42,12 +43,8 @@ func main() {
 	}
 
 	// Parse config file (requires storage -- only available on Hypnos).
+	// TODO: read config from SD card via board.SD once implemented.
 	cfg := config.Default()
-	if board != nil {
-		// TODO: read config from SD card via board once Storage is implemented.
-		// data, err := board.ReadConfig("config.txt")
-		_ = board
-	}
 
 	// Resolve sensor IDs from config to actual devices.
 	var devices []sensor.Device
@@ -99,17 +96,22 @@ func main() {
 
 	// Register sinks.
 	if cfg.SerialEnabled {
-		man.AddSink(sinkserial.New(machine.Serial))
+		man.AddSink(serial.New(machine.Serial))
 	}
-	// TODO: if board probed successfully, create and register an SD sink:
-	//   if board != nil {
-	//       sdSink, err := sd.New(board, "/data")
-	//       if err != nil {
-	//           println("init:", err.Error())
-	//       } else {
-	//           man.AddSink(sdSink)
-	//       }
-	//   }
+	// Register SD file sink if the board has an SD card.
+	if board != nil && board.SD != nil {
+		dataW, err := board.SD.OpenWriter("data.csv")
+		if err != nil {
+			println("init: sd data:", err.Error())
+		}
+		logW, err := board.SD.OpenWriter("log.txt")
+		if err != nil {
+			println("init: sd log:", err.Error())
+		}
+		if dataW != nil || logW != nil {
+			man.AddSink(file.New("sd", dataW, logW, board.SD.Sync))
+		}
+	}
 
 	man.Run()
 }
