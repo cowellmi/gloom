@@ -64,6 +64,9 @@ func (m *Manager) OnSerialReady(fn func() bool) {
 }
 
 func (m *Manager) Run() {
+	if m.cfg.LogLevel <= log.LevelDebug {
+		m.log(log.LevelDebug, "platform: "+m.sys.Identifier())
+	}
 	for {
 		m.step()
 	}
@@ -82,7 +85,6 @@ func (m *Manager) step() {
 	}
 
 	if m.cfg.LogLevel <= log.LevelDebug {
-		m.log(log.LevelDebug, "platform: "+m.sys.Identifier())
 		m.logMem()
 	}
 
@@ -144,19 +146,14 @@ func (m *Manager) doSleep() hal.WakeReason {
 	return reason
 }
 
-const (
-	// LED pulse timing during serial wait.
-	serialPollInterval = 100 * time.Millisecond
-	ledPulseOn         = 100 * time.Millisecond
-	ledPulseOff        = 400 * time.Millisecond
-)
+const serialPollInterval = 100 * time.Millisecond
 
 // serialSettleDelay is the pause after standby wake to let the host
 // re-enumerate USB before polling DTR.
+// This needs to be a var so we can disable it during tests.
 var serialSettleDelay = time.Second
 
-// waitForSerial polls serialReady, pulsing the LED while waiting.
-// Times out after cfg.MaxWaitForSerial.
+// waitForSerial polls serialReady. Times out after cfg.MaxWaitForSerial.
 func (m *Manager) waitForSerial() {
 	time.Sleep(serialSettleDelay)
 
@@ -166,17 +163,8 @@ func (m *Manager) waitForSerial() {
 			m.log(log.LevelWarn, "wait for serial timed out")
 			return
 		}
-		// Pulse LED: short on, longer off.
-		if m.ledEnabled {
-			m.ledOn()
-			time.Sleep(ledPulseOn)
-			m.ledOff()
-			time.Sleep(ledPulseOff)
-			waited += ledPulseOn + ledPulseOff
-		} else {
-			time.Sleep(serialPollInterval)
-			waited += serialPollInterval
-		}
+		time.Sleep(serialPollInterval)
+		waited += serialPollInterval
 	}
 }
 
@@ -195,7 +183,9 @@ func (m *Manager) doSample() {
 
 		// Fan out structured measurements to all sinks.
 		// Each sink formats as appropriate (text for serial, CSV for SD, etc).
-		m.writeMeasurements(s.Name(), ms)
+		for _, sk := range m.sinks {
+			sk.WriteMeasurements(m.buf[:0], m.wakeTime, s.Name(), ms)
+		}
 	}
 }
 
@@ -238,13 +228,6 @@ func (m *Manager) logMem() {
 	b = strconv.AppendUint(b, ms.HeapSys/1024, 10)
 	b = append(b, "kb"...)
 	m.log(log.LevelDebug, string(b))
-}
-
-// writeMeasurements fans out a measurement batch to all registered sinks.
-func (m *Manager) writeMeasurements(device string, ms []sensor.Measurement) {
-	for _, s := range m.sinks {
-		s.WriteMeasurements(m.buf[:0], m.wakeTime, device, ms)
-	}
 }
 
 // flushSinks flushes all registered sinks. Called before sleep so

@@ -40,7 +40,7 @@ func (s *Sink) WriteMeasurements(buf []byte, t time.Time, device string, ms []se
 		buf = append(buf, m.Value...)
 		buf = append(buf, ' ')
 		buf = append(buf, m.Unit...)
-		buf = append(buf, '\n')
+		buf = append(buf, '\r', '\n')
 		if _, err := s.w.Write(buf); err != nil {
 			s.w = nil
 			return err
@@ -58,7 +58,7 @@ func (s *Sink) WriteLog(buf []byte, t time.Time, level log.Level, msg string) er
 	buf = appendLevel(buf, level)
 	buf = append(buf, " | "...)
 	buf = append(buf, msg...)
-	buf = append(buf, '\n')
+	buf = append(buf, '\r', '\n')
 	if _, err := s.w.Write(buf); err != nil {
 		s.w = nil
 		return err

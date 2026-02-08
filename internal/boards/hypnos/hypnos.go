@@ -116,7 +116,9 @@ func (b *Board) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (h
 		return 0, err
 	}
 
-	target := now.Add(sampleInterval)
+	// Calculate alarm time accounting for the delay required to
+	// power on rails upon wake up.
+	target := now.Add(sampleInterval - PowerOnRailsDelay)
 	if err := b.rtc.SetAlarm1(target, ds3231.A1_DATE); err != nil {
 		return 0, err
 	}
