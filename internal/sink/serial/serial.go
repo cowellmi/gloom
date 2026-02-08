@@ -25,12 +25,12 @@ func New(w io.Writer) *Sink {
 
 func (*Sink) Name() string { return "serial" }
 
-func (s *Sink) WriteMeasurements(t time.Time, device string, ms []sensor.Measurement) error {
+func (s *Sink) WriteMeasurements(buf []byte, t time.Time, device string, ms []sensor.Measurement) error {
 	if s.w == nil {
 		return nil
 	}
 	for _, m := range ms {
-		var buf []byte
+		buf = buf[:0]
 		buf = appendTimestamp(buf, t)
 		buf = append(buf, "INF | "...)
 		buf = append(buf, device...)
@@ -49,11 +49,11 @@ func (s *Sink) WriteMeasurements(t time.Time, device string, ms []sensor.Measure
 	return nil
 }
 
-func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
+func (s *Sink) WriteLog(buf []byte, t time.Time, level log.Level, msg string) error {
 	if s.w == nil {
 		return nil
 	}
-	var buf []byte
+	buf = buf[:0]
 	buf = appendTimestamp(buf, t)
 	buf = appendLevel(buf, level)
 	buf = append(buf, " | "...)

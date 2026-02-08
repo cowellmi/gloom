@@ -12,11 +12,17 @@ import (
 	"github.com/cowellmi/gloom/internal/sink"
 )
 
+// Size of the shared scratch buffer used by sinks for formatting.
+// 512 bytes comfortably fits any single log line, CSV row, or JSON
+// payload without heap allocation.
+const sinkBufSize = 512
+
 type Manager struct {
 	sys           hal.Platform
 	cfg           config.Config
 	sensors       []sensor.Device
 	sinks         []sink.Sink
+	buf           [sinkBufSize]byte
 	wakeTime      time.Time
 	waitForSerial func() error
 	ledOn         func()
@@ -69,7 +75,7 @@ func (m *Manager) step() {
 	}
 
 	if m.cfg.LogLevel == log.LevelDebug {
-		m.slog(log.LevelDebug, "platform: "+m.sys.Identifier())
+		m.log(log.LevelDebug, "platform: "+m.sys.Identifier())
 		m.logMem()
 	}
 
@@ -87,7 +93,7 @@ func (m *Manager) doSleep() hal.WakeReason {
 		if m.cfg.HeartbeatInterval == 0 {
 			heartbeatInterval = "disabled"
 		}
-		m.slog(log.LevelDebug, "sleep: sample="+sampleInterval+" heartbeat="+heartbeatInterval)
+		m.log(log.LevelDebug, "sleep: sample="+sampleInterval+" heartbeat="+heartbeatInterval)
 	}
 
 	// Flush all sinks before powering down peripherals and sleeping.
@@ -101,7 +107,7 @@ func (m *Manager) doSleep() hal.WakeReason {
 	reason, err := m.sys.Sleep(m.cfg.SampleInterval, m.cfg.HeartbeatInterval)
 	if err != nil {
 		// We could handle any specific errors here but for now just log.
-		m.slog(log.LevelError, "sleep: "+err.Error())
+		m.log(log.LevelError, "sleep: "+err.Error())
 	}
 	// Resume execution after wake from sleep.
 
@@ -114,7 +120,7 @@ func (m *Manager) doSleep() hal.WakeReason {
 	if m.waitForSerial != nil {
 		err := m.waitForSerial()
 		if err != nil {
-			m.slog(log.LevelError, err.Error())
+			m.log(log.LevelError, err.Error())
 		}
 	}
 
@@ -130,7 +136,7 @@ func (m *Manager) doSleep() hal.WakeReason {
 	}
 	m.wakeTime = t
 	if rtcErr != nil {
-		m.slog(log.LevelError, "rtc: "+rtcErr.Error())
+		m.log(log.LevelError, "rtc: "+rtcErr.Error())
 	}
 
 	return reason
@@ -139,13 +145,13 @@ func (m *Manager) doSleep() hal.WakeReason {
 func (m *Manager) doSample() {
 	for _, s := range m.sensors {
 		if err := s.Init(); err != nil {
-			m.slog(log.LevelError, "failed to initialize: "+s.Name()+": "+err.Error())
+			m.log(log.LevelError, "failed to initialize: "+s.Name()+": "+err.Error())
 			continue
 		}
 
 		ms, err := s.Measure()
 		if err != nil {
-			m.slog(log.LevelError, "failed to measure: "+s.Name()+": "+err.Error())
+			m.log(log.LevelError, "failed to measure: "+s.Name()+": "+err.Error())
 			continue
 		}
 
@@ -156,27 +162,27 @@ func (m *Manager) doSample() {
 }
 
 func (m *Manager) doHeartbeat() {
-	m.slog(log.LevelDebug, "heartbeat")
+	m.log(log.LevelDebug, "heartbeat")
 	// TODO: transmit keep-alive message
 }
 
-// slog writes a log entry to all sinks, filtered by the configured
+// log writes a log entry to all sinks, filtered by the configured
 // minimum log level.
-func (m *Manager) slog(level log.Level, msg string) {
+func (m *Manager) log(level log.Level, msg string) {
 	if level < m.cfg.LogLevel {
 		return
 	}
 	for _, s := range m.sinks {
 		// Sink errors are silently ignored. Sinks self-disable
 		// on persistent write failures.
-		s.WriteLog(m.wakeTime, level, msg)
+		s.WriteLog(m.buf[:0], m.wakeTime, level, msg)
 	}
 }
 
 // writeMeasurements fans out a measurement batch to all registered sinks.
 func (m *Manager) writeMeasurements(device string, ms []sensor.Measurement) {
 	for _, s := range m.sinks {
-		s.WriteMeasurements(m.wakeTime, device, ms)
+		s.WriteMeasurements(m.buf[:0], m.wakeTime, device, ms)
 	}
 }
 
@@ -197,6 +203,6 @@ func formatBytes(b uint64) string {
 func (m *Manager) logMem() {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	m.slog(log.LevelDebug, "mem: heap_alloc="+formatBytes(ms.HeapAlloc)+"kb"+
+	m.log(log.LevelDebug, "mem: heap_alloc="+formatBytes(ms.HeapAlloc)+"kb"+
 		" heap_sys="+formatBytes(ms.HeapSys)+"kb")
 }

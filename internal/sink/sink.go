@@ -12,6 +12,12 @@
 // Flush is called before sleep so that buffered SD writes hit the FAT
 // and network sinks transmit their payloads before the MCU enters
 // standby and powers down peripherals.
+//
+// All write methods receive a shared scratch buffer (buf) owned by the
+// manager. Sinks append formatted output into buf and write it to
+// their destination. The buffer is passed as buf[:0] so sinks get
+// the full backing capacity with zero length. This avoids per-call
+// heap allocations -- critical on a 32KB-RAM MCU.
 package sink
 
 import (
@@ -28,13 +34,14 @@ type Sink interface {
 	Name() string
 
 	// WriteMeasurements writes a batch of sensor measurements taken at
-	// time t from the named device. Implementations choose format: CSV
-	// to SD, JSON to Notecard, etc.
-	WriteMeasurements(t time.Time, device string, ms []sensor.Measurement) error
+	// time t from the named device. buf is scratch space for formatting;
+	// implementations append into it and write to their destination.
+	WriteMeasurements(buf []byte, t time.Time, device string, ms []sensor.Measurement) error
 
-	// WriteLog writes a single log entry. Implementations may ignore
-	// logs entirely (e.g. a LoRa sink might only send measurements).
-	WriteLog(t time.Time, level log.Level, msg string) error
+	// WriteLog writes a single log entry. buf is scratch space for
+	// formatting. Implementations may ignore logs entirely (e.g. a LoRa
+	// sink might only send measurements).
+	WriteLog(buf []byte, t time.Time, level log.Level, msg string) error
 
 	// Flush forces any buffered data to be written. Called by the
 	// manager before entering sleep so nothing is lost across a

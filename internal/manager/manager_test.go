@@ -24,13 +24,13 @@ type mockSink struct {
 
 func (m *mockSink) Name() string { return m.name }
 
-func (m *mockSink) WriteMeasurements(_ time.Time, device string, ms []sensor.Measurement) error {
+func (m *mockSink) WriteMeasurements(_ []byte, _ time.Time, device string, ms []sensor.Measurement) error {
 	m.measDevice = device
 	m.measurements = append(m.measurements, ms...)
 	return nil
 }
 
-func (m *mockSink) WriteLog(_ time.Time, _ log.Level, msg string) error {
+func (m *mockSink) WriteLog(_ []byte, _ time.Time, _ log.Level, msg string) error {
 	m.logEntries = append(m.logEntries, msg)
 	return nil
 }

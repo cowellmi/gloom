@@ -23,7 +23,7 @@ import (
 
 // Sink writes measurements as CSV and logs as text to SD card files.
 type Sink struct {
-	// TODO: file handles, buffer, FAT driver reference
+	// TODO: file handles, FAT driver reference
 }
 
 // New creates an SD card Sink.
@@ -34,18 +34,21 @@ func New() *Sink {
 
 func (*Sink) Name() string { return "sd" }
 
-// WriteMeasurements writes measurements in CSV format to the data file.
+// WriteMeasurements formats measurements as CSV into buf and appends
+// to the data file.
 // TODO: implement CSV formatting and file append.
-func (s *Sink) WriteMeasurements(t time.Time, device string, ms []sensor.Measurement) error {
+func (s *Sink) WriteMeasurements(buf []byte, t time.Time, device string, ms []sensor.Measurement) error {
+	_ = buf
 	_ = t
 	_ = device
 	_ = ms
 	return nil // TODO
 }
 
-// WriteLog writes a log entry to the log file on SD.
+// WriteLog formats a log entry into buf and appends to the log file.
 // TODO: implement text formatting and file append.
-func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
+func (s *Sink) WriteLog(buf []byte, t time.Time, level log.Level, msg string) error {
+	_ = buf
 	_ = t
 	_ = level
 	_ = msg
