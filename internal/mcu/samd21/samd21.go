@@ -11,7 +11,7 @@ import (
 	"machine"
 )
 
-const Name = "ATSAMD21 Cortex M0"
+const Name = "ATSAMD21"
 
 // MCU holds SAMD21-specific state for deep-sleep management.
 type MCU struct {

@@ -1,5 +1,8 @@
-// Package serial implements a Sink that writes human-readable text
-// lines to an io.Writer (typically machine.Serial).
+// Package serial implements an output driver that writes human-readable
+// text lines to an io.Writer (typically machine.Serial).
+//
+// Implements log.Sink (for log entries) and sensor.Recorder (for
+// measurement batches).
 package serial
 
 import (
@@ -25,7 +28,7 @@ func New(w io.Writer) *Sink {
 
 func (*Sink) Name() string { return "serial" }
 
-func (s *Sink) WriteMeasurements(buf []byte, t time.Time, device string, ms []sensor.Measurement) error {
+func (s *Sink) Record(buf []byte, t time.Time, device string, ms []sensor.Measurement) error {
 	if s.w == nil {
 		return nil
 	}

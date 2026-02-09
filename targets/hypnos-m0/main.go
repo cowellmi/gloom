@@ -8,42 +8,55 @@ import (
 	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/hal"
+	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/mcu/samd21"
 	"github.com/cowellmi/gloom/internal/sensor"
-	"github.com/cowellmi/gloom/internal/sink/file"
 	"github.com/cowellmi/gloom/internal/sink/serial"
 )
 
 func main() {
-	// Keep track of non-fatal init errors for println reporting.
+	// Keep track of non-fatal init errors for deferred logging.
 	var initErrs []error
 
-	// Setup I2C.
-	err := machine.I2C0.Configure(machine.I2CConfig{
-		Frequency: 100e3, // 100 kHz
-	})
+	// Setup I2C with default config.
+	err := machine.I2C0.Configure(machine.I2CConfig{})
 	if err != nil {
 		println("fatal:", err.Error())
 		return
 	}
 
-	// Probe hardware stack. Keep the concrete board reference for
-	// storage access (SD card); the hal.Platform interface is used
-	// by the manager for clock/sleep only.
+	// Load the ATSAMD21 (from Feather M0). It implements MCU.
 	proc := samd21.New()
+
+	// Load Hypnos board.
 	var sys hal.Platform
 	board, err := hypnos.Probe(machine.I2C0, proc)
 	if err != nil {
+		// Unable to load Hypnos. Using fallback platform.
 		initErrs = append(initErrs, err)
 		sys = &hal.Fallback{}
 	} else {
+		// Successfully loaded Hypnos board. Set as system platform.
 		sys = board
 	}
 
-	// Parse config file (requires storage -- only available on Hypnos).
-	// TODO: read config from SD card via board.SD once implemented.
+	// Load default config then overwrite with values read from storage device.
 	cfg := config.Default()
+	// TODO: read config file from SD card on Hypnos. Ideally we can detect the
+	// Hypnos board version during hypnos.Probe to determine chip select pin.
+	//
+	// For future reference:
+	// DEVICE     | CHIP SELECT PIN
+	// Hypnos 3.3 | 11
+	// Hypnos 3.2 | 10
+	// Adalogger  | 4
+	//
+	// We will probably have storage interface and write implementations using
+	// these three sd card readers.
+
+	// Add dummy sensor for debugging.
+	cfg.Sensors = []string{"fake"}
 
 	// Resolve sensor IDs from config to actual devices.
 	var devices []sensor.Device
@@ -64,7 +77,11 @@ func main() {
 		ledOff = func() { machine.LED.Low() }
 	}
 
-	// Configure serial.
+	// NOTE: all this wait for serial nonese will be removed soon in favor of
+	// just using a USB to UART serial adapter and requiring the debugger to
+	// maintain a constant serial monitor. This will simplify the code and get
+	// rid of all the waitForSerial nonsense. But for now I need to leave it
+	// to establish a serial connection via onboard USB.
 	if cfg.SerialEnabled {
 		err = machine.Serial.Configure(machine.UARTConfig{
 			BaudRate: 115200,
@@ -73,10 +90,8 @@ func main() {
 			initErrs = append(initErrs, err)
 		}
 	}
-
-	// Initial wait for serial before sinks are ready.
 	if cfg.WaitForSerial {
-		time.Sleep(time.Second) // let host re-enumerate USB
+		time.Sleep(time.Second)
 		deadline := time.Now().Add(cfg.MaxWaitForSerial)
 		for !machine.Serial.DTR() {
 			if cfg.MaxWaitForSerial > 0 && time.Now().After(deadline) {
@@ -87,36 +102,34 @@ func main() {
 		}
 	}
 
-	// Report init errors via println (sinks aren't ready yet).
+	// Create logger with per-sink level filtering.
+	logger := log.New()
+
+	// Register sinks with the logger. Each sink receives log entries
+	// at or above its minimum level.
+	serialSink := serial.New(machine.Serial)
+	if cfg.SerialEnabled {
+		logger.AddSink(serialSink, log.LevelDebug)
+	}
+	// TODO: register file sink with SD card manager.
+
+	// Report init errors through logger sinks.
 	for _, e := range initErrs {
-		println("init:", e.Error())
+		logger.Error("init: " + e.Error())
 	}
 
-	// Create manager (all runtime output goes through sinks).
-	man := manager.New(sys, cfg, devices)
+	// Create manager.
+	man := manager.New(sys, cfg, devices, logger)
 	man.EnableLED(ledOn, ledOff)
 	if cfg.WaitForSerial {
 		man.OnSerialReady(machine.Serial.DTR)
 	}
 
-	// Register sinks.
+	// Register recorders for measurement output.
 	if cfg.SerialEnabled {
-		man.AddSink(serial.New(machine.Serial))
+		man.AddRecorder(serialSink)
 	}
-	// Register SD file sink if the board has an SD card.
-	if board != nil && board.SD != nil {
-		dataW, err := board.SD.OpenWriter("data.csv")
-		if err != nil {
-			println("init: sd data:", err.Error())
-		}
-		logW, err := board.SD.OpenWriter("log.txt")
-		if err != nil {
-			println("init: sd log:", err.Error())
-		}
-		if dataW != nil || logW != nil {
-			man.AddSink(file.New("sd", dataW, logW, board.SD.Sync))
-		}
-	}
+	// TODO: register file sink recorder with SD card manager.
 
 	man.Run()
 }

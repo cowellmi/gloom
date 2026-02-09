@@ -4,8 +4,6 @@ import (
 	"errors"
 	"strings"
 	"time"
-
-	"github.com/cowellmi/gloom/internal/log"
 )
 
 type Config struct {
@@ -14,7 +12,6 @@ type Config struct {
 	SerialEnabled     bool
 	WaitForSerial     bool
 	MaxWaitForSerial  time.Duration
-	LogLevel          log.Level
 	EnableMachineLED  bool
 	Sensors           []string // raw IDs, resolved by caller
 }
@@ -27,7 +24,6 @@ func Default() Config {
 		SerialEnabled:     true,
 		WaitForSerial:     true,
 		MaxWaitForSerial:  5 * time.Minute,
-		LogLevel:          log.LevelDebug,
 		EnableMachineLED:  true,
 	}
 }
@@ -87,20 +83,6 @@ func Parse(data []byte, cfg *Config) error {
 
 		case "enable_led":
 			cfg.EnableMachineLED = value == "true"
-
-		case "log_level":
-			switch value {
-			case "debug":
-				cfg.LogLevel = log.LevelDebug
-			case "info":
-				cfg.LogLevel = log.LevelInfo
-			case "warn":
-				cfg.LogLevel = log.LevelWarn
-			case "error":
-				cfg.LogLevel = log.LevelError
-			default:
-				errs = append(errs, errors.New("unknown log_level: "+value))
-			}
 
 		case "sensors":
 			// Reset before appending so re-parsing doesn't accumulate duplicates.

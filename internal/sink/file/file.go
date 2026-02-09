@@ -1,11 +1,11 @@
-// Package file implements a Sink that writes sensor measurements and
-// log entries to file-like io.Writers. The caller provides the writers
-// (e.g. files opened on an SD card FAT filesystem) and a sync function
-// called on Flush to ensure data is durable before power-down.
+// Package file implements an output driver that writes sensor
+// measurements and log entries to file-like io.Writers. The caller
+// provides the writers (e.g. files opened on an SD card FAT
+// filesystem) and a sync function called on Flush to ensure data is
+// durable before power-down.
 //
-// This keeps the sink generic -- it doesn't know about SD cards, FAT,
-// or SPI. The board-specific main.go creates the writers from whatever
-// storage the hardware provides and passes them in.
+// Implements log.Sink (for log entries) and sensor.Recorder (for
+// measurement batches).
 package file
 
 import (
@@ -41,10 +41,10 @@ func New(name string, data, log io.Writer, sync func() error) *Sink {
 
 func (s *Sink) Name() string { return s.name }
 
-// WriteMeasurements formats each measurement as a CSV row:
+// Record formats each measurement as a CSV row:
 //
 //	timestamp,device,label,value,unit
-func (s *Sink) WriteMeasurements(buf []byte, t time.Time, device string, ms []sensor.Measurement) error {
+func (s *Sink) Record(buf []byte, t time.Time, device string, ms []sensor.Measurement) error {
 	if s.data == nil {
 		return nil
 	}

@@ -14,7 +14,9 @@ import (
 
 // --- mocks ---
 
-type mockSink struct {
+// mockOutput implements both log.Sink and sensor.Recorder so it can
+// be registered with the logger and manager in tests.
+type mockOutput struct {
 	name         string
 	measurements []sensor.Measurement
 	measDevice   string
@@ -22,25 +24,25 @@ type mockSink struct {
 	flushCalled  bool
 }
 
-func (m *mockSink) Name() string { return m.name }
+func (m *mockOutput) Name() string { return m.name }
 
-func (m *mockSink) WriteMeasurements(_ []byte, _ time.Time, device string, ms []sensor.Measurement) error {
+func (m *mockOutput) Record(_ []byte, _ time.Time, device string, ms []sensor.Measurement) error {
 	m.measDevice = device
 	m.measurements = append(m.measurements, ms...)
 	return nil
 }
 
-func (m *mockSink) WriteLog(_ []byte, _ time.Time, _ log.Level, msg string) error {
+func (m *mockOutput) WriteLog(_ []byte, _ time.Time, _ log.Level, msg string) error {
 	m.logEntries = append(m.logEntries, msg)
 	return nil
 }
 
-func (m *mockSink) Flush() error {
+func (m *mockOutput) Flush() error {
 	m.flushCalled = true
 	return nil
 }
 
-func (m *mockSink) hasLog(substr string) bool {
+func (m *mockOutput) hasLog(substr string) bool {
 	for _, e := range m.logEntries {
 		if strings.Contains(e, substr) {
 			return true
@@ -105,16 +107,19 @@ func heartbeatWake(_, _ time.Duration) (hal.WakeReason, error) {
 	return hal.WakeHeartbeat, nil
 }
 
-func newTestManager(sys *mockSystem, sens []sensor.Device) (*Manager, *mockSink) {
+func newTestManager(sys *mockSystem, sens []sensor.Device) (*Manager, *mockOutput) {
 	cfg := config.Config{
 		SampleInterval:    time.Second,
 		HeartbeatInterval: 0,
-		LogLevel:          log.LevelDebug,
 	}
-	ms := &mockSink{name: "test"}
-	man := New(sys, cfg, sens)
-	man.AddSink(ms)
-	return man, ms
+	mo := &mockOutput{name: "test"}
+
+	logger := log.New()
+	logger.AddSink(mo, log.LevelDebug)
+
+	man := New(sys, cfg, sens, logger)
+	man.AddRecorder(mo)
+	return man, mo
 }
 
 // --- tests ---
@@ -133,7 +138,7 @@ func TestStep_SampleWake(t *testing.T) {
 		timeFn:  fixedTime,
 	}
 
-	man, ms := newTestManager(sys, []sensor.Device{dev})
+	man, mo := newTestManager(sys, []sensor.Device{dev})
 	man.step()
 
 	if !dev.initCalled {
@@ -143,14 +148,14 @@ func TestStep_SampleWake(t *testing.T) {
 		t.Error("sensor.Measure() was not called")
 	}
 
-	if len(ms.measurements) != 1 {
-		t.Fatalf("sink got %d measurements, want 1", len(ms.measurements))
+	if len(mo.measurements) != 1 {
+		t.Fatalf("recorder got %d measurements, want 1", len(mo.measurements))
 	}
-	if ms.measurements[0].Label != "temp" {
-		t.Errorf("measurement label = %q, want %q", ms.measurements[0].Label, "temp")
+	if mo.measurements[0].Label != "temp" {
+		t.Errorf("measurement label = %q, want %q", mo.measurements[0].Label, "temp")
 	}
-	if ms.measDevice != "test-sensor" {
-		t.Errorf("measurement device = %q, want %q", ms.measDevice, "test-sensor")
+	if mo.measDevice != "test-sensor" {
+		t.Errorf("measurement device = %q, want %q", mo.measDevice, "test-sensor")
 	}
 }
 
@@ -163,15 +168,15 @@ func TestStep_HeartbeatWake(t *testing.T) {
 		timeFn:  fixedTime,
 	}
 
-	man, ms := newTestManager(sys, []sensor.Device{dev})
+	man, mo := newTestManager(sys, []sensor.Device{dev})
 	man.step()
 
 	if dev.initCalled {
 		t.Error("sensor.Init() should not be called on heartbeat wake")
 	}
 
-	if !ms.hasLog("heartbeat") {
-		t.Errorf("expected heartbeat in sink logs, got: %v", ms.logEntries)
+	if !mo.hasLog("heartbeat") {
+		t.Errorf("expected heartbeat in logs, got: %v", mo.logEntries)
 	}
 }
 
@@ -187,7 +192,7 @@ func TestStep_SensorInitError(t *testing.T) {
 		timeFn:  fixedTime,
 	}
 
-	man, ms := newTestManager(sys, []sensor.Device{dev})
+	man, mo := newTestManager(sys, []sensor.Device{dev})
 	man.step()
 
 	if !dev.initCalled {
@@ -197,8 +202,8 @@ func TestStep_SensorInitError(t *testing.T) {
 		t.Error("sensor.Measure() should not be called after init error")
 	}
 
-	if !ms.hasLog("failed to initialize") {
-		t.Errorf("expected init error in sink logs, got: %v", ms.logEntries)
+	if !mo.hasLog("failed to initialize") {
+		t.Errorf("expected init error in logs, got: %v", mo.logEntries)
 	}
 }
 
@@ -214,15 +219,15 @@ func TestStep_SensorMeasureError(t *testing.T) {
 		timeFn:  fixedTime,
 	}
 
-	man, ms := newTestManager(sys, []sensor.Device{dev})
+	man, mo := newTestManager(sys, []sensor.Device{dev})
 	man.step()
 
 	if !dev.measureCalled {
 		t.Error("sensor.Measure() was not called")
 	}
 
-	if !ms.hasLog("failed to measure") {
-		t.Errorf("expected measure error in sink logs, got: %v", ms.logEntries)
+	if !mo.hasLog("failed to measure") {
+		t.Errorf("expected measure error in logs, got: %v", mo.logEntries)
 	}
 }
 
@@ -275,13 +280,13 @@ func TestStep_WaitForSerialTimeout(t *testing.T) {
 		timeFn:  fixedTime,
 	}
 
-	man, ms := newTestManager(sys, nil)
+	man, mo := newTestManager(sys, nil)
 	man.cfg.MaxWaitForSerial = 1 * time.Millisecond
 	man.OnSerialReady(func() bool { return false }) // never ready
 	man.step()
 
-	if !ms.hasLog("wait for serial timed out") {
-		t.Errorf("expected timeout warning in sink logs, got: %v", ms.logEntries)
+	if !mo.hasLog("wait for serial timed out") {
+		t.Errorf("expected timeout warning in logs, got: %v", mo.logEntries)
 	}
 }
 
@@ -294,11 +299,11 @@ func TestStep_ReadTimeError(t *testing.T) {
 		},
 	}
 
-	man, ms := newTestManager(sys, nil)
+	man, mo := newTestManager(sys, nil)
 	man.step()
 
-	if !ms.hasLog("rtc:") {
-		t.Errorf("expected rtc error in sink logs, got: %v", ms.logEntries)
+	if !mo.hasLog("rtc:") {
+		t.Errorf("expected rtc error in logs, got: %v", mo.logEntries)
 	}
 }
 
@@ -311,11 +316,11 @@ func TestStep_SleepError(t *testing.T) {
 		timeFn: fixedTime,
 	}
 
-	man, ms := newTestManager(sys, nil)
+	man, mo := newTestManager(sys, nil)
 	man.step()
 
-	if !ms.hasLog("sleep: standby failed") {
-		t.Errorf("expected sleep error in sink logs, got: %v", ms.logEntries)
+	if !mo.hasLog("sleep: standby failed") {
+		t.Errorf("expected sleep error in logs, got: %v", mo.logEntries)
 	}
 }
 
@@ -346,14 +351,14 @@ func TestStep_MultipleMeasurements(t *testing.T) {
 		timeFn:  fixedTime,
 	}
 
-	man, ms := newTestManager(sys, []sensor.Device{dev})
+	man, mo := newTestManager(sys, []sensor.Device{dev})
 	man.step()
 
-	if len(ms.measurements) != 2 {
-		t.Fatalf("sink got %d measurements, want 2", len(ms.measurements))
+	if len(mo.measurements) != 2 {
+		t.Fatalf("recorder got %d measurements, want 2", len(mo.measurements))
 	}
-	if ms.measurements[1].Label != "rh" {
-		t.Errorf("measurement[1].Label = %q, want %q", ms.measurements[1].Label, "rh")
+	if mo.measurements[1].Label != "rh" {
+		t.Errorf("measurement[1].Label = %q, want %q", mo.measurements[1].Label, "rh")
 	}
 }
 
@@ -364,10 +369,10 @@ func TestStep_FlushBeforeSleep(t *testing.T) {
 		timeFn:  fixedTime,
 	}
 
-	man, ms := newTestManager(sys, nil)
+	man, mo := newTestManager(sys, nil)
 	man.step()
 
-	if !ms.flushCalled {
-		t.Error("sink Flush() was not called before sleep")
+	if !mo.flushCalled {
+		t.Error("Flush() was not called before sleep")
 	}
 }

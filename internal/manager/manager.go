@@ -9,20 +9,20 @@ import (
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
-	"github.com/cowellmi/gloom/internal/sink"
 )
 
-// Size of the shared scratch buffer used by sinks for formatting.
-// 512 bytes comfortably fits any single log line, CSV row, or JSON
-// payload without heap allocation.
-const sinkBufSize = 512
+// Size of the shared scratch buffer used by recorders for formatting.
+// 512 bytes comfortably fits any single CSV row or JSON payload
+// without heap allocation.
+const recorderBufSize = 512
 
 type Manager struct {
 	sys         hal.Platform
 	cfg         config.Config
 	sensors     []sensor.Device
-	sinks       []sink.Sink
-	buf         [sinkBufSize]byte
+	recorders   []sensor.Recorder
+	logger      *log.Logger
+	buf         [recorderBufSize]byte
 	wakeTime    time.Time
 	serialReady func() bool
 	ledEnabled  bool
@@ -30,18 +30,19 @@ type Manager struct {
 	ledOff      func()
 }
 
-func New(sys hal.Platform, cfg config.Config, devices []sensor.Device) *Manager {
+func New(sys hal.Platform, cfg config.Config, devices []sensor.Device, logger *log.Logger) *Manager {
 	return &Manager{
 		sys:     sys,
 		cfg:     cfg,
 		sensors: devices,
+		logger:  logger,
 	}
 }
 
-// AddSink registers a sink for measurement and log output. Sinks are
-// called in registration order on each sample and sleep cycle.
-func (m *Manager) AddSink(s sink.Sink) {
-	m.sinks = append(m.sinks, s)
+// AddRecorder registers a recorder for measurement output. Recorders
+// are called in registration order on each sample cycle.
+func (m *Manager) AddRecorder(r sensor.Recorder) {
+	m.recorders = append(m.recorders, r)
 }
 
 // EnableLED sets callbacks invoked when the manager turns the LED off
@@ -64,9 +65,7 @@ func (m *Manager) OnSerialReady(fn func() bool) {
 }
 
 func (m *Manager) Run() {
-	if m.cfg.LogLevel <= log.LevelDebug {
-		m.log(log.LevelDebug, "platform: "+m.sys.Identifier())
-	}
+	m.logger.Debug("platform: " + m.sys.Identifier())
 	for {
 		m.step()
 	}
@@ -77,11 +76,6 @@ func (m *Manager) Run() {
 func (m *Manager) step() {
 	reason := m.doSleep()
 
-	// Simulate work and also give time to enter reset mode while
-	// USB is attached before entering standby mode.
-	m.log(log.LevelDebug, "doing work...")
-	time.Sleep(2 * time.Second)
-
 	if reason&hal.WakeSample != 0 {
 		m.doSample()
 	}
@@ -89,29 +83,25 @@ func (m *Manager) step() {
 		m.doHeartbeat()
 	}
 
-	if m.cfg.LogLevel <= log.LevelDebug {
-		m.logMem()
-	}
+	m.logMem()
 
 	// Force GC to collect per-cycle allocations.
 	runtime.GC()
 }
 
 func (m *Manager) doSleep() hal.WakeReason {
-	if m.cfg.LogLevel <= log.LevelDebug {
-		sampleInterval := m.cfg.SampleInterval.String()
-		if m.cfg.SampleInterval <= 0 {
-			sampleInterval = "disabled"
-		}
-		heartbeatInterval := m.cfg.HeartbeatInterval.String()
-		if m.cfg.HeartbeatInterval <= 0 {
-			heartbeatInterval = "disabled"
-		}
-		m.log(log.LevelDebug, "sleep: sample="+sampleInterval+" heartbeat="+heartbeatInterval)
+	sampleInterval := m.cfg.SampleInterval.String()
+	if m.cfg.SampleInterval <= 0 {
+		sampleInterval = "disabled"
 	}
+	heartbeatInterval := m.cfg.HeartbeatInterval.String()
+	if m.cfg.HeartbeatInterval <= 0 {
+		heartbeatInterval = "disabled"
+	}
+	m.logger.Debug("sleep: sample=" + sampleInterval + " heartbeat=" + heartbeatInterval)
 
-	// Flush all sinks before powering down peripherals and sleeping.
-	m.flushSinks()
+	// Flush all outputs before powering down peripherals and sleeping.
+	m.flush()
 
 	if m.ledEnabled {
 		m.ledOff()
@@ -120,7 +110,7 @@ func (m *Manager) doSleep() hal.WakeReason {
 	// Put system to sleep. Execution halts here until wake from sleep.
 	reason, err := m.sys.Sleep(m.cfg.SampleInterval, m.cfg.HeartbeatInterval)
 	if err != nil {
-		m.log(log.LevelError, "sleep: "+err.Error())
+		m.logger.Error("sleep: " + err.Error())
 	}
 	// Resume execution after wake from sleep.
 
@@ -133,19 +123,18 @@ func (m *Manager) doSleep() hal.WakeReason {
 		m.ledOn()
 	}
 
-	// Update wake time. A good thing to note explicitly: doing
-	// this makes the timestamp for sensors reading less accurate
-	// since we are caching the time here instead of immediately
-	// before each sensor.Measure() execution. In practice it
-	// shouldn't be much of a difference.
+	// Update wake time and push it to the logger so all subsequent
+	// log entries in this cycle carry the correct timestamp.
 	t, rtcErr := m.sys.ReadTime()
 	if rtcErr != nil {
 		// Fallback to system clock.
 		t = time.Now()
 	}
 	m.wakeTime = t
+	m.logger.SetTime(t)
+
 	if rtcErr != nil {
-		m.log(log.LevelError, "rtc: "+rtcErr.Error())
+		m.logger.Error("rtc: " + rtcErr.Error())
 	}
 
 	return reason
@@ -165,7 +154,7 @@ func (m *Manager) waitForSerial() {
 	var waited time.Duration
 	for !m.serialReady() {
 		if m.cfg.MaxWaitForSerial > 0 && waited >= m.cfg.MaxWaitForSerial {
-			m.log(log.LevelWarn, "wait for serial timed out")
+			m.logger.Warn("wait for serial timed out")
 			return
 		}
 		time.Sleep(serialPollInterval)
@@ -176,20 +165,20 @@ func (m *Manager) waitForSerial() {
 func (m *Manager) doSample() {
 	for _, s := range m.sensors {
 		if err := s.Init(); err != nil {
-			m.log(log.LevelError, "failed to initialize: "+s.Name()+": "+err.Error())
+			m.logger.Error("failed to initialize: " + s.Name() + ": " + err.Error())
 			continue
 		}
 
 		ms, err := s.Measure()
 		if err != nil {
-			m.log(log.LevelError, "failed to measure: "+s.Name()+": "+err.Error())
+			m.logger.Error("failed to measure: " + s.Name() + ": " + err.Error())
 			continue
 		}
 
-		// Fan out structured measurements to all sinks.
-		// Each sink formats as appropriate (text for serial, CSV for SD, etc).
-		for _, sk := range m.sinks {
-			sk.WriteMeasurements(m.buf[:0], m.wakeTime, s.Name(), ms)
+		// Fan out structured measurements to all recorders.
+		// Each recorder formats as appropriate (text for serial, CSV for SD, etc).
+		for _, r := range m.recorders {
+			r.Record(m.buf[:0], m.wakeTime, s.Name(), ms)
 		}
 	}
 }
@@ -206,21 +195,8 @@ func (m *Manager) doHeartbeat() {
 		m.ledOff()
 	}
 
-	m.log(log.LevelDebug, "heartbeat")
+	m.logger.Debug("heartbeat")
 	// TODO: transmit keep-alive message
-}
-
-// log writes a log entry to all sinks, filtered by the configured
-// minimum log level.
-func (m *Manager) log(level log.Level, msg string) {
-	if level < m.cfg.LogLevel {
-		return
-	}
-	for _, s := range m.sinks {
-		// Sink errors are silently ignored. Sinks self-disable
-		// on persistent write failures.
-		s.WriteLog(m.buf[:0], m.wakeTime, level, msg)
-	}
 }
 
 func (m *Manager) logMem() {
@@ -232,14 +208,15 @@ func (m *Manager) logMem() {
 	b = append(b, "kb heap_sys="...)
 	b = strconv.AppendUint(b, ms.HeapSys/1024, 10)
 	b = append(b, "kb"...)
-	m.log(log.LevelDebug, string(b))
+	m.logger.Debug(string(b))
 }
 
-// flushSinks flushes all registered sinks. Called before sleep so
-// buffered data (SD writes, network payloads) is committed before
-// the MCU enters standby.
-func (m *Manager) flushSinks() {
-	for _, s := range m.sinks {
-		s.Flush()
+// flush flushes the logger sinks and all recorders. Called before
+// sleep so buffered data (SD writes, network payloads) is committed
+// before the MCU enters standby.
+func (m *Manager) flush() {
+	m.logger.Flush()
+	for _, r := range m.recorders {
+		r.Flush()
 	}
 }

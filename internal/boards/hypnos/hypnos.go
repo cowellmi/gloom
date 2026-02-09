@@ -12,12 +12,10 @@ import (
 )
 
 const (
-	Name = "Hypnos"
-
 	// Machine pin connected to the DS3231 RTC alarm output.
 	AlarmPin = machine.D12
 
-	// Number of times to retry I2C operations during probe.
+	// Number of attempts to retry I2C operations during probe.
 	probeRetries = 3
 
 	// Delay between retries to allow bus recovery.
@@ -25,14 +23,12 @@ const (
 )
 
 type Board struct {
-	SD      *SDCard // nil if SD card init failed
 	proc    mcu.MCU
 	rtc     *ds3231.Device
 	version string
 }
 
-// Probe I2C for Hypnos components. The I2C bus must already be
-// configured. proc provides the processor-level sleep primitives.
+// Probe I2C for Hypnos components. The I2C bus must already be configured.
 func Probe(bus drivers.I2C, proc mcu.MCU) (*Board, error) {
 	configureRails()
 	powerOn()
@@ -45,14 +41,11 @@ func Probe(bus drivers.I2C, proc mcu.MCU) (*Board, error) {
 	// TODO: detect board version during probe.
 	b := &Board{proc: proc, rtc: rtc, version: "3.3"}
 
-	// SD card init is non-fatal: RTC and sleep still work without it.
-	// TODO: init SPI, mount FAT, assign b.SD = &SDCard{...}
-
 	return b, nil
 }
 
 func (b *Board) Identifier() string {
-	return Name + " " + b.version + " (" + b.proc.Identifier() + ")"
+	return "Hypnos " + b.version + " (" + b.proc.Identifier() + ")"
 }
 
 func (b *Board) ReadTime() (time.Time, error) {
@@ -68,10 +61,9 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 	}
 
 	if reason&hal.WakeSample != 0 {
-		// Need to power on rails to give sensors power.
-		// This isn't necessary for WakeHeartbeat reason
-		// because we will just send a keep alive message
-		// using network card.
+		// Need to power on rails to give sensors power. This isn't
+		// necessary for WakeHeartbeat reason because we will just send a
+		// keep alive message using network card (no need to turn on sensors).
 		powerOn()
 		if rtcErr := waitForRTC(b.rtc); rtcErr != nil {
 			return reason, errors.Join(err, rtcErr)
@@ -91,10 +83,8 @@ func (b *Board) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (h
 		return 0, err
 	}
 
-	// Switch GCLK_EIC to OSCULP32K so edge detection works in standby.
-	// Only needed once; the routing persists across sleep/wake cycles.
+	// Setup MCU.
 	b.proc.PrepareStandby()
-
 	b.proc.EnableWake(AlarmPin)
 
 	// Clear any pending alarms.
@@ -106,11 +96,6 @@ func (b *Board) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (h
 	}
 
 	// Read current time and set alarms based on intervals.
-	//
-	// TODO: maybe we should subtract a couple seconds to account
-	// for the time.Sleep delay for turning the rails back on.
-	// For example, currently a 5 second interval is more like
-	// 7 seconds due to delays.
 	now, err := b.rtc.ReadTime()
 	if err != nil {
 		return 0, err

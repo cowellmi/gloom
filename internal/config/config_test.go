@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/cowellmi/gloom/internal/log"
 )
 
 func TestDefault(t *testing.T) {
@@ -26,9 +24,6 @@ func TestDefault(t *testing.T) {
 	if cfg.MaxWaitForSerial != 5*time.Minute {
 		t.Errorf("MaxWaitForSerial = %v, want 5m", cfg.MaxWaitForSerial)
 	}
-	if cfg.LogLevel != log.LevelDebug {
-		t.Errorf("LogLevel = %v, want LevelDebug", cfg.LogLevel)
-	}
 	if !cfg.EnableMachineLED {
 		t.Error("EnableMachineLED = false, want true")
 	}
@@ -43,7 +38,6 @@ sample_interval = 10s
 heartbeat_interval = 1m
 serial = false
 wait_for_serial = false
-log_level = info
 sensors = temp, humidity, pressure
 `)
 
@@ -63,9 +57,6 @@ sensors = temp, humidity, pressure
 	}
 	if cfg.WaitForSerial {
 		t.Error("WaitForSerial = true, want false")
-	}
-	if cfg.LogLevel != log.LevelInfo {
-		t.Errorf("LogLevel = %v, want LevelInfo", cfg.LogLevel)
 	}
 
 	want := []string{"temp", "humidity", "pressure"}
@@ -125,29 +116,6 @@ func TestParse_InvalidDuration(t *testing.T) {
 	}
 }
 
-func TestParse_LogLevels(t *testing.T) {
-	tests := []struct {
-		value string
-		want  log.Level
-	}{
-		{"debug", log.LevelDebug},
-		{"info", log.LevelInfo},
-		{"warn", log.LevelWarn},
-		{"error", log.LevelError},
-	}
-
-	for _, tt := range tests {
-		cfg := Default()
-		input := []byte("log_level = " + tt.value)
-		if err := Parse(input, &cfg); err != nil {
-			t.Fatalf("Parse(%q) error: %v", tt.value, err)
-		}
-		if cfg.LogLevel != tt.want {
-			t.Errorf("log_level=%q: LogLevel = %v, want %v", tt.value, cfg.LogLevel, tt.want)
-		}
-	}
-}
-
 func TestParse_SensorsWhitespace(t *testing.T) {
 	input := []byte("sensors =  a ,  b  , c ")
 
@@ -195,9 +163,6 @@ func TestParse_PartialOverride(t *testing.T) {
 	if !cfg.SerialEnabled {
 		t.Error("SerialEnabled changed from default")
 	}
-	if cfg.LogLevel != log.LevelDebug {
-		t.Error("LogLevel changed from default")
-	}
 }
 
 func TestParse_LineWithoutEquals(t *testing.T) {
@@ -243,19 +208,6 @@ func TestParse_UnknownKey(t *testing.T) {
 		t.Fatal("Parse() expected error for unknown key, got nil")
 	}
 	if !strings.Contains(err.Error(), "unknown config key: sampl_interval") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestParse_InvalidLogLevel(t *testing.T) {
-	input := []byte("log_level = verbose\n")
-
-	cfg := Default()
-	err := Parse(input, &cfg)
-	if err == nil {
-		t.Fatal("Parse() expected error for invalid log_level, got nil")
-	}
-	if !strings.Contains(err.Error(), "unknown log_level: verbose") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
