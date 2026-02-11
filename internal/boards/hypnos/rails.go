@@ -2,30 +2,30 @@ package hypnos
 
 import (
 	"machine"
-	"time"
 )
 
 const (
-	Rail3V            = machine.D5
-	Rail5V            = machine.D6
-	PowerOnRailsDelay = 2 * time.Second
+	Rail33V = machine.D5
+	Rail5V  = machine.D6
 )
 
 func configureRails() {
-	Rail3V.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	Rail33V.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	Rail5V.Configure(machine.PinConfig{Mode: machine.PinOutput})
 }
 
-func powerOn() {
-	Rail3V.Low() // Hypnos 3.3V rail is active-low
-	Rail5V.High()
-
-	// This is required until we can develop a better way
-	// for determining if the system has power reilably.
-	time.Sleep(PowerOnRailsDelay)
+func powerOn33() {
+	Rail33V.Low() // Hypnos 3.3V rail is active-low
 }
 
-func powerOff() {
-	Rail3V.High()
+func powerOff33() {
+	Rail33V.High()
+}
+
+func powerOn5() {
+	Rail5V.High()
+}
+
+func powerOff5() {
 	Rail5V.Low()
 }
