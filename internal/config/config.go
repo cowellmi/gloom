@@ -17,8 +17,8 @@ type Config struct {
 // Default returns a Config with debug-friendly defaults.
 func Default() Config {
 	return Config{
-		SampleInterval:    13 * time.Second,
-		HeartbeatInterval: 1 * time.Minute,
+		SampleInterval:    5 * time.Second,
+		HeartbeatInterval: 0,
 		SerialEnabled:     true,
 		LedEnabled:        true,
 	}
