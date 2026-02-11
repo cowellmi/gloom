@@ -23,9 +23,11 @@ const (
 )
 
 type Board struct {
-	proc    mcu.MCU
-	rtc     *ds3231.Device
-	version string
+	proc        mcu.MCU
+	rtc         *ds3231.Device
+	version     string
+	alarm1Armed bool
+	alarm2Armed bool
 }
 
 // Probe I2C for Hypnos components. The I2C bus must already be configured.
@@ -64,6 +66,8 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 		// Need to power on rails to give sensors power. This isn't
 		// necessary for WakeHeartbeat reason because we will just send a
 		// keep alive message using network card (no need to turn on sensors).
+		//
+		// NOTE: this also means the RTC won't be turned on for heartbeat!
 		powerOn()
 		if rtcErr := waitForRTC(b.rtc); rtcErr != nil {
 			return reason, errors.Join(err, rtcErr)
@@ -87,25 +91,27 @@ func (b *Board) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (h
 	b.proc.PrepareStandby()
 	b.proc.EnableWake(AlarmPin)
 
-	// Clear any pending alarms.
-	if err := b.rtc.ClearAlarm1(); err != nil {
-		return 0, err
-	}
-	if err := b.rtc.ClearAlarm2(); err != nil {
-		return 0, err
-	}
-
 	// Read current time and set alarms based on intervals.
 	now, err := b.rtc.ReadTime()
 	if err != nil {
 		return 0, err
 	}
 
-	// Calculate alarm time accounting for the delay required to
-	// power on rails upon wake up.
-	target := now.Add(sampleInterval - PowerOnRailsDelay)
-	if err := b.rtc.SetAlarm1(target, ds3231.A1_DATE); err != nil {
-		return 0, err
+	// Calculate alarm times.
+	if sampleInterval > 0 && !b.alarm1Armed {
+		target := now.Add(sampleInterval)
+		if err := b.rtc.SetAlarm1(target, ds3231.A1_DATE); err != nil {
+			return 0, err
+		}
+		b.alarm1Armed = true
+	}
+
+	if heartbeatInterval > 0 && !b.alarm2Armed {
+		target := now.Add(sampleInterval)
+		if err := b.rtc.SetAlarm2(target, ds3231.A2_DATE); err != nil {
+			return 0, err
+		}
+		b.alarm2Armed = false
 	}
 
 	// Kill power to the MOSFET rails.
@@ -114,8 +120,17 @@ func (b *Board) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (h
 	// Enter deep sleep. Execution halts here until interrupt.
 	b.proc.Standby()
 
-	// TODO: check which alarm triggered wakeup and change reason
-	reason := hal.WakeSample
+	var reason hal.WakeReason
+	if b.rtc.IsAlarm1Fired() {
+		reason |= hal.WakeSample
+		_ = b.rtc.ClearAlarm1()
+		b.alarm1Armed = false
+	}
+	if b.rtc.IsAlarm2Fired() {
+		reason |= hal.WakeHeartbeat
+		_ = b.rtc.ClearAlarm2()
+		b.alarm2Armed = false
+	}
 
 	return reason, nil
 }

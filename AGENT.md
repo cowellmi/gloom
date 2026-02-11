@@ -38,11 +38,10 @@ New targets get their own directory under `targets/` with a `main.go` that wires
 3. Power off rails, detach USB, disable SysTick, enter STANDBY.
 4. _...CPU halted until alarm fires on pin 12..._
 5. Re-enable SysTick, re-attach USB.
-6. Wait for serial (DTR poll with timeout), turn on LED.
-7. Power on rails, wait for RTC, clear alarms.
-8. Read RTC time, push to logger.
-9. Init each sensor, measure, fan out to recorders.
-10. GC, loop.
+6. Power on rails, wait for RTC, clear alarms.
+7. Read RTC time, push to logger.
+8. Init each sensor, measure, fan out to recorders.
+9. GC, loop.
 
 Other boards would implement `hal.Platform.Sleep()` differently (e.g. timer-based wake on an nRF52) while the manager loop stays the same.
 

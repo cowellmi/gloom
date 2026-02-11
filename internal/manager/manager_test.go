@@ -88,11 +88,6 @@ func (m *mockSensor) Measure() ([]sensor.Measurement, error) {
 	return m.measurements, m.measureErr
 }
 
-func init() {
-	// Disable the USB settle delay in tests.
-	serialSettleDelay = 0
-}
-
 // --- helpers ---
 
 func fixedTime() (time.Time, error) {
@@ -249,44 +244,6 @@ func TestStep_LEDCallbacks(t *testing.T) {
 	}
 	if !ledOnCalled {
 		t.Error("LEDOn callback was not called")
-	}
-}
-
-func TestStep_WaitForSerial(t *testing.T) {
-	pollCount := 0
-
-	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: sampleWake,
-		timeFn:  fixedTime,
-	}
-
-	man, _ := newTestManager(sys, nil)
-	man.OnSerialReady(func() bool {
-		pollCount++
-		return pollCount >= 3 // ready on third poll
-	})
-	man.step()
-
-	if pollCount < 3 {
-		t.Errorf("serialReady polled %d times, want >= 3", pollCount)
-	}
-}
-
-func TestStep_WaitForSerialTimeout(t *testing.T) {
-	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: sampleWake,
-		timeFn:  fixedTime,
-	}
-
-	man, mo := newTestManager(sys, nil)
-	man.cfg.MaxWaitForSerial = 1 * time.Millisecond
-	man.OnSerialReady(func() bool { return false }) // never ready
-	man.step()
-
-	if !mo.hasLog("wait for serial timed out") {
-		t.Errorf("expected timeout warning in logs, got: %v", mo.logEntries)
 	}
 }
 

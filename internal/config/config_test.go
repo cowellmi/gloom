@@ -18,14 +18,8 @@ func TestDefault(t *testing.T) {
 	if !cfg.SerialEnabled {
 		t.Error("SerialEnabled = false, want true")
 	}
-	if !cfg.WaitForSerial {
-		t.Error("WaitForSerial = false, want true")
-	}
-	if cfg.MaxWaitForSerial != 5*time.Minute {
-		t.Errorf("MaxWaitForSerial = %v, want 5m", cfg.MaxWaitForSerial)
-	}
-	if !cfg.EnableMachineLED {
-		t.Error("EnableMachineLED = false, want true")
+	if !cfg.LedEnabled {
+		t.Error("LedEnabled = false, want true")
 	}
 	if len(cfg.Sensors) != 0 {
 		t.Errorf("Sensors = %v, want empty", cfg.Sensors)
@@ -37,7 +31,6 @@ func TestParse_ValidConfig(t *testing.T) {
 sample_interval = 10s
 heartbeat_interval = 1m
 serial = false
-wait_for_serial = false
 sensors = temp, humidity, pressure
 `)
 
@@ -54,9 +47,6 @@ sensors = temp, humidity, pressure
 	}
 	if cfg.SerialEnabled {
 		t.Error("SerialEnabled = true, want false")
-	}
-	if cfg.WaitForSerial {
-		t.Error("WaitForSerial = true, want false")
 	}
 
 	want := []string{"temp", "humidity", "pressure"}
@@ -243,38 +233,18 @@ func TestParse_EnableLED(t *testing.T) {
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
-	if cfg.EnableMachineLED {
-		t.Error("EnableMachineLED = true, want false")
+	if cfg.LedEnabled {
+		t.Error("LedEnabled = true, want false")
 	}
 
 	input = []byte("enable_led = true")
 	cfg = Default()
-	cfg.EnableMachineLED = false // start with false
+	cfg.LedEnabled = false // start with false
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
-	if !cfg.EnableMachineLED {
-		t.Error("EnableMachineLED = false, want true")
-	}
-}
-
-func TestParse_MaxWaitForSerial(t *testing.T) {
-	input := []byte("max_wait_for_serial = 30s")
-	cfg := Default()
-	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-	if cfg.MaxWaitForSerial != 30*time.Second {
-		t.Errorf("MaxWaitForSerial = %v, want 30s", cfg.MaxWaitForSerial)
-	}
-}
-
-func TestParse_MaxWaitForSerialInvalid(t *testing.T) {
-	input := []byte("max_wait_for_serial = nope")
-	cfg := Default()
-	err := Parse(input, &cfg)
-	if err == nil {
-		t.Fatal("Parse() expected error for bad duration, got nil")
+	if !cfg.LedEnabled {
+		t.Error("LedEnabled = false, want true")
 	}
 }
 
@@ -285,7 +255,6 @@ func TestParse_NegativeDurations(t *testing.T) {
 	}{
 		{"sample_interval", "sample_interval = -5s"},
 		{"heartbeat_interval", "heartbeat_interval = -1m"},
-		{"max_wait_for_serial", "max_wait_for_serial = -10s"},
 	}
 
 	for _, tt := range tests {
@@ -303,7 +272,6 @@ func TestParse_ZeroDuration(t *testing.T) {
 	keys := []string{
 		"sample_interval = 0s",
 		"heartbeat_interval = 0s",
-		"max_wait_for_serial = 0s",
 	}
 	for _, input := range keys {
 		cfg := Default()

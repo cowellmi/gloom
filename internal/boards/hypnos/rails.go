@@ -8,7 +8,7 @@ import (
 const (
 	Rail3V            = machine.D5
 	Rail5V            = machine.D6
-	PowerOnRailsDelay = 1 * time.Second
+	PowerOnRailsDelay = 2 * time.Second
 )
 
 func configureRails() {

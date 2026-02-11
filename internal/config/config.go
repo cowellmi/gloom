@@ -10,21 +10,17 @@ type Config struct {
 	SampleInterval    time.Duration
 	HeartbeatInterval time.Duration
 	SerialEnabled     bool
-	WaitForSerial     bool
-	MaxWaitForSerial  time.Duration
-	EnableMachineLED  bool
+	LedEnabled        bool
 	Sensors           []string // raw IDs, resolved by caller
 }
 
 // Default returns a Config with debug-friendly defaults.
 func Default() Config {
 	return Config{
-		SampleInterval:    5 * time.Second,
-		HeartbeatInterval: 0, // disabled
+		SampleInterval:    13 * time.Second,
+		HeartbeatInterval: 1 * time.Minute,
 		SerialEnabled:     true,
-		WaitForSerial:     true,
-		MaxWaitForSerial:  5 * time.Minute,
-		EnableMachineLED:  true,
+		LedEnabled:        true,
 	}
 }
 
@@ -67,22 +63,11 @@ func Parse(data []byte, cfg *Config) error {
 				cfg.HeartbeatInterval = d
 			}
 
-		case "max_wait_for_serial":
-			d, err := parseDuration(key, value)
-			if err != nil {
-				errs = append(errs, err)
-			} else {
-				cfg.MaxWaitForSerial = d
-			}
-
 		case "serial":
 			cfg.SerialEnabled = value == "true"
 
-		case "wait_for_serial":
-			cfg.WaitForSerial = value == "true"
-
 		case "enable_led":
-			cfg.EnableMachineLED = value == "true"
+			cfg.LedEnabled = value == "true"
 
 		case "sensors":
 			// Reset before appending so re-parsing doesn't accumulate duplicates.

@@ -56,14 +56,6 @@ func (m *Manager) EnableLED(on, off func()) {
 	m.ledOff = off
 }
 
-// OnSerialReady sets a polling function that returns true when a
-// serial connection is available (e.g. USB DTR is asserted). The
-// manager polls this after each wake, pulsing the LED while waiting.
-// Nil by default (skipped).
-func (m *Manager) OnSerialReady(fn func() bool) {
-	m.serialReady = fn
-}
-
 func (m *Manager) Run() {
 	m.logger.Debug("platform: " + m.sys.Identifier())
 	for {
@@ -114,11 +106,6 @@ func (m *Manager) doSleep() hal.WakeReason {
 	}
 	// Resume execution after wake from sleep.
 
-	// Wait for serial connection, pulsing LED to signal "waiting."
-	if m.serialReady != nil {
-		m.waitForSerial()
-	}
-
 	if m.ledEnabled {
 		m.ledOn()
 	}
@@ -138,28 +125,6 @@ func (m *Manager) doSleep() hal.WakeReason {
 	}
 
 	return reason
-}
-
-const serialPollInterval = 100 * time.Millisecond
-
-// serialSettleDelay is the pause after standby wake to let the host
-// re-enumerate USB before polling DTR.
-// This needs to be a var so we can disable it during tests.
-var serialSettleDelay = time.Second
-
-// waitForSerial polls serialReady. Times out after cfg.MaxWaitForSerial.
-func (m *Manager) waitForSerial() {
-	time.Sleep(serialSettleDelay)
-
-	var waited time.Duration
-	for !m.serialReady() {
-		if m.cfg.MaxWaitForSerial > 0 && waited >= m.cfg.MaxWaitForSerial {
-			m.logger.Warn("wait for serial timed out")
-			return
-		}
-		time.Sleep(serialPollInterval)
-		waited += serialPollInterval
-	}
 }
 
 func (m *Manager) doSample() {
