@@ -19,6 +19,9 @@ func main() {
 	// Keep track of non-fatal init errors for deferred logging.
 	var initErrs []error
 
+	// Startup delay to allow user to connect to serial monitor
+	time.Sleep(5 * time.Second)
+
 	// Setup I2C with default config.
 	err := machine.I2C0.Configure(machine.I2CConfig{})
 	if err != nil {
@@ -71,34 +74,18 @@ func main() {
 
 	// Configure LED.
 	var ledOn, ledOff func()
-	if cfg.EnableMachineLED {
+	if cfg.LedEnabled {
 		machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
 		ledOn = func() { machine.LED.High() }
 		ledOff = func() { machine.LED.Low() }
 	}
 
-	// NOTE: all this wait for serial nonese will be removed soon in favor of
-	// just using a USB to UART serial adapter and requiring the debugger to
-	// maintain a constant serial monitor. This will simplify the code and get
-	// rid of all the waitForSerial nonsense. But for now I need to leave it
-	// to establish a serial connection via onboard USB.
 	if cfg.SerialEnabled {
 		err = machine.Serial.Configure(machine.UARTConfig{
 			BaudRate: 115200,
 		})
 		if err != nil {
 			initErrs = append(initErrs, err)
-		}
-	}
-	if cfg.WaitForSerial {
-		time.Sleep(time.Second)
-		deadline := time.Now().Add(cfg.MaxWaitForSerial)
-		for !machine.Serial.DTR() {
-			if cfg.MaxWaitForSerial > 0 && time.Now().After(deadline) {
-				initErrs = append(initErrs, errors.New("wait for serial timed out"))
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
@@ -121,9 +108,6 @@ func main() {
 	// Create manager.
 	man := manager.New(sys, cfg, devices, logger)
 	man.EnableLED(ledOn, ledOff)
-	if cfg.WaitForSerial {
-		man.OnSerialReady(machine.Serial.DTR)
-	}
 
 	// Register recorders for measurement output.
 	if cfg.SerialEnabled {

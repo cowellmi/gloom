@@ -37,4 +37,4 @@ clean:
 	rm -f $(BIN)
 
 monitor:
-	tio -L --log-file tio.log /dev/tty.usbmodem*
+	clear && tio -L --log-file tio.log /dev/tty.usbmodem*
