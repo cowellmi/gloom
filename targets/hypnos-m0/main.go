@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"machine"
-	"time"
 
 	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/config"
@@ -18,9 +17,6 @@ import (
 func main() {
 	// Keep track of non-fatal init errors for deferred logging.
 	var initErrs []error
-
-	// Startup delay to allow user to connect to serial monitor
-	time.Sleep(5 * time.Second)
 
 	// Setup I2C with default config.
 	err := machine.I2C0.Configure(machine.I2CConfig{})
@@ -82,8 +78,9 @@ func main() {
 		ledOff = func() { machine.LED.Low() }
 	}
 
+	// Using UART1 for serial output. TX: pin 10; RX: pin 11
 	if cfg.SerialEnabled {
-		err = machine.Serial.Configure(machine.UARTConfig{
+		err = machine.UART1.Configure(machine.UARTConfig{
 			BaudRate: 115200,
 		})
 		if err != nil {
@@ -96,7 +93,7 @@ func main() {
 
 	// Register sinks with the logger. Each sink receives log entries
 	// at or above its minimum level.
-	serialSink := serial.New(machine.Serial)
+	serialSink := serial.New(machine.UART1)
 	if cfg.SerialEnabled {
 		logger.AddSink(serialSink, log.LevelDebug)
 	}
