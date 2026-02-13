@@ -13,10 +13,9 @@ build/
 # LLM
 AGENT/
 agent.sh
-.
 
 # Go
-vendor/
+#vendor/
 
 # Other
 *.log
