@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"machine"
+	"time"
 
 	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/config"
@@ -42,8 +43,8 @@ func main() {
 
 	// Load default config then overwrite with values read from storage device.
 	cfg := config.Default()
-	//cfg.SampleInterval = 11 * time.Second
-	//cfg.HeartbeatInterval = 1 * time.Minute
+	cfg.SampleInterval = 7 * time.Second
+	cfg.HeartbeatInterval = 1 * time.Minute
 	// TODO: read config file from SD card on Hypnos. Ideally we can detect the
 	// Hypnos board version during hypnos.Probe to determine chip select pin.
 	//
