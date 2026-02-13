@@ -118,6 +118,10 @@ func (m *MCU) Standby() {
 
 	// --- execution resumes here after wake ---
 
+	// Clear SLEEPDEEP so that any WFI executed by the TinyGo runtime
+	// (e.g. scheduler idle) enters normal idle sleep, not standby.
+	arm.SCB.SCR.ClearBits(arm.SCB_SCR_SLEEPDEEP)
+
 	// Re-enable SysTick interrupt.
 	arm.SYST.SYST_CSR.SetBits(arm.SYST_CSR_TICKINT)
 

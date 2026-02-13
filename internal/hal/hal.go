@@ -8,8 +8,9 @@ import (
 type WakeReason uint8
 
 const (
-	WakeSample    WakeReason = 1 << 0
-	WakeHeartbeat WakeReason = 1 << 1
+	WakeExternal WakeReason = iota
+	WakeSample
+	WakeHeartbeat
 )
 
 // Platform abstracts the hardware a board provides: a clock, sleep

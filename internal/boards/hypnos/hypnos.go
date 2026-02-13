@@ -21,15 +21,15 @@ const (
 	// Delay between retries to allow bus recovery.
 	probeRetryDelay = 500 * time.Millisecond
 
-	powerOnRailsDelay = 2 * time.Second
+	powerOnRails5Delay = 2 * time.Second
 )
 
 type Board struct {
-	proc        mcu.MCU
-	rtc         *ds3231.Device
-	version     string
-	alarm1Armed bool
-	alarm2Armed bool
+	proc          mcu.MCU
+	rtc           *ds3231.Device
+	version       string
+	nextSample    time.Time
+	nextHeartbeat time.Time
 }
 
 // Probe I2C for Hypnos components. The I2C bus must already be configured.
@@ -37,7 +37,7 @@ func Probe(bus drivers.I2C, proc mcu.MCU) (*Board, error) {
 	configureRails()
 	powerOn33()
 	powerOn5()
-	time.Sleep(powerOnRailsDelay)
+	time.Sleep(powerOnRails5Delay)
 
 	rtc, err := configureRTC(bus)
 	if err != nil {
@@ -45,6 +45,12 @@ func Probe(bus drivers.I2C, proc mcu.MCU) (*Board, error) {
 	}
 
 	// TODO: detect board version during probe.
+	//
+	// Maybe when probing for SD card reader?
+	// VERSION	| CHIP SELECT PIN
+	// 3.3 		| 11
+	// 3.2 		| 10
+
 	b := &Board{proc: proc, rtc: rtc, version: "3.3"}
 
 	return b, nil
@@ -66,12 +72,12 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 		err = errors.New("hypnos: standby failed: " + err.Error())
 	}
 
-	if reason&hal.WakeSample != 0 {
+	if reason == hal.WakeSample {
 		// Need to power on 5v rails to give sensors power. This isn't
 		// necessary for WakeHeartbeat reason because we will just send a
 		// keep alive message using network card (no need to turn on sensors).
 		powerOn5()
-		time.Sleep(powerOnRailsDelay)
+		time.Sleep(powerOnRails5Delay)
 		if rtcErr := waitForRTC(b.rtc); rtcErr != nil {
 			return reason, errors.Join(err, rtcErr)
 		}
@@ -81,77 +87,132 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 }
 
 func (b *Board) sleepStandby(sampleInterval, heartbeatInterval time.Duration) (hal.WakeReason, error) {
-	AlarmPin.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
-
-	// Register interrupt. The first call also initializes the EIC
-	// peripheral and its default GCLK0 clock routing in TinyGo.
-	err := AlarmPin.SetInterrupt(machine.PinFalling, b.alarmISR)
-	if err != nil {
-		return 0, err
-	}
-
-	// Setup MCU.
-	b.proc.PrepareStandby()
-	b.proc.EnableWake(AlarmPin)
-
-	// Read current time and set alarms based on intervals.
 	now, err := b.rtc.ReadTime()
 	if err != nil {
 		return 0, err
 	}
 
-	// Calculate alarm times (accounting for rails power delay).
-	if sampleInterval > 0 && !b.alarm1Armed {
-		target := now.Add(sampleInterval - powerOnRailsDelay)
-		if err := b.rtc.SetAlarm1(target, ds3231.A1_DATE); err != nil {
+	// Reset any deadline that hasn't been set yet (either first call
+	// or was zeroed after being met on the previous cycle).
+	if sampleInterval > 0 && b.nextSample.IsZero() {
+		// Sample interval must account for delay to power on 5V rails.
+		b.nextSample = now.Add(sampleInterval - powerOnRails5Delay)
+	}
+	if heartbeatInterval > 0 && b.nextHeartbeat.IsZero() {
+		b.nextHeartbeat = now.Add(heartbeatInterval)
+	}
+
+	// Pick the earliest deadline.
+	target := earliest(b.nextSample, b.nextHeartbeat)
+
+	// Sleep unless a deadline has already passed while the MCU was awake.
+	if target.IsZero() || now.Before(target) {
+		AlarmPin.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+
+		// Register interrupt. The first call also initializes the EIC
+		// peripheral and its default GCLK0 clock routing in TinyGo.
+		err = AlarmPin.SetInterrupt(machine.PinFalling, b.alarmISR)
+		if err != nil {
 			return 0, err
 		}
-		b.alarm1Armed = true
-	}
-	if heartbeatInterval > 0 && !b.alarm2Armed {
-		target := now.Add(heartbeatInterval)
-		if err := b.rtc.SetAlarm2(target, ds3231.A2_DATE); err != nil {
+
+		// Setup MCU.
+		b.proc.PrepareStandby()
+		b.proc.EnableWake(AlarmPin)
+
+		// Set the single RTC alarm if a timed interval is active.
+		if !target.IsZero() {
+			if err := b.rtc.ClearAlarm1(); err != nil {
+				return 0, err
+			}
+			if err := b.rtc.SetAlarm1(target, ds3231.A1_DATE); err != nil {
+				return 0, err
+			}
+		}
+
+		// Kill power to the MOSFET rails.
+		powerOff33()
+		powerOff5()
+
+		// Enter deep sleep. Execution halts here until interrupt.
+		b.proc.Standby()
+
+		// Turn on 3.3V rails which power the RTC.
+		powerOn33()
+		if err := waitForRTC(b.rtc); err != nil {
 			return 0, err
 		}
-		b.alarm2Armed = true
-	}
 
-	// Kill power to the MOSFET rails.
-	powerOff33()
-	powerOff5()
+		// Clear the alarm flag so the INT pin releases back to HIGH.
+		// Best-effort: if this fails the pre-sleep ClearAlarm1 on the
+		// next cycle will retry before we re-enter standby.
+		_ = b.rtc.ClearAlarm1()
 
-	// Enter deep sleep. Execution halts here until interrupt.
-	b.proc.Standby()
-
-	// Turn on 3.3V rails which power RTC.
-	powerOn33()
-	if err := waitForRTC(b.rtc); err != nil {
-		return 0, err
-	}
-
-	// Determine which alarm triggered and reset it.
-	var reason hal.WakeReason
-	if b.rtc.IsAlarm1Fired() {
-		reason |= hal.WakeSample
-		if err := b.rtc.ClearAlarm1(); err != nil {
-			return reason, err
+		// Re-read RTC time after wake.
+		now, err = b.rtc.ReadTime()
+		if err != nil {
+			return 0, err
 		}
-		b.alarm1Armed = false
-	}
-	if b.rtc.IsAlarm2Fired() {
-		reason |= hal.WakeHeartbeat
-		if err := b.rtc.ClearAlarm2(); err != nil {
-			return reason, err
-		}
-		b.alarm2Armed = false
 	}
 
-	return reason, nil
+	// Return the first met deadline. If both are met simultaneously the
+	// second will fire on the next cycle (immediate, no sleep).
+	if sampleInterval > 0 && !b.nextSample.IsZero() && !now.Before(b.nextSample) {
+		b.nextSample = time.Time{}
+		return hal.WakeSample, nil
+	}
+	if heartbeatInterval > 0 && !b.nextHeartbeat.IsZero() && !now.Before(b.nextHeartbeat) {
+		b.nextHeartbeat = time.Time{}
+		return hal.WakeHeartbeat, nil
+	}
+
+	return hal.WakeExternal, nil
 }
 
 func (b *Board) sleepIdle(sample time.Duration) hal.WakeReason {
 	time.Sleep(sample)
 	return hal.WakeSample
+}
+
+// earliest returns the earlier of two times. If either is zero (unscheduled),
+// the other is returned. If both are zero, zero is returned.
+func earliest(a, b time.Time) time.Time {
+	if a.IsZero() && b.IsZero() {
+		return time.Time{}
+	}
+	if a.IsZero() {
+		return b
+	}
+	if b.IsZero() {
+		return a
+	}
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+// clearAlarmInterrupt tears down the RTC alarm interrupt registration.
+// Safe to call whether or not an interrupt is currently registered.
+func (b *Board) clearAlarmInterrupt() {
+	_ = AlarmPin.SetInterrupt(0, nil)
+	b.proc.DisableWake(AlarmPin)
+}
+
+func (b *Board) alarmISR(p machine.Pin) {
+	b.clearAlarmInterrupt()
+}
+
+func waitForRTC(rtc *ds3231.Device) error {
+	for attempt := 0; attempt < probeRetries; attempt++ {
+		err := rtc.SetRunning(true)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(probeRetryDelay)
+	}
+
+	return errors.New("hypnos: rtc communication timed out")
 }
 
 func configureRTC(bus drivers.I2C) (*ds3231.Device, error) {
@@ -181,27 +242,4 @@ func configureRTC(bus drivers.I2C) (*ds3231.Device, error) {
 	}
 
 	return &rtc, nil
-}
-
-// clearAlarmInterrupt tears down the RTC alarm interrupt registration.
-// Safe to call whether or not an interrupt is currently registered.
-func (b *Board) clearAlarmInterrupt() {
-	_ = AlarmPin.SetInterrupt(0, nil)
-	b.proc.DisableWake(AlarmPin)
-}
-
-func (b *Board) alarmISR(p machine.Pin) {
-	b.clearAlarmInterrupt()
-}
-
-func waitForRTC(rtc *ds3231.Device) error {
-	for attempt := 0; attempt < probeRetries; attempt++ {
-		err := rtc.SetRunning(true)
-		if err == nil {
-			return nil
-		}
-		time.Sleep(probeRetryDelay)
-	}
-
-	return errors.New("hypnos: rtc communication timed out")
 }

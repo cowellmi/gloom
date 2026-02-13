@@ -57,6 +57,10 @@ func (m *Manager) EnableLED(on, off func()) {
 }
 
 func (m *Manager) Run() {
+	if t, err := m.sys.ReadTime(); err == nil {
+		m.logger.SetTime(t)
+	}
+
 	m.logger.Debug("platform: " + m.sys.Identifier())
 	for {
 		m.step()
@@ -68,10 +72,10 @@ func (m *Manager) Run() {
 func (m *Manager) step() {
 	reason := m.doSleep()
 
-	if reason&hal.WakeSample != 0 {
+	switch reason {
+	case hal.WakeSample:
 		m.doSample()
-	}
-	if reason&hal.WakeHeartbeat != 0 {
+	case hal.WakeHeartbeat:
 		m.doHeartbeat()
 	}
 

@@ -5,27 +5,27 @@ import (
 )
 
 const (
-	Rail33V = machine.D5
-	Rail5V  = machine.D6
+	rails3Pin = machine.D5
+	rails5Pin = machine.D6
 )
 
 func configureRails() {
-	Rail33V.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	Rail5V.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	rails3Pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	rails5Pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 }
 
 func powerOn33() {
-	Rail33V.Low() // Hypnos 3.3V rail is active-low
+	rails3Pin.Low() // Hypnos 3.3V rail is active-low
 }
 
 func powerOff33() {
-	Rail33V.High()
+	rails3Pin.High()
 }
 
 func powerOn5() {
-	Rail5V.High()
+	rails5Pin.High()
 }
 
 func powerOff5() {
-	Rail5V.Low()
+	rails5Pin.Low()
 }
