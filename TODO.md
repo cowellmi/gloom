@@ -46,6 +46,18 @@ In `internal/sensor/fake/fake.go` (and any real sensor), `Measure()` returns a f
 
 Both `internal/sink/serial/serial.go` and `internal/sink/file/file.go` define identical `appendLevel` helper functions. Extract to a shared location (e.g. `internal/log/` or a small `internal/format/` package) to avoid drift.
 
+## Duplicate `earliest()` helper
+
+Both `internal/hal/fallback.go` and `internal/boards/hypnos/hypnos.go` define identical `earliest(a, b time.Time) time.Time` functions. Extract to `internal/hal/` as an exported or unexported helper so the two Platform implementations share one copy.
+
+## Serial sink permanently self-disables on a single write error
+
+In `internal/sink/serial/serial.go`, any `Write` error sets `s.w = nil` permanently. For UART this is reasonable, but for USB-CDC the connection is torn down and re-established every sleep/wake cycle. A transient write failure (e.g. host not listening) kills the sink for the entire device lifetime. Consider adding a `Reset(w io.Writer)` method that the manager can call after wake to re-inject the writer, or track an error counter and only disable after N consecutive failures.
+
+## Config boolean values not documented for non-programmers
+
+In `internal/config/config.go`, boolean fields like `serial` and `enable_led` only accept the exact string `"true"` to enable. Any other value (including `"yes"`, `"1"`, `"TRUE"`) silently means false. For a framework targeting non-programmers, either document the accepted values clearly in a sample config file, or accept common truthy variants (`"true"`, `"yes"`, `"1"`, case-insensitive).
+
 ## Blues Notecard sink for cloud connectivity
 
 Add a Notecard sink at `sink/notecard/notecard.go` implementing both `sensor.Recorder` and `log.Sink`. The Notecard is a cellular module that communicates over I2C (address `0x17`) using JSON commands and provides store-and-forward sync to Notehub.
