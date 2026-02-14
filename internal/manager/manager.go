@@ -17,16 +17,17 @@ import (
 const recorderBufSize = 512
 
 type Manager struct {
-	sys         hal.Platform
-	cfg         config.Config
-	sensors     []sensor.Device
-	recorders   []sensor.Recorder
-	logger      *log.Logger
+	sys        hal.Platform
+	cfg        config.Config
+	sensors    []sensor.Device
+	recorders  []sensor.Recorder
+	logger     *log.Logger
 	buf        [recorderBufSize]byte
 	wakeTime   time.Time
 	ledEnabled bool
-	ledOn       func()
-	ledOff      func()
+	ledOn      func()
+	ledOff     func()
+	petWDT     func()
 }
 
 func New(sys hal.Platform, cfg config.Config, devices []sensor.Device, logger *log.Logger) *Manager {
@@ -44,6 +45,20 @@ func (m *Manager) AddRecorder(r sensor.Recorder) {
 	m.recorders = append(m.recorders, r)
 }
 
+// EnableWatchdog sets a callback the manager calls to pet the hardware
+// watchdog at strategic points (before flush, after log bursts, etc.)
+// to prevent resets during long SD card operations.
+func (m *Manager) EnableWatchdog(pet func()) {
+	m.petWDT = pet
+}
+
+// pet resets the watchdog countdown if a callback has been registered.
+func (m *Manager) pet() {
+	if m.petWDT != nil {
+		m.petWDT()
+	}
+}
+
 // EnableLED sets callbacks invoked when the manager turns the LED off
 // (before sleep) and on (after wake). Nil by default (LED ignored).
 func (m *Manager) EnableLED(on, off func()) {
@@ -56,11 +71,15 @@ func (m *Manager) EnableLED(on, off func()) {
 }
 
 func (m *Manager) Run() {
+	m.pet()
+
 	if t, err := m.sys.ReadTime(); err == nil {
 		m.logger.SetTime(t)
 	}
 
 	m.logger.Debug("platform: " + m.sys.Identifier())
+	m.pet()
+
 	for {
 		m.step()
 	}
@@ -95,8 +114,12 @@ func (m *Manager) doSleep() hal.WakeReason {
 	}
 	m.logger.Debug("sleep: sample=" + sampleInterval + " heartbeat=" + heartbeatInterval)
 
+	m.pet()
+
 	// Flush all outputs before powering down peripherals and sleeping.
 	m.flush()
+
+	m.pet()
 
 	if m.ledEnabled {
 		m.ledOff()
@@ -133,6 +156,8 @@ func (m *Manager) doSleep() hal.WakeReason {
 func (m *Manager) doSample() {
 	m.logger.Debug("sample")
 	for _, s := range m.sensors {
+		m.pet()
+
 		if err := s.Init(); err != nil {
 			m.logger.Error("failed to initialize: " + s.Name() + ": " + err.Error())
 			continue

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/config"
+	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/mcu/samd21"
@@ -31,11 +32,10 @@ func main() {
 	// Keep track of non-fatal init errors for deferred logging.
 	var initErrs []error
 
-	println("hello world")
-
 	// Configure UART0 early so fatal errors are visible on the
 	// UART monitor even before the full serial setup.
 	configureUART0(115200)
+	debug.W = UART0
 
 	// Setup I2C with default config.
 	err := machine.I2C0.Configure(machine.I2CConfig{})
@@ -71,8 +71,8 @@ func main() {
 	logger := log.NewLogger()
 	card := board.Card
 
-	// Load config from SD card. If missing, seed a default config.ini
-	// so the user has a template to edit.
+	// Load config from SD card. If missing, seed a default
+	// config.ini so the user has a template to edit.
 	cfg := config.Default()
 	raw, err := card.ReadFile("config.ini")
 	if err != nil {
@@ -105,6 +105,13 @@ func main() {
 	if t, err := board.ReadTime(); err == nil {
 		now = t
 	}
+	// Push the RTC time into the logger before any writes so the
+	// file sink's date and the logger's date agree. Without this,
+	// the first logger.Error/Debug write triggers maybeRotate
+	// (time.Now() ≈ 2009 vs RTC ≈ 2026), which re-opens files
+	// through the FAT CGo driver and overflows the stack.
+	logger.SetTime(now)
+
 	fileSink, fileErr := file.New("sd", opener, file.FileSpec{
 		Dir: "data",
 		Ext: ".csv",
@@ -154,6 +161,8 @@ func main() {
 		logger.AddSink(usbSink, log.LevelDebug)
 	}
 
+	proc.PetWatchdog()
+
 	logger.AddSink(fileSink, log.LevelDebug)
 
 	// Report init errors through logger sinks.
@@ -161,8 +170,11 @@ func main() {
 		logger.Error("init: " + e.Error())
 	}
 
+	proc.PetWatchdog()
+
 	man := manager.New(board, cfg, devices, logger)
 	man.EnableLED(ledOn, ledOff)
+	man.EnableWatchdog(proc.PetWatchdog)
 
 	// Register recorders for measurement output.
 	if cfg.SerialEnabled {
@@ -184,9 +196,7 @@ var petWatchdog func()
 // watchdog is running it is petted each blink cycle to prevent a
 // reset -- this is a permanent halt, not a transient hang.
 func fatal(err error) {
-	msg := "fatal: " + err.Error()
-	println(msg)
-	UART0.Write([]byte(msg + "\r\n"))
+	debug.Log("fatal: " + err.Error())
 	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	for {
 		if petWatchdog != nil {

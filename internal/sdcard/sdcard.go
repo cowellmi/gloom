@@ -13,10 +13,17 @@ import (
 	"io"
 	"machine"
 	"os"
+	"strconv"
 
+	"github.com/cowellmi/gloom/internal/debug"
 	"tinygo.org/x/drivers/sdcard"
 	"tinygo.org/x/tinyfs/fatfs"
 )
+
+// mountRetries is the number of mount attempts before falling back to
+// a reformat. A transient SPI glitch can cause a single mount to fail
+// even when the filesystem is intact; retrying avoids data loss.
+const mountRetries = 3
 
 // File combines write, sync, and close operations for a file opened
 // in append mode on the SD card. The concrete *fatfs.File satisfies
@@ -37,19 +44,35 @@ type Card struct {
 // internally by the sdcard driver; the caller should not pre-configure
 // it.
 func New(spi *machine.SPI, sck, sdo, sdi, cs machine.Pin) (*Card, error) {
+	debug.Log("sdcard: configuring spi")
 	dev := sdcard.New(spi, sck, sdo, sdi, cs)
 	if err := dev.Configure(); err != nil {
+		debug.Log("sdcard: spi configure failed: " + err.Error())
 		return nil, errors.New("sdcard: " + err.Error())
 	}
+	debug.Log("sdcard: spi ok")
 
 	filesystem := fatfs.New(&dev)
 	filesystem.Configure(&fatfs.Config{SectorSize: 512})
 
-	if err := filesystem.Mount(); err != nil {
-		return nil, errors.New("sdcard: mount: " + err.Error())
+	// Attempt mount up to mountRetries times before resorting to a
+	// reformat. The first mount can fail due to a transient SPI
+	// glitch even though the filesystem is intact -- a retry avoids
+	// destroying data unnecessarily.
+	var mountErr error
+	for attempt := 0; attempt < mountRetries; attempt++ {
+		debug.Log("sdcard: mount attempt " + strconv.Itoa(attempt+1) + "/" + strconv.Itoa(mountRetries))
+		mountErr = filesystem.Mount()
+		if mountErr == nil {
+			debug.Log("sdcard: mounted")
+			return &Card{dev: dev, fs: filesystem}, nil
+		}
+		debug.Log("sdcard: mount failed: " + mountErr.Error())
 	}
 
-	return &Card{dev: dev, fs: filesystem}, nil
+	// All mount attempts exhausted. Return the last error so the
+	// caller can treat it as fatal (blink LED, halt).
+	return nil, errors.New("sdcard: mount failed after " + strconv.Itoa(mountRetries) + " attempts: " + mountErr.Error())
 }
 
 // ReadFile reads an entire file into a byte slice. Intended for small
@@ -125,7 +148,31 @@ func (c *Card) OpenAppend(name string) (File, error) {
 // Mkdir creates a directory. It is a no-op if the directory already
 // exists. Intended for creating log/data subdirectories at startup.
 func (c *Card) Mkdir(name string) error {
-	return c.fs.Mkdir(name, 0)
+	err := c.fs.Mkdir(name, 0)
+	if err == nil {
+		return nil
+	}
+	// FatFs returns FR_EXIST (8) when the directory already exists.
+	// Treat this as success — the caller just wants the dir to be
+	// present, not necessarily freshly created.
+	if isExistError(err) {
+		return nil
+	}
+	return err
+}
+
+// isExistError returns true if the error indicates the path already
+// exists. ChaN FatFs surfaces this as error code 8 (FR_EXIST).
+func isExistError(err error) bool {
+	// The tinyfs fatfs wrapper formats errors as "fatfs: (N) ...",
+	// where N is the FRESULT code. FR_EXIST = 8.
+	msg := err.Error()
+	for i := 0; i < len(msg)-2; i++ {
+		if msg[i] == '(' && msg[i+1] == '8' && msg[i+2] == ')' {
+			return true
+		}
+	}
+	return false
 }
 
 // Remove deletes a file from the filesystem. Intended for future use

@@ -142,7 +142,7 @@ _ = AlarmPin.SetInterrupt(0, nil)
 
 ### Style
 
-- No `fmt` package — it's too large for TinyGo on constrained targets. Use `strconv`, manual `append`, or `println` for fatal errors before the logger is available.
+- No `fmt` package — it's too large for TinyGo on constrained targets. Use `strconv`, manual `append`, or `debug.Log` for diagnostic output (see Debugging section below). Do not use `println` — it routes to USB-CDC which is unreliable on this target.
 - String building via `append(buf, ...)` chains.
 - Prefer returning errors over panicking.
 - Short, descriptive variable names (`cfg`, `proc`, `sys`, `buf`, `ms`).
@@ -160,3 +160,17 @@ These are specific to the current target and live in `boards/hypnos/` and `mcu/s
 - Flash sleep-power-reduction errata: SLEEPPRM must be set to DISABLED on some SAMD21 revisions.
 - **Do not use `time.Sleep`** — it goes through TinyGo's scheduler/SysTick path, which is opaque and has shown unreliable behavior after SAMD21 standby wake. Use `wait.For(d)` from `internal/wait` everywhere instead. It busy-waits on `time.Now()` / `time.Since()` using the monotonic clock, which survives standby. There are no other goroutines on these devices, so spinning has zero downside.
 - UART0 on SERCOM0 (D0/D1) is manually configured in `targets/feather-m0/uart0.go` because TinyGo's Feather M0 board file only exposes UART1 on SERCOM1 (D10/D11), which conflicts with SD card CS pins. RX interrupts are not enabled to avoid conflicting with TinyGo's compile-time IRQ_SERCOM0 handler.
+
+### Debugging
+
+All diagnostic output goes through **`debug.Log`** from `internal/debug`, which writes to a global `io.Writer`. In `main.go`, this is wired to the custom UART0 early in startup (`debug.W = UART0`), so messages appear on the hardware UART serial monitor.
+
+- **Use `debug.Log("msg")` for any debug/diagnostic output.** It is a no-op when `debug.W` is nil, so it is safe to call from any package at any time.
+- **Do not use `println`.** TinyGo's `println` routes to USB-CDC on the Feather M0, not to the hardware UART. The TinyGo `-serial=uart` flag cannot be used because it targets UART1 (SERCOM1 / D10/D11), which conflicts with the Hypnos SD card CS pins.
+- **Panics and stack traces** still go to USB-CDC (`println` path). To see them, connect a USB cable and open a CDC serial monitor in addition to the UART monitor.
+
+To view UART output, connect a USB-to-serial adapter to D0/D1 and open a monitor at 115200 baud:
+
+```sh
+just monitor
+```

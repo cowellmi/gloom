@@ -3,7 +3,7 @@ bin := "main.bin"
 port := `ls /dev/cu.usbmodem* /dev/cu.usbserial* /dev/tty.usbmodem* /dev/tty.usbserial* /dev/ttyACM* /dev/ttyUSB* 2>/dev/null | head -n 1`
 
 build:
-	tinygo build -size=short -target={{board}} -o={{bin}} .
+	tinygo build -size=short -stack-size=8KB -target={{board}} -o={{bin}} .
 
 flash: build
 	bossac --port="{{port}}" --offset=0x2000 --erase --write --verify --reset "{{bin}}" 
