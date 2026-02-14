@@ -110,6 +110,7 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 		// Check if anything goes wrong while preparing for standby mode.
 		prepErr := b.prepareForStandby(target)
 		if prepErr != nil {
+			b.clearAlarmInterrupt()
 			sleepErrs = append(sleepErrs, prepErr)
 		}
 
@@ -119,9 +120,10 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 		powerOff33()
 		powerOff5()
 
-		// If nothing went wrong, enter standby mode.
+		// If nothing went wrong, enter standby mode. Otherwise fall
+		// back to an idle sleep loop that periodically pets the watchdog.
 		if prepErr != nil {
-			time.Sleep(time.Until(target))
+			b.idleSleep(target)
 		} else {
 			b.proc.Standby()
 		}
@@ -139,9 +141,6 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 		// Clear the alarm flag so the INT pin releases back to HIGH.
 		// Best-effort: if this fails the pre-sleep ClearAlarm1 on the
 		// next cycle will retry before we re-enter standby.
-		//
-		// NOTE: is it safe to run after prepareForStandby failed and
-		// time.Sleep executed?
 		_ = b.rtc.ClearAlarm1()
 
 		b.proc.PetWatchdog()
@@ -164,8 +163,7 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 	if sampleInterval > 0 && !b.nextSample.IsZero() && !now.Before(b.nextSample) {
 		reason = hal.WakeSample
 		b.nextSample = time.Time{}
-	}
-	if heartbeatInterval > 0 && !b.nextHeartbeat.IsZero() && !now.Before(b.nextHeartbeat) {
+	} else if heartbeatInterval > 0 && !b.nextHeartbeat.IsZero() && !now.Before(b.nextHeartbeat) {
 		reason = hal.WakeHeartbeat
 		b.nextHeartbeat = time.Time{}
 	} else {
@@ -174,7 +172,9 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 	}
 
 	if reason != hal.WakeHeartbeat {
-		// Turn on 5V power rails to power on sensors.
+		// Turn on 5V power rails to power on sensors. This isn't
+		// necessary for WakeHeartbeat because we just send a keep alive
+		// message using the network card (no need to turn on sensors).
 		powerOn5()
 		time.Sleep(powerOnDelay)
 
@@ -209,6 +209,28 @@ func (b *Board) prepareForStandby(target time.Time) error {
 	}
 
 	return nil
+}
+
+// idleSleep is the fallback when standby preparation fails. It sleeps in
+// short intervals, petting the watchdog between each, until the target time
+// is reached. If target is zero (no timed deadline), it sleeps for a single
+// watchdog-safe interval to avoid spinning.
+func (b *Board) idleSleep(target time.Time) {
+	const tick = 4 * time.Second // well within the ~8s watchdog timeout
+
+	if target.IsZero() {
+		time.Sleep(tick)
+		return
+	}
+
+	for time.Now().Before(target) {
+		b.proc.PetWatchdog()
+		remaining := time.Until(target)
+		if remaining > tick {
+			remaining = tick
+		}
+		time.Sleep(remaining)
+	}
 }
 
 // earliest returns the earlier of two times. If either is zero (unscheduled),
