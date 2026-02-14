@@ -109,7 +109,7 @@ func newTestManager(sys *mockSystem, sens []sensor.Device) (*Manager, *mockOutpu
 	}
 	mo := &mockOutput{name: "test"}
 
-	logger := log.New()
+	logger := log.NewLogger()
 	logger.AddSink(mo, log.LevelDebug)
 
 	man := New(sys, cfg, sens, logger)

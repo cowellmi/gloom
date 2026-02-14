@@ -45,7 +45,7 @@ type Logger struct {
 
 // New creates a Logger with no sinks and the current time. Call AddSink
 // to register output destinations.
-func New() *Logger {
+func NewLogger() *Logger {
 	return &Logger{t: time.Now()}
 }
 

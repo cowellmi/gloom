@@ -21,8 +21,8 @@ type Sink struct {
 	w io.Writer
 }
 
-// New creates a serial Sink. If w is nil, all writes are no-ops.
-func New(w io.Writer) *Sink {
+// NewSink creates a serial Sink. If w is nil, all writes are no-ops.
+func NewSink(w io.Writer) *Sink {
 	return &Sink{w: w}
 }
 

@@ -15,9 +15,20 @@ import (
 	"github.com/cowellmi/gloom/internal/sink/serial"
 )
 
+// UART1 pins
+const (
+	UART_TX_PIN = machine.D10
+	UART_RX_PIN = machine.D11
+)
+
 func main() {
+	// Serial sinks.
+	var UART1, USBCDC *serial.Sink
+
 	// Keep track of non-fatal init errors for deferred logging.
 	var initErrs []error
+
+	println("hello world")
 
 	// Setup I2C with default config.
 	err := machine.I2C0.Configure(machine.I2CConfig{})
@@ -40,6 +51,8 @@ func main() {
 		// Successfully loaded Hypnos board. Set as system platform.
 		sys = board
 	}
+
+	logger := log.NewLogger()
 
 	// Load default config then overwrite with values read from storage device.
 	cfg := config.Default()
@@ -82,26 +95,32 @@ func main() {
 		ledOff = func() { machine.LED.Low() }
 	}
 
-	// Using UART1 for serial output. TX: pin 10; RX: pin 11
 	if cfg.SerialEnabled {
-		err = machine.UART1.Configure(machine.UARTConfig{
+		// USB-CDC
+		err = machine.Serial.Configure(machine.UARTConfig{
 			BaudRate: 115200,
 		})
 		if err != nil {
 			initErrs = append(initErrs, err)
 		}
-	}
 
-	// Create logger with per-sink level filtering.
-	logger := log.New()
+		// UART1
+		err = machine.UART1.Configure(machine.UARTConfig{
+			BaudRate: 115200,
+			TX:       UART_TX_PIN,
+			RX:       UART_RX_PIN,
+		})
+		if err != nil {
+			initErrs = append(initErrs, err)
+		}
 
-	// Register sinks with the logger. Each sink receives log entries
-	// at or above its minimum level.
-	serialSink := serial.New(machine.UART1)
-	if cfg.SerialEnabled {
-		logger.AddSink(serialSink, log.LevelDebug)
+		UART1 = serial.NewSink(machine.UART1)
+		sinkUSBCDC := serial.NewSink(machine.Serial)
+
+		logger.AddSink(UART1, log.LevelDebug)
+		logger.AddSink(sinkUSBCDC, log.LevelDebug)
 	}
-	// TODO: register file sink with SD card manager.
+	// TODO: register file sink with SD card reader/writer.
 
 	// Report init errors through logger sinks.
 	for _, e := range initErrs {
@@ -114,7 +133,8 @@ func main() {
 
 	// Register recorders for measurement output.
 	if cfg.SerialEnabled {
-		man.AddRecorder(serialSink)
+		man.AddRecorder(UART1)
+		man.AddRecorder(USBCDC)
 	}
 	// TODO: register file sink recorder with SD card manager.
 
