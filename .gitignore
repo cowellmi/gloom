@@ -10,9 +10,5 @@ build/
 # See .envrc.example
 .envrc
 
-# LLM
-AGENT/
-agent.sh
-
 # Other
 *.log
