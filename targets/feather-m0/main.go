@@ -46,6 +46,13 @@ func main() {
 	// Load the ATSAMD21 (from Feather M0). It implements MCU.
 	proc := samd21.New()
 
+	// Enable watchdog early so SPI/I2C hangs during probe (e.g.
+	// corrupted SD card) cause a reset instead of a permanent hang.
+	// Probe and subsequent init steps pet the watchdog at strategic
+	// points to avoid tripping it during normal startup.
+	proc.EnableWatchdog()
+	petWatchdog = proc.PetWatchdog
+
 	// Load Hypnos board. Probe detects the RTC and SD card reader.
 	board, err := hypnos.Probe(
 		machine.I2C0,
@@ -58,6 +65,8 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+
+	proc.PetWatchdog()
 
 	logger := log.NewLogger()
 	card := board.Card
@@ -75,6 +84,8 @@ func main() {
 			initErrs = append(initErrs, err)
 		}
 	}
+
+	proc.PetWatchdog()
 
 	// Create directories for daily-rotating data and log files.
 	if err := card.Mkdir("data"); err != nil {
@@ -104,6 +115,8 @@ func main() {
 	if fileErr != nil {
 		initErrs = append(initErrs, fileErr)
 	}
+
+	proc.PetWatchdog()
 
 	// Resolve sensor IDs from config to actual devices.
 	var devices []sensor.Device
@@ -158,19 +171,27 @@ func main() {
 	}
 	man.AddRecorder(fileSink)
 
-	// Start the watchdog and enter loop.
-	proc.EnableWatchdog()
+	// Watchdog is already running -- enter the main loop.
 	man.Run()
 }
 
+// petWatchdog is set after the watchdog is enabled so that fatal()
+// can pet it during the blink loop. Nil before EnableWatchdog.
+var petWatchdog func()
+
 // fatal prints the error to USB-CDC and blinks the LED forever to
-// signal a hard failure when no serial monitor is connected.
+// signal a hard failure when no serial monitor is connected. If the
+// watchdog is running it is petted each blink cycle to prevent a
+// reset -- this is a permanent halt, not a transient hang.
 func fatal(err error) {
 	msg := "fatal: " + err.Error()
 	println(msg)
 	UART0.Write([]byte(msg + "\r\n"))
 	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	for {
+		if petWatchdog != nil {
+			petWatchdog()
+		}
 		machine.LED.High()
 		wait.For(250 * time.Millisecond)
 		machine.LED.Low()

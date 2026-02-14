@@ -19,6 +19,12 @@ const (
 
 	// Delay required after powering on 5V rails.
 	powerOnDelay = 2 * time.Second
+
+	// Delay to hold rails off during the initial power cycle.
+	// Must be long enough for the SD card's internal capacitors to
+	// fully discharge so its SPI state machine resets. 250 ms is
+	// conservative; most cards discharge in under 100 ms.
+	sdPowerCycleDelay = 250 * time.Millisecond
 )
 
 type Board struct {
@@ -33,16 +39,36 @@ type Board struct {
 // Probe detects and initialises all Hypnos components: RTC (via I2C)
 // and SD card reader (via SPI). The I2C bus must already be configured.
 // Returns a fatal error if either component is missing.
+//
+// The caller should enable the hardware watchdog before calling Probe
+// so that SPI/I2C hangs (e.g. corrupted SD card) cause a reset
+// instead of a permanent hang.
 func Probe(bus drivers.I2C, spi *machine.SPI, sck, sdo, sdi machine.Pin, proc mcu.MCU) (*Board, error) {
 	configureRails()
+
+	// Force a clean power cycle so the SD card resets its SPI state
+	// machine. After a WDT reset or unexpected power loss mid-write,
+	// the card can be stuck waiting for the rest of a previous SPI
+	// command. The Mac won't see this (it uses SDIO with a hardware
+	// reset line) but SPI mode has no out-of-band reset -- the only
+	// fix is to cut power long enough for the card's internal caps
+	// to discharge.
+	powerOff33()
+	powerOff5()
+	wait.For(sdPowerCycleDelay)
+
 	powerOn33()
 	powerOn5()
 	wait.For(powerOnDelay)
+
+	proc.PetWatchdog()
 
 	rtc, err := probeRTC(bus)
 	if err != nil {
 		return nil, err
 	}
+
+	proc.PetWatchdog()
 
 	// Detect board version by probing the SD card reader on each
 	// known chip-select pin (D11 for v3.3, D10 for v3.2).
@@ -51,8 +77,9 @@ func Probe(bus drivers.I2C, spi *machine.SPI, sck, sdo, sdi machine.Pin, proc mc
 		return nil, sdErr
 	}
 
-	b := &Board{proc: proc, rtc: rtc, Card: card, version: version}
+	proc.PetWatchdog()
 
+	b := &Board{proc: proc, rtc: rtc, Card: card, version: version}
 	return b, nil
 }
 
