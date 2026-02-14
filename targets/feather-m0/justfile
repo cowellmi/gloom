@@ -1,0 +1,5 @@
+board := "feather-m0"
+bin := "main.bin"
+
+build:
+	tinygo build -size=short -target={{board}} -o={{bin}} .
