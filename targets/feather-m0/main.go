@@ -47,8 +47,6 @@ func main() {
 	proc := samd21.New()
 
 	// Load Hypnos board. Probe detects the RTC and SD card reader.
-	// Both are hard requirements — without them the device can't
-	// keep time or store config/data.
 	board, err := hypnos.Probe(
 		machine.I2C0,
 		machine.SPI0,
@@ -78,19 +76,34 @@ func main() {
 		}
 	}
 
-	// Open files for sensor data and log output.
-	dataW, dataErr := card.OpenAppend("sensors.csv")
-	if dataErr != nil {
-		initErrs = append(initErrs, dataErr)
+	// Create directories for daily-rotating data and log files.
+	if err := card.Mkdir("data"); err != nil {
+		initErrs = append(initErrs, err)
 	}
-	logW, logErr := card.OpenAppend("gloom.log")
-	if logErr != nil {
-		initErrs = append(initErrs, logErr)
+	if err := card.Mkdir("logs"); err != nil {
+		initErrs = append(initErrs, err)
 	}
-	fileSink := file.New("sd", dataW, logW, card.Sync)
 
-	// Add dummy sensor for debugging.
-	cfg.Sensors = []string{"fake"}
+	// Create file sink with daily rotation. The opener wraps
+	// card.OpenAppend so the sink can open new date-stamped files
+	// as needed (e.g. data/20260214.csv, logs/20260214.log).
+	opener := func(name string) (file.AppendFile, error) {
+		return card.OpenAppend(name)
+	}
+	now := time.Now()
+	if t, err := board.ReadTime(); err == nil {
+		now = t
+	}
+	fileSink, fileErr := file.New("sd", opener, file.FileSpec{
+		Dir: "data",
+		Ext: ".csv",
+	}, file.FileSpec{
+		Dir: "logs",
+		Ext: ".log",
+	}, now)
+	if fileErr != nil {
+		initErrs = append(initErrs, fileErr)
+	}
 
 	// Resolve sensor IDs from config to actual devices.
 	var devices []sensor.Device
@@ -135,7 +148,6 @@ func main() {
 		logger.Error("init: " + e.Error())
 	}
 
-	// Create manager.
 	man := manager.New(board, cfg, devices, logger)
 	man.EnableLED(ledOn, ledOff)
 
@@ -146,10 +158,8 @@ func main() {
 	}
 	man.AddRecorder(fileSink)
 
-	// Start the watchdog now that all init is complete. Only the
-	// steady-state loop needs watchdog protection.
+	// Start the watchdog and enter loop.
 	proc.EnableWatchdog()
-
 	man.Run()
 }
 

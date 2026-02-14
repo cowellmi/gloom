@@ -49,7 +49,7 @@ Other boards would implement `hal.Platform.Sleep()` differently (e.g. timer-base
 
 ```
 targets/
-  feather-m0/          First target: Feather M0 + Hypnos (main.go, registry, uart0, Makefile)
+  feather-m0/          First target: Feather M0 + Hypnos (main.go, registry, uart0, justfile)
 internal/
   hal/                Platform interface + Fallback impl (target-agnostic)
   boards/hypnos/      Hypnos Board (Platform impl): RTC, rails, standby, SD card
@@ -64,7 +64,7 @@ internal/
   sensor/             Device + Recorder interfaces (target-agnostic)
   sensor/fake/        Dummy sensor for debugging
   sink/serial/        Serial text output (log.Sink + sensor.Recorder)
-  sink/file/          File/SD CSV output (log.Sink + sensor.Recorder)
+  sink/file/          Daily-rotating file output to data/ and logs/ (log.Sink + sensor.Recorder)
 ```
 
 Packages marked *target-agnostic* contain no hardware imports and are testable with the standard Go toolchain. Hardware-specific code lives exclusively in `mcu/<chip>`, `boards/<board>`, and `targets/<target>`.
@@ -73,22 +73,22 @@ Packages marked *target-agnostic* contain no hardware imports and are testable w
 
 ```sh
 # Run pure-Go unit tests (no hardware required)
-make test
+just test
 
 # Vet pure-Go packages
-make vet
+just vet
 
 # Build firmware binary (requires tinygo)
-make -C targets/feather-m0 build
+just -f targets/feather-m0/justfile build
 
 # Flash firmware (requires bossac)
-make -C targets/feather-m0 flash BOSSAC=/path/to/bossac
+just -f targets/feather-m0/justfile flash
 
 # Open serial monitor (requires tio)
-make -C targets/feather-m0 monitor
+just monitor
 ```
 
-`TEST_PKGS` in the root Makefile lists pure-Go packages testable with `go test`. Hardware-dependent packages (`boards/hypnos`, `mcu/samd21`) are only buildable with TinyGo and have no host-side tests.
+`test_pkgs` in the root justfile lists pure-Go packages testable with `go test`. Hardware-dependent packages (`boards/hypnos`, `mcu/samd21`) are only buildable with TinyGo and have no host-side tests.
 
 ## Coding Conventions
 

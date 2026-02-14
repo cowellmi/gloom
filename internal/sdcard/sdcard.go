@@ -18,18 +18,18 @@ import (
 	"tinygo.org/x/tinyfs/fatfs"
 )
 
-// Card holds a mounted FAT filesystem on an SD card and tracks files
-// opened via OpenAppend so they can be synced in bulk before sleep.
-type Card struct {
-	dev   sdcard.Device
-	fs    *fatfs.FATFS
-	files []syncer
+// File combines write, sync, and close operations for a file opened
+// in append mode on the SD card. The concrete *fatfs.File satisfies
+// this interface.
+type File interface {
+	io.WriteCloser
+	Sync() error
 }
 
-// syncer is satisfied by *fatfs.File which has a Sync method.
-type syncer interface {
-	io.Writer
-	Sync() error
+// Card holds a mounted FAT filesystem on an SD card.
+type Card struct {
+	dev sdcard.Device
+	fs  *fatfs.FATFS
 }
 
 // New initialises the SD card on the given SPI bus and chip-select
@@ -95,7 +95,7 @@ func (c *Card) WriteFile(name string, data []byte) error {
 	}
 	// Sync FAT metadata to disk before close so the directory entry
 	// is durable even if the SD card loses power shortly after.
-	if sf, ok := f.(syncer); ok {
+	if sf, ok := f.(File); ok {
 		if err := sf.Sync(); err != nil {
 			f.Close()
 			return err
@@ -104,35 +104,32 @@ func (c *Card) WriteFile(name string, data []byte) error {
 	return f.Close()
 }
 
-// OpenAppend opens (or creates) a file for append writing. The file is
-// tracked internally so that Sync flushes it. Callers should not close
-// the returned writer; it remains open for the device lifetime.
-func (c *Card) OpenAppend(name string) (io.Writer, error) {
+// OpenAppend opens (or creates) a file for append writing. The caller
+// is responsible for syncing and closing the returned File.
+func (c *Card) OpenAppend(name string) (File, error) {
 	f, err := c.fs.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_APPEND)
 	if err != nil {
 		return nil, err
 	}
 
-	// The concrete *fatfs.File has a Sync method. Capture it so
-	// Card.Sync can flush all open files before sleep.
-	if sf, ok := f.(syncer); ok {
-		c.files = append(c.files, sf)
-		return sf, nil
+	af, ok := f.(File)
+	if !ok {
+		// The concrete *fatfs.File always satisfies File. If this
+		// fails something is very wrong with the driver.
+		f.Close()
+		return nil, errors.New("sdcard: file does not support sync")
 	}
-
-	// Fallback: file does not support Sync. Still usable for writes.
-	return f, nil
+	return af, nil
 }
 
-// Sync flushes all tracked files to the physical SD card. Intended as
-// the sync callback passed to file.Sink so data is durable before the
-// MCU enters sleep.
-func (c *Card) Sync() error {
-	var errs []error
-	for _, f := range c.files {
-		if err := f.Sync(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+// Mkdir creates a directory. It is a no-op if the directory already
+// exists. Intended for creating log/data subdirectories at startup.
+func (c *Card) Mkdir(name string) error {
+	return c.fs.Mkdir(name, 0)
+}
+
+// Remove deletes a file from the filesystem. Intended for future use
+// by retention/pruning logic.
+func (c *Card) Remove(name string) error {
+	return c.fs.Remove(name)
 }

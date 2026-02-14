@@ -4,19 +4,6 @@
 
 In `internal/mcu/samd21/samd21.go`, `detachUSB` guards on USB being enabled but `BeginSerial` does not. They should both check state before acting. Also `detachUSB` is unexported while `BeginSerial`/`EndSerial` are exported -- make the visibility consistent.
 
-## GCLK6 RUNSTDBY race in `PrepareStandby`
-
-In `internal/mcu/samd21/samd21.go`, GCLK `GENCTRL` is a multiplexed register keyed by the ID field. The initial `Set()` writes ID=6 correctly, but the subsequent `SetBits(RUNSTDBY)` is a read-modify-write. If the read-back returns a stale ID (due to sync latency or peripheral muxing), the RUNSTDBY bit could land on the wrong generator. Fold RUNSTDBY into the single `Set()` call to eliminate the race and the extra sync loop:
-
-```go
-sam.GCLK.GENCTRL.Set(
-    sam.GCLK_GENCTRL_GENEN |
-        sam.GCLK_GENCTRL_RUNSTDBY |
-        sam.GCLK_GENCTRL_SRC_OSCULP32K<<sam.GCLK_GENCTRL_SRC_Pos |
-        6<<sam.GCLK_GENCTRL_ID_Pos,
-)
-```
-
 ## `formatTimestamp` in `sink/file` heap-allocates every call
 
 In `internal/sink/file/file.go`, `formatTimestamp` returns `string(buf[:])` which escapes the stack-allocated `[19]byte` to the heap on every call. This runs once per measurement per cycle. On 32KB RAM it adds up. Refactor to accept a `[]byte` parameter and append into the caller's scratch buffer, consistent with how the serial sink formats timestamps.
@@ -57,6 +44,17 @@ In `internal/sink/serial/serial.go`, any `Write` error sets `s.w = nil` permanen
 ## Config boolean values not documented for non-programmers
 
 In `internal/config/config.go`, boolean fields like `serial` and `enable_led` only accept the exact string `"true"` to enable. Any other value (including `"yes"`, `"1"`, `"TRUE"`) silently means false. For a framework targeting non-programmers, either document the accepted values clearly in a sample config file, or accept common truthy variants (`"true"`, `"yes"`, `"1"`, case-insensitive).
+
+## File retention / pruning for SD card logs and sensor data
+
+Daily rotation is implemented with files organized into directories: `data/20260214.csv` for sensor recordings and `logs/20260214.log` for log entries. Old files are never deleted. Add configurable retention periods with separate settings for logs and sensor recordings:
+
+- `log_retain_days` — number of days to keep log files (e.g. 7). Diagnostic logs are high-volume and low-value once reviewed; a researcher may want to keep only a few days.
+- `data_retain_days` — number of days to keep sensor recordings. Sensor data is the primary scientific output and may need to be kept indefinitely (`0` = keep forever) until manually retrieved from the SD card.
+
+Implementation notes:
+- On startup or daily rotation, compute expected old filenames (`{dir}/{YYYYMMDD}{ext}`) going back beyond the retention window and call `card.Remove` for each. This avoids FAT directory listing (which is limited in fatfs) by using predictable date-stamped names.
+- `card.Remove` already exists for this purpose.
 
 ## Blues Notecard sink for cloud connectivity
 
