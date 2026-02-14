@@ -115,10 +115,10 @@ func main() {
 		}
 
 		UART1 = serial.NewSink(machine.UART1)
-		sinkUSBCDC := serial.NewSink(machine.Serial)
+		USBCDC = serial.NewSink(machine.Serial)
 
 		logger.AddSink(UART1, log.LevelDebug)
-		logger.AddSink(sinkUSBCDC, log.LevelDebug)
+		logger.AddSink(USBCDC, log.LevelDebug)
 	}
 	// TODO: register file sink with SD card reader/writer.
 
