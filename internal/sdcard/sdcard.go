@@ -93,6 +93,14 @@ func (c *Card) WriteFile(name string, data []byte) error {
 		f.Close()
 		return err
 	}
+	// Sync FAT metadata to disk before close so the directory entry
+	// is durable even if the SD card loses power shortly after.
+	if sf, ok := f.(syncer); ok {
+		if err := sf.Sync(); err != nil {
+			f.Close()
+			return err
+		}
+	}
 	return f.Close()
 }
 
