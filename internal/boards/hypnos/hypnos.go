@@ -7,6 +7,7 @@ import (
 
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/mcu"
+	"github.com/cowellmi/gloom/internal/sdcard"
 	"tinygo.org/x/drivers"
 	"tinygo.org/x/drivers/ds3231"
 )
@@ -15,45 +16,41 @@ const (
 	// Machine pin connected to the DS3231 RTC alarm output.
 	AlarmPin = machine.D12
 
-	// Number of attempts to retry I2C operations during probe.
-	probeRetries = 5
-
-	// Delay between retries to allow bus recovery.
-	probeRetryDelay = 500 * time.Millisecond
-
+	// Delay required after powering on 5V rails.
 	powerOnDelay = 2 * time.Second
 )
 
 type Board struct {
 	proc          mcu.MCU
 	rtc           *ds3231.Device
+	Card          *sdcard.Card
 	version       string
 	nextSample    time.Time
 	nextHeartbeat time.Time
 }
 
-// Probe I2C for Hypnos components. The I2C bus must already be configured.
-func Probe(bus drivers.I2C, proc mcu.MCU) (*Board, error) {
+// Probe detects and initialises all Hypnos components: RTC (via I2C)
+// and SD card reader (via SPI). The I2C bus must already be configured.
+// Returns a fatal error if either component is missing.
+func Probe(bus drivers.I2C, spi *machine.SPI, sck, sdo, sdi machine.Pin, proc mcu.MCU) (*Board, error) {
 	configureRails()
 	powerOn33()
 	powerOn5()
 	time.Sleep(powerOnDelay)
 
-	rtc, err := configureRTC(bus)
+	rtc, err := probeRTC(bus)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: detect board version during probe.
-	//
-	// Maybe when probing for SD card reader?
-	// VERSION	| CHIP SELECT PIN
-	// 3.3 		| 11
-	// 3.2 		| 10
+	// Detect board version by probing the SD card reader on each
+	// known chip-select pin (D11 for v3.3, D10 for v3.2).
+	card, version, sdErr := probeSDCard(spi, sck, sdo, sdi)
+	if sdErr != nil {
+		return nil, sdErr
+	}
 
-	proc.EnableWatchdog()
-
-	b := &Board{proc: proc, rtc: rtc, version: "3.3"}
+	b := &Board{proc: proc, rtc: rtc, Card: card, version: version}
 
 	return b, nil
 }
@@ -176,7 +173,10 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 		// necessary for WakeHeartbeat because we just send a keep alive
 		// message using the network card (no need to turn on sensors).
 		powerOn5()
-		time.Sleep(powerOnDelay)
+
+		// Busy-wait instead of time.Sleep because SysTick is not
+		// reliably restored after SAMD21 standby wake.
+		busyWait(powerOnDelay)
 
 		b.proc.PetWatchdog()
 	}
@@ -259,43 +259,11 @@ func (b *Board) alarmISR(p machine.Pin) {
 	b.clearAlarmInterrupt()
 }
 
-func waitForRTC(rtc *ds3231.Device) error {
-	for attempt := 0; attempt < probeRetries; attempt++ {
-		err := rtc.SetRunning(true)
-		if err == nil {
-			return nil
-		}
-		time.Sleep(probeRetryDelay)
+// busyWait spins for approximately d. Used instead of time.Sleep after
+// standby wake because SysTick is not reliably restored on SAMD21.
+func busyWait(d time.Duration) {
+	start := time.Now()
+	for time.Since(start) < d {
+		// spin
 	}
-
-	return errors.New("hypnos: rtc communication timed out")
-}
-
-func configureRTC(bus drivers.I2C) (*ds3231.Device, error) {
-	rtc := ds3231.New(bus)
-
-	if !rtc.Configure() {
-		err := errors.New("hypnos: rtc: internal driver configuration failed")
-		return nil, err
-	}
-
-	// It may take a few tries to establish I2C connection after powering on.
-	err := waitForRTC(&rtc)
-	if err != nil {
-		return nil, err
-	}
-
-	// Clear any pending alarms.
-	if err := rtc.ClearAlarm1(); err != nil {
-		return nil, err
-	}
-	if err := rtc.ClearAlarm2(); err != nil {
-		return nil, err
-	}
-
-	if err := rtc.SetSqwPinMode(ds3231.SQW_OFF); err != nil {
-		return nil, err
-	}
-
-	return &rtc, nil
 }

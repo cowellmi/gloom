@@ -21,7 +21,7 @@ New targets get their own directory under `targets/` with a `main.go` that wires
 - **Board:** Hypnos FeatherWing — custom OPEnS Lab PCB with:
   - Two MOSFETs controlling 3.3 V (pin 5, active-low) and 5 V (pin 6) power rails
   - DS3231 RTC with two alarms and SQW output on pin 12
-  - SD card reader (CS pin 11 on Hypnos 3.3, pin 10 on 3.2)
+  - SD card reader (CS pin 11 on Hypnos 3.3, pin 10 on 3.2) — auto-detected during Probe
 - **Sleep mode:** SAMD21 STANDBY (`SCR.SLEEPDEEP = 1` then `WFI`). Before entry the firmware must disable enough clocks/peripherals to avoid overloading the voltage regulator (datasheet §16, p. 124).
 
 ### Sleep / Wake Cycle (Hypnos happy path)
@@ -49,14 +49,16 @@ Other boards would implement `hal.Platform.Sleep()` differently (e.g. timer-base
 
 ```
 targets/
-  hypnos-m0/          First target: Feather M0 + Hypnos (main.go, registry, Makefile)
+  feather-m0/          First target: Feather M0 + Hypnos (main.go, registry, uart0, Makefile)
 internal/
   hal/                Platform interface + Fallback impl (target-agnostic)
-  boards/hypnos/      Hypnos Board (Platform impl): RTC, rails, standby
+  boards/hypnos/      Hypnos Board (Platform impl): RTC, rails, standby, SD card
+  sdcard/             Board-agnostic SD card + FAT filesystem wrapper
+  debug/              Global debug logger backed by io.Writer (target-agnostic)
   mcu/                MCU interface (target-agnostic)
   mcu/samd21/         SAMD21 impl: standby, USB detach/reattach, GCLK config
   manager/            Wake/sleep loop, sensor sampling, recorder fan-out (target-agnostic)
-  config/             key=value config parser (target-agnostic)
+  config/             key=value config parser + DefaultINI template (target-agnostic)
   log/                Leveled logger with per-sink filtering (target-agnostic)
   sensor/             Device + Recorder interfaces (target-agnostic)
   sensor/fake/        Dummy sensor for debugging
@@ -76,13 +78,13 @@ make test
 make vet
 
 # Build firmware binary (requires tinygo)
-make -C targets/hypnos-m0 build
+make -C targets/feather-m0 build
 
 # Flash firmware (requires bossac)
-make -C targets/hypnos-m0 flash BOSSAC=/path/to/bossac
+make -C targets/feather-m0 flash BOSSAC=/path/to/bossac
 
 # Open serial monitor (requires tio)
-make -C targets/hypnos-m0 monitor
+make -C targets/feather-m0 monitor
 ```
 
 `TEST_PKGS` in the root Makefile lists pure-Go packages testable with `go test`. Hardware-dependent packages (`boards/hypnos`, `mcu/samd21`) are only buildable with TinyGo and have no host-side tests.
@@ -93,7 +95,7 @@ make -C targets/hypnos-m0 monitor
 
 - Go 1.24, compiled with TinyGo for the target board (currently `feather-m0`).
 - Module path: `github.com/cowellmi/gloom`.
-- Only dependency: `tinygo.org/x/drivers`.
+- Dependencies: `tinygo.org/x/drivers`, `tinygo.org/x/tinyfs`.
 
 ### Error Handling
 
@@ -123,7 +125,7 @@ _ = AlarmPin.SetInterrupt(0, nil)
 
 ### Interfaces & Layering
 
-- `hal.Platform` — abstracts board-level capabilities (clock, sleep). Hypnos `Board` is the primary impl; `hal.Fallback` is the degraded-mode fallback using `time.Now()` / `time.Sleep()`. A new board (e.g. Adalogger, custom carrier) would add a new `boards/<name>/` package implementing this interface.
+- `hal.Platform` — abstracts board-level capabilities (clock, sleep). Hypnos `Board` is the primary impl. The feather-m0 target treats Probe failure as fatal (blink + halt). `hal.Fallback` exists for targets that want degraded-mode operation using `time.Now()` / `time.Sleep()`. A new board (e.g. Adalogger, custom carrier) would add a new `boards/<name>/` package implementing this interface.
 - `mcu.MCU` — abstracts chip-level standby, wake-source config, USB. SAMD21 is the only impl today. A new chip would add `mcu/<chip>/`. The MCU is injected into the board at probe time.
 - `sensor.Device` — Init / Name / Measure. Each sensor gets its own sub-package under `sensor/`. Registration is per-target via a `sensorRegistry` map in the target's package.
 - `sensor.Recorder` — receives measurement batches for output (serial text, CSV file, etc.). New output formats add a new `sink/<name>/` package.
@@ -151,7 +153,9 @@ These are specific to the current target and live in `boards/hypnos/` and `mcu/s
 
 - Pin 12 is the DS3231 alarm interrupt line (active-low, needs pullup).
 - 3.3 V rail (pin 5) is **active-low** — `Low()` = on, `High()` = off.
-- After powering on rails, wait `PowerOnRailsDelay` (1 s) for voltage to stabilize before talking to sensors.
+- After powering on rails, wait `powerOnDelay` (2 s) for voltage to stabilize before talking to sensors.
 - Before STANDBY: detach USB, disable SysTick (prevents a known SAMD21 lock-up). After wake: re-enable SysTick, re-attach USB.
 - GCLK_EIC must be rerouted to GCLK6 (OSCULP32K, run-in-standby) so edge-detection works during STANDBY sleep. `PrepareStandby()` handles this and is idempotent.
 - Flash sleep-power-reduction errata: SLEEPPRM must be set to DISABLED on some SAMD21 revisions.
+- `time.Sleep` is unreliable after SAMD21 standby wake (SysTick not properly restored). Use `busyWait` (spin on `time.Now()`) for post-wake delays. See `busyWait` in `boards/hypnos/hypnos.go`.
+- UART0 on SERCOM0 (D0/D1) is manually configured in `targets/feather-m0/uart0.go` because TinyGo's Feather M0 board file only exposes UART1 on SERCOM1 (D10/D11), which conflicts with SD card CS pins. RX interrupts are not enabled to avoid conflicting with TinyGo's compile-time IRQ_SERCOM0 handler.

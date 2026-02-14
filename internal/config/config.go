@@ -14,6 +14,32 @@ type Config struct {
 	Sensors           []string // raw IDs, resolved by caller
 }
 
+// DefaultINI is the default configuration file content, written to the
+// SD card when no config.ini exists so the user has a documented
+// template to edit.
+const DefaultINI = `# Gloom configuration
+#
+# Lines starting with '#' are comments. Blank lines are ignored.
+# All keys are optional; missing keys use built-in defaults.
+
+# How often to wake and sample sensors. 0 = disabled.
+# Accepts Go duration strings: "30s", "5m", "1h", etc.
+sample_interval = 5s
+
+# How often to send a heartbeat (keep-alive). 0 = disabled.
+heartbeat_interval = 0
+
+# Enable serial output (USB-CDC and UART).
+serial = true
+
+# Enable on-board LED blink on wake.
+enable_led = true
+
+# Comma-separated sensor IDs to sample each cycle.
+# Must match IDs registered in the target's sensor registry.
+sensors = fake
+`
+
 // Default returns a Config with debug-friendly defaults.
 func Default() Config {
 	return Config{

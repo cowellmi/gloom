@@ -7,71 +7,85 @@ import (
 
 	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/config"
-	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/mcu/samd21"
 	"github.com/cowellmi/gloom/internal/sensor"
+	"github.com/cowellmi/gloom/internal/sink/file"
 	"github.com/cowellmi/gloom/internal/sink/serial"
 )
 
-// UART1 pins
+// UART0 pins on SERCOM0. D0 (PA11) and D1 (PA10) are the standard
+// Feather M0 RX/TX header pins, freeing D10/D11 for SD card CS.
 const (
-	UART_TX_PIN = machine.D10
-	UART_RX_PIN = machine.D11
+	UART_TX_PIN = machine.D1
+	UART_RX_PIN = machine.D0
 )
 
 func main() {
 	// Serial sinks.
-	var UART1, USBCDC *serial.Sink
+	var uartSink, usbSink *serial.Sink
 
 	// Keep track of non-fatal init errors for deferred logging.
 	var initErrs []error
 
 	println("hello world")
 
+	// Configure UART0 early so fatal errors are visible on the
+	// UART monitor even before the full serial setup.
+	configureUART0(115200)
+
 	// Setup I2C with default config.
 	err := machine.I2C0.Configure(machine.I2CConfig{})
 	if err != nil {
-		println("fatal:", err.Error())
-		return
+		fatal(err)
 	}
 
 	// Load the ATSAMD21 (from Feather M0). It implements MCU.
 	proc := samd21.New()
 
-	// Load Hypnos board.
-	var sys hal.Platform
-	board, err := hypnos.Probe(machine.I2C0, proc)
+	// Load Hypnos board. Probe detects the RTC and SD card reader.
+	// Both are hard requirements — without them the device can't
+	// keep time or store config/data.
+	board, err := hypnos.Probe(
+		machine.I2C0,
+		machine.SPI0,
+		machine.SPI0_SCK_PIN,
+		machine.SPI0_SDO_PIN,
+		machine.SPI0_SDI_PIN,
+		proc,
+	)
 	if err != nil {
-		// Unable to load Hypnos. Using fallback platform.
-		initErrs = append(initErrs, err)
-		sys = &hal.Fallback{}
-	} else {
-		// Successfully loaded Hypnos board. Set as system platform.
-		sys = board
+		fatal(err)
 	}
 
 	logger := log.NewLogger()
+	card := board.Card
 
-	// Load default config then overwrite with values read from storage device.
+	// Load config from SD card. If missing, seed a default config.ini
+	// so the user has a template to edit.
 	cfg := config.Default()
+	raw, err := card.ReadFile("config.ini")
+	if err != nil {
+		if wErr := card.WriteFile("config.ini", []byte(config.DefaultINI)); wErr != nil {
+			initErrs = append(initErrs, wErr)
+		}
+	} else if raw != nil {
+		if err := config.Parse(raw, &cfg); err != nil {
+			initErrs = append(initErrs, err)
+		}
+	}
 
-	// Update samples manually for testing.
-	cfg.SampleInterval = 7 * time.Second
-	cfg.HeartbeatInterval = 11 * time.Second
-
-	// TODO: read config file from SD card on Hypnos. Ideally we can detect the
-	// Hypnos board version during hypnos.Probe to determine chip select pin.
-	//
-	// For future reference:
-	// DEVICE     | CHIP SELECT PIN
-	// Hypnos 3.3 | 11
-	// Hypnos 3.2 | 10
-	// Adalogger  | 4
-	//
-	// We will probably have storage interface and write implementations using
-	// these three sd card readers.
+	// Open files for sensor data and log output.
+	dataW, dataErr := card.OpenAppend("sensors.csv")
+	if dataErr != nil {
+		initErrs = append(initErrs, dataErr)
+	}
+	logW, logErr := card.OpenAppend("gloom.log")
+	if logErr != nil {
+		initErrs = append(initErrs, logErr)
+	}
+	fileSink := file.New("sd", dataW, logW, card.Sync)
 
 	// Add dummy sensor for debugging.
 	cfg.Sensors = []string{"fake"}
@@ -104,23 +118,15 @@ func main() {
 			initErrs = append(initErrs, err)
 		}
 
-		// UART1
-		err = machine.UART1.Configure(machine.UARTConfig{
-			BaudRate: 115200,
-			TX:       UART_TX_PIN,
-			RX:       UART_RX_PIN,
-		})
-		if err != nil {
-			initErrs = append(initErrs, err)
-		}
+		// UART0 was configured at startup for early error output.
+		uartSink = serial.NewSink(UART0)
+		usbSink = serial.NewSink(machine.Serial)
 
-		UART1 = serial.NewSink(machine.UART1)
-		USBCDC = serial.NewSink(machine.Serial)
-
-		logger.AddSink(UART1, log.LevelDebug)
-		logger.AddSink(USBCDC, log.LevelDebug)
+		logger.AddSink(uartSink, log.LevelDebug)
+		logger.AddSink(usbSink, log.LevelDebug)
 	}
-	// TODO: register file sink with SD card reader/writer.
+
+	logger.AddSink(fileSink, log.LevelDebug)
 
 	// Report init errors through logger sinks.
 	for _, e := range initErrs {
@@ -128,15 +134,34 @@ func main() {
 	}
 
 	// Create manager.
-	man := manager.New(sys, cfg, devices, logger)
+	man := manager.New(board, cfg, devices, logger)
 	man.EnableLED(ledOn, ledOff)
 
 	// Register recorders for measurement output.
 	if cfg.SerialEnabled {
-		man.AddRecorder(UART1)
-		man.AddRecorder(USBCDC)
+		man.AddRecorder(uartSink)
+		man.AddRecorder(usbSink)
 	}
-	// TODO: register file sink recorder with SD card manager.
+	man.AddRecorder(fileSink)
+
+	// Start the watchdog now that all init is complete. Only the
+	// steady-state loop needs watchdog protection.
+	proc.EnableWatchdog()
 
 	man.Run()
+}
+
+// fatal prints the error to USB-CDC and blinks the LED forever to
+// signal a hard failure when no serial monitor is connected.
+func fatal(err error) {
+	msg := "fatal: " + err.Error()
+	println(msg)
+	UART0.Write([]byte(msg + "\r\n"))
+	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	for {
+		machine.LED.High()
+		time.Sleep(250 * time.Millisecond)
+		machine.LED.Low()
+		time.Sleep(250 * time.Millisecond)
+	}
 }

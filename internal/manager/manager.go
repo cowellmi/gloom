@@ -22,10 +22,9 @@ type Manager struct {
 	sensors     []sensor.Device
 	recorders   []sensor.Recorder
 	logger      *log.Logger
-	buf         [recorderBufSize]byte
-	wakeTime    time.Time
-	serialReady func() bool
-	ledEnabled  bool
+	buf        [recorderBufSize]byte
+	wakeTime   time.Time
+	ledEnabled bool
 	ledOn       func()
 	ledOff      func()
 }

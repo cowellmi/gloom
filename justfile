@@ -10,6 +10,8 @@ vet:
 clean:
     just -f targets/feather-m0/justfile clean
 
+monitor:
+    tio --log --log-file="debug.log" /dev/tty.usbserial-AI04YQAD
 
 # Expiremental: sandboxed coding agent.
 image_name := "gloom-agent"
