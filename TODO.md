@@ -17,6 +17,50 @@ sam.GCLK.GENCTRL.Set(
 )
 ```
 
+## `formatTimestamp` in `sink/file` heap-allocates every call
+
+In `internal/sink/file/file.go`, `formatTimestamp` returns `string(buf[:])` which escapes the stack-allocated `[19]byte` to the heap on every call. This runs once per measurement per cycle. On 32KB RAM it adds up. Refactor to accept a `[]byte` parameter and append into the caller's scratch buffer, consistent with how the serial sink formats timestamps.
+
+## Logger silently discards sink errors
+
+In `internal/log/logger.go`, `Log()` calls `WriteLog` but discards the returned error without even an `_ =` assignment. Per project conventions, intentionally discarded errors need `_ =` with a comment. Consider tracking a `failed` bool per target so the logger knows when a sink has died, or at minimum use `_ =` with an explanation.
+
+## `flush()` in manager discards errors
+
+In `internal/manager/manager.go`, `flush()` calls `Flush()` on the logger and all recorders but never checks the returned errors. For an SD card sink, a failed flush before sleep means data loss. Log the error before entering sleep.
+
+## Hardcoded sample/heartbeat intervals in `main.go`
+
+In `targets/feather-m0/main.go`, `cfg.SampleInterval` and `cfg.HeartbeatInterval` are overwritten with test values (7s / 11s) after loading defaults. There's no config file reading yet and no compile-time guard to prevent shipping these. Add a `// FIXME: remove before release` or gate behind a `//go:build debug` tag.
+
+## Shared `buf` in Manager needs concurrency note
+
+In `internal/manager/manager.go`, the `[recorderBufSize]byte` scratch buffer is shared across all recorders and `logMem`. Currently single-threaded so it works, but if goroutine-based sensor polling is ever added this becomes a data race. Add a comment documenting the single-goroutine assumption.
+
+## `WakeExternal` is silently ignored in `step()`
+
+In `internal/manager/manager.go`, the `step()` switch handles `WakeSample` and `WakeHeartbeat` but `WakeExternal` falls through with no log entry. For field debugging, add a `logger.Debug("external wake")` case.
+
+## `Measure()` allocates `[]Measurement` per call
+
+In `internal/sensor/fake/fake.go` (and any real sensor), `Measure()` returns a freshly allocated `[]sensor.Measurement` slice every call. On 32KB RAM, consider pre-allocating a fixed-size array in the Device struct and returning a slice of it, or changing the interface to `Measure(buf []Measurement) ([]Measurement, error)`.
+
+## Remove tracked `main.bin` binary
+
+`targets/feather-m0/main.bin` is tracked in git even though `.gitignore` lists `*.bin`. It was added before the ignore rule. Run `git rm --cached targets/feather-m0/main.bin` to remove it. Binary blobs don't belong in the repo.
+
+## Makefile `clean` references nonexistent `targets/hypnos-m0`
+
+In the root `Makefile`, the `clean` target runs `$(MAKE) -C targets/hypnos-m0 clean` but the directory is `targets/feather-m0`. This always fails.
+
+## `AGENT.md` layout section references stale directory name
+
+The repository layout in `AGENT.md` lists `targets/hypnos-m0/` but the actual directory is `targets/feather-m0/`. Update to match.
+
+## Duplicate `appendLevel` function
+
+Both `internal/sink/serial/serial.go` and `internal/sink/file/file.go` define identical `appendLevel` helper functions. Extract to a shared location (e.g. `internal/log/` or a small `internal/format/` package) to avoid drift.
+
 ## Blues Notecard sink for cloud connectivity
 
 Add a Notecard sink at `sink/notecard/notecard.go` implementing both `sensor.Recorder` and `log.Sink`. The Notecard is a cellular module that communicates over I2C (address `0x17`) using JSON commands and provides store-and-forward sync to Notehub.
