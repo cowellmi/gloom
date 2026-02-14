@@ -8,6 +8,7 @@ import (
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/mcu"
 	"github.com/cowellmi/gloom/internal/sdcard"
+	"github.com/cowellmi/gloom/internal/wait"
 	"tinygo.org/x/drivers"
 	"tinygo.org/x/drivers/ds3231"
 )
@@ -36,7 +37,7 @@ func Probe(bus drivers.I2C, spi *machine.SPI, sck, sdo, sdi machine.Pin, proc mc
 	configureRails()
 	powerOn33()
 	powerOn5()
-	time.Sleep(powerOnDelay)
+	wait.For(powerOnDelay)
 
 	rtc, err := probeRTC(bus)
 	if err != nil {
@@ -174,9 +175,7 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 		// message using the network card (no need to turn on sensors).
 		powerOn5()
 
-		// Busy-wait instead of time.Sleep because SysTick is not
-		// reliably restored after SAMD21 standby wake.
-		busyWait(powerOnDelay)
+		wait.For(powerOnDelay)
 
 		b.proc.PetWatchdog()
 	}
@@ -219,7 +218,7 @@ func (b *Board) idleSleep(target time.Time) {
 	const tick = 4 * time.Second // well within the ~8s watchdog timeout
 
 	if target.IsZero() {
-		time.Sleep(tick)
+		wait.For(tick)
 		return
 	}
 
@@ -229,7 +228,7 @@ func (b *Board) idleSleep(target time.Time) {
 		if remaining > tick {
 			remaining = tick
 		}
-		time.Sleep(remaining)
+		wait.For(remaining)
 	}
 }
 
@@ -259,11 +258,3 @@ func (b *Board) alarmISR(p machine.Pin) {
 	b.clearAlarmInterrupt()
 }
 
-// busyWait spins for approximately d. Used instead of time.Sleep after
-// standby wake because SysTick is not reliably restored on SAMD21.
-func busyWait(d time.Duration) {
-	start := time.Now()
-	for time.Since(start) < d {
-		// spin
-	}
-}

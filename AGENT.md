@@ -54,6 +54,7 @@ internal/
   hal/                Platform interface + Fallback impl (target-agnostic)
   boards/hypnos/      Hypnos Board (Platform impl): RTC, rails, standby, SD card
   sdcard/             Board-agnostic SD card + FAT filesystem wrapper
+  wait/               Scheduler-free busy-wait delay (target-agnostic)
   debug/              Global debug logger backed by io.Writer (target-agnostic)
   mcu/                MCU interface (target-agnostic)
   mcu/samd21/         SAMD21 impl: standby, USB detach/reattach, GCLK config
@@ -157,5 +158,5 @@ These are specific to the current target and live in `boards/hypnos/` and `mcu/s
 - Before STANDBY: detach USB, disable SysTick (prevents a known SAMD21 lock-up). After wake: re-enable SysTick, re-attach USB.
 - GCLK_EIC must be rerouted to GCLK6 (OSCULP32K, run-in-standby) so edge-detection works during STANDBY sleep. `PrepareStandby()` handles this and is idempotent.
 - Flash sleep-power-reduction errata: SLEEPPRM must be set to DISABLED on some SAMD21 revisions.
-- `time.Sleep` is unreliable after SAMD21 standby wake (SysTick not properly restored). Use `busyWait` (spin on `time.Now()`) for post-wake delays. See `busyWait` in `boards/hypnos/hypnos.go`.
+- **Do not use `time.Sleep`** — it goes through TinyGo's scheduler/SysTick path, which is opaque and has shown unreliable behavior after SAMD21 standby wake. Use `wait.For(d)` from `internal/wait` everywhere instead. It busy-waits on `time.Now()` / `time.Since()` using the monotonic clock, which survives standby. There are no other goroutines on these devices, so spinning has zero downside.
 - UART0 on SERCOM0 (D0/D1) is manually configured in `targets/feather-m0/uart0.go` because TinyGo's Feather M0 board file only exposes UART1 on SERCOM1 (D10/D11), which conflicts with SD card CS pins. RX interrupts are not enabled to avoid conflicting with TinyGo's compile-time IRQ_SERCOM0 handler.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/wait"
 	"tinygo.org/x/drivers"
 	"tinygo.org/x/drivers/ds3231"
 )
@@ -51,7 +52,7 @@ func waitForRTC(rtc *ds3231.Device) error {
 		if err == nil {
 			return nil
 		}
-		time.Sleep(probeRetryDelay)
+		wait.For(probeRetryDelay)
 	}
 
 	return errors.New("hypnos: rtc communication timed out")

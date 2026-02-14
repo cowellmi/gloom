@@ -5,6 +5,8 @@ import (
 	"machine"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/wait"
+
 	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/log"
@@ -160,8 +162,8 @@ func fatal(err error) {
 	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	for {
 		machine.LED.High()
-		time.Sleep(250 * time.Millisecond)
+		wait.For(250 * time.Millisecond)
 		machine.LED.Low()
-		time.Sleep(250 * time.Millisecond)
+		wait.For(250 * time.Millisecond)
 	}
 }
