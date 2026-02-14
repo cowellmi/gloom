@@ -151,6 +151,61 @@ func pinToEXTINT(pin machine.Pin) uint8 {
 	}
 }
 
+// EnableWatchdog configures and starts the SAMD21 hardware watchdog timer
+// with a ~8 second timeout. The WDT is clocked from GCLK5 sourced from
+// OSCULP32K with a /32 divider (≈1.024 kHz). GCLK5 does NOT have
+// run-in-standby enabled, so the watchdog halts during deep sleep and
+// will not reset the MCU while it is intentionally stopped.
+//
+// If PetWatchdog is not called within ~8 seconds during normal
+// operation, the WDT resets the MCU. This guards against I2C bus
+// lockups and other hangs.
+func (m *MCU) EnableWatchdog() {
+	// Configure GCLK5 divider: 32768 Hz / 32 = 1024 Hz.
+	sam.GCLK.GENDIV.Set(
+		5<<sam.GCLK_GENDIV_ID_Pos |
+			32<<sam.GCLK_GENDIV_DIV_Pos,
+	)
+	for sam.GCLK.STATUS.HasBits(sam.GCLK_STATUS_SYNCBUSY) {
+	}
+
+	// Configure GCLK5 generator: source = OSCULP32K, enable.
+	// No RUNSTDBY — the WDT clock halts during standby.
+	sam.GCLK.GENCTRL.Set(
+		sam.GCLK_GENCTRL_GENEN |
+			sam.GCLK_GENCTRL_SRC_OSCULP32K<<sam.GCLK_GENCTRL_SRC_Pos |
+			5<<sam.GCLK_GENCTRL_ID_Pos,
+	)
+	for sam.GCLK.STATUS.HasBits(sam.GCLK_STATUS_SYNCBUSY) {
+	}
+
+	// Route GCLK_WDT to GCLK5.
+	sam.GCLK.CLKCTRL.Set(
+		sam.GCLK_CLKCTRL_CLKEN |
+			sam.GCLK_CLKCTRL_GEN_GCLK5<<sam.GCLK_CLKCTRL_GEN_Pos |
+			sam.GCLK_CLKCTRL_ID_WDT<<sam.GCLK_CLKCTRL_ID_Pos,
+	)
+	for sam.GCLK.STATUS.HasBits(sam.GCLK_STATUS_SYNCBUSY) {
+	}
+
+	// Set WDT period to 8K cycles ≈ 8 seconds at 1.024 kHz.
+	sam.WDT.CONFIG.Set(sam.WDT_CONFIG_PER_8K)
+	for sam.WDT.STATUS.HasBits(sam.WDT_STATUS_SYNCBUSY) {
+	}
+
+	// Enable the watchdog.
+	sam.WDT.CTRL.SetBits(sam.WDT_CTRL_ENABLE)
+	for sam.WDT.STATUS.HasBits(sam.WDT_STATUS_SYNCBUSY) {
+	}
+}
+
+// PetWatchdog resets the watchdog countdown, preventing a reset.
+func (m *MCU) PetWatchdog() {
+	sam.WDT.CLEAR.Set(sam.WDT_CLEAR_CLEAR_KEY)
+	for sam.WDT.STATUS.HasBits(sam.WDT_STATUS_SYNCBUSY) {
+	}
+}
+
 // detachUSB electrically disconnects the SAMD21 USB device from the bus.
 // No-op if the USB peripheral has not been enabled.
 func detachUSB() {

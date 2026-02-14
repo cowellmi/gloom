@@ -51,6 +51,8 @@ func Probe(bus drivers.I2C, proc mcu.MCU) (*Board, error) {
 	// 3.3 		| 11
 	// 3.2 		| 10
 
+	proc.EnableWatchdog()
+
 	b := &Board{proc: proc, rtc: rtc, version: "3.3"}
 
 	return b, nil
@@ -65,12 +67,16 @@ func (b *Board) ReadTime() (time.Time, error) {
 }
 
 func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.WakeReason, error) {
+	b.proc.PetWatchdog()
+
 	reason, err := b.sleepStandby(sampleInterval, heartbeatInterval)
 	if err != nil {
 		b.clearAlarmInterrupt()
 		reason = b.sleepIdle(sampleInterval)
 		err = errors.New("hypnos: standby failed: " + err.Error())
 	}
+
+	b.proc.PetWatchdog()
 
 	if reason == hal.WakeSample {
 		// Need to power on 5v rails to give sensors power. This isn't
@@ -81,6 +87,7 @@ func (b *Board) Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.Wake
 		if rtcErr := waitForRTC(b.rtc); rtcErr != nil {
 			return reason, errors.Join(err, rtcErr)
 		}
+		b.proc.PetWatchdog()
 	}
 
 	return reason, err

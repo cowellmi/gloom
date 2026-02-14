@@ -132,6 +132,7 @@ func (m *Manager) doSleep() hal.WakeReason {
 }
 
 func (m *Manager) doSample() {
+	m.logger.Debug("sample")
 	for _, s := range m.sensors {
 		if err := s.Init(); err != nil {
 			m.logger.Error("failed to initialize: " + s.Name() + ": " + err.Error())
@@ -153,17 +154,6 @@ func (m *Manager) doSample() {
 }
 
 func (m *Manager) doHeartbeat() {
-	// Double-pulse like a heartbeat: thump-thump.
-	if m.ledEnabled {
-		m.ledOn()
-		time.Sleep(100 * time.Millisecond)
-		m.ledOff()
-		time.Sleep(100 * time.Millisecond)
-		m.ledOn()
-		time.Sleep(100 * time.Millisecond)
-		m.ledOff()
-	}
-
 	m.logger.Debug("heartbeat")
 	// TODO: transmit keep-alive message
 }

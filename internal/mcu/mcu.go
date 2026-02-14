@@ -22,4 +22,14 @@ type MCU interface {
 	// Execution halts until a configured wake source fires.
 	// USB detach/reattach is handled internally.
 	Standby()
+
+	// EnableWatchdog starts the hardware watchdog timer. If
+	// PetWatchdog is not called within the timeout period, the
+	// MCU resets. The watchdog clock should halt during deep sleep
+	// so it does not fire while the CPU is intentionally stopped.
+	EnableWatchdog()
+
+	// PetWatchdog resets the watchdog countdown. Must be called
+	// periodically during normal operation to prevent a reset.
+	PetWatchdog()
 }
