@@ -1,10 +1,22 @@
+
+test_pkgs := "./internal/config/ ./internal/log/ ./internal/manager/ ./internal/sensor/... ./internal/sink/..."
+
+test:
+    go test {{test_pkgs}}
+
+vet:
+    go vet {{test_pkgs}}
+
+clean:
+    just -f targets/feather-m0/justfile clean
+
+
+# Expiremental: sandboxed coding agent.
 image_name := "gloom-agent"
 
-# Build the gloom-agent image
 agent-build:
     podman build -t {{image_name}} .
 
-# Run the gloom-agent in the current directory
 agent *args:
     podman run -it --rm \
         --init \
@@ -13,7 +25,6 @@ agent *args:
         -v "$HOME/.config/cursor:/home/gloom/.config/cursor:ro,Z" \
         {{image_name}} {{args}}
 
-# Debug shell
 agent-shell:
     podman run -it --rm \
         --init \

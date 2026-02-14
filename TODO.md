@@ -29,10 +29,6 @@ In `internal/log/logger.go`, `Log()` calls `WriteLog` but discards the returned 
 
 In `internal/manager/manager.go`, `flush()` calls `Flush()` on the logger and all recorders but never checks the returned errors. For an SD card sink, a failed flush before sleep means data loss. Log the error before entering sleep.
 
-## Hardcoded sample/heartbeat intervals in `main.go`
-
-In `targets/feather-m0/main.go`, `cfg.SampleInterval` and `cfg.HeartbeatInterval` are overwritten with test values (7s / 11s) after loading defaults. There's no config file reading yet and no compile-time guard to prevent shipping these. Add a `// FIXME: remove before release` or gate behind a `//go:build debug` tag.
-
 ## Shared `buf` in Manager needs concurrency note
 
 In `internal/manager/manager.go`, the `[recorderBufSize]byte` scratch buffer is shared across all recorders and `logMem`. Currently single-threaded so it works, but if goroutine-based sensor polling is ever added this becomes a data race. Add a comment documenting the single-goroutine assumption.
@@ -45,17 +41,6 @@ In `internal/manager/manager.go`, the `step()` switch handles `WakeSample` and `
 
 In `internal/sensor/fake/fake.go` (and any real sensor), `Measure()` returns a freshly allocated `[]sensor.Measurement` slice every call. On 32KB RAM, consider pre-allocating a fixed-size array in the Device struct and returning a slice of it, or changing the interface to `Measure(buf []Measurement) ([]Measurement, error)`.
 
-## Remove tracked `main.bin` binary
-
-`targets/feather-m0/main.bin` is tracked in git even though `.gitignore` lists `*.bin`. It was added before the ignore rule. Run `git rm --cached targets/feather-m0/main.bin` to remove it. Binary blobs don't belong in the repo.
-
-## Makefile `clean` references nonexistent `targets/hypnos-m0`
-
-In the root `Makefile`, the `clean` target runs `$(MAKE) -C targets/hypnos-m0 clean` but the directory is `targets/feather-m0`. This always fails.
-
-## `AGENT.md` layout section references stale directory name
-
-The repository layout in `AGENT.md` lists `targets/hypnos-m0/` but the actual directory is `targets/feather-m0/`. Update to match.
 
 ## Duplicate `appendLevel` function
 
@@ -71,6 +56,6 @@ Add a Notecard sink at `sink/notecard/notecard.go` implementing both `sensor.Rec
 
 **Flush:** Optionally send `hub.sync` on `Flush()` to force a sync before sleep, or let the Notecard manage its own sync cadence to save power.
 
-**Wiring:** Register the Notecard sink in `targets/hypnos-m0/main.go` alongside the serial and file sinks. I2C is already configured (`machine.I2C0`). The Notecard manages its own modem sleep independently, so the existing sleep/wake cycle does not change.
+**Wiring:** Register the Notecard sink in `targets/feather-m0/main.go` alongside the serial and file sinks. I2C is already configured (`machine.I2C0`). The Notecard manages its own modem sleep independently, so the existing sleep/wake cycle does not change.
 
 **Routing:** From Notehub, data can be routed to MQTT brokers, HTTP endpoints, AWS IoT, or any other backend. This removes the need to run an MQTT client on the MCU.
