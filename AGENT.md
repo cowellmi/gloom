@@ -134,7 +134,7 @@ _ = s.rtc.ClearWake()
 
 ### Interfaces & Layering
 
-- `hal.System` — composable struct that assembles optional `hal.RTC`, `hal.PowerManager`, and `hal.Processor` into a unified sleep/wake platform. Constructed with `hal.NewSystem(name, proc, opts...)`. Components can be nil for graceful degradation (no RTC = no deep sleep, no PowerManager = no rail control).
+- `hal.System` — composable struct that assembles optional `hal.RTC`, `hal.PowerManager`, and `hal.Processor` into a unified sleep/wake platform. Constructed with `hal.NewSystem(proc, rtc, pm)`. RTC and PowerManager can be nil for graceful degradation (no RTC = no deep sleep, no PowerManager = no rail control).
 - `hal.RTC` — real-time clock interface. Implementations live in `internal/rtc/`. Currently: `rtc.DS3231`.
 - `hal.PowerManager` — power rail control interface. Implementations live in `internal/power/`. Currently: `power.Hypnos`.
 - `hal.Processor` — hal-local interface for MCU operations needed by System (ArmWake, DisarmWake, Standby, PetWatchdog, Identifier). Satisfied by any `mcu.MCU` implementation.

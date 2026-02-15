@@ -50,10 +50,6 @@ The Hypnos power manager (`power.NewHypnos()`) performs an initial power cycle t
 
 In `internal/sink/file/file.go`, `maybeRotate` calls `s.openForDate(t)` but ignores the returned error. Per project conventions, this should be `_ = s.openForDate(t)` with a comment, or the error should be propagated so callers know rotation failed.
 
-### `detachUSB` / `BeginSerial` symmetry
-
-In `internal/mcu/samd21/samd21.go`, `detachUSB` guards on USB being enabled but `BeginSerial` does not. They should both check state before acting. Also `detachUSB` is unexported while `BeginSerial`/`EndSerial` are exported -- make the visibility consistent.
-
 ### Config boolean values not documented for non-programmers
 
 In `internal/config/config.go`, boolean fields like `serial` and `enable_led` only accept the exact string `"true"` to enable. Any other value (including `"yes"`, `"1"`, `"TRUE"`) silently means false. For a framework targeting non-programmers, either document the accepted values clearly in a sample config file, or accept common truthy variants (`"true"`, `"yes"`, `"1"`, case-insensitive).
@@ -65,10 +61,6 @@ In `internal/manager/manager.go`, the `[recorderBufSize]byte` scratch buffer is 
 ### Duplicate `appendLevel` function
 
 Both `internal/sink/serial/serial.go` and `internal/sink/file/file.go` define identical `appendLevel` helper functions. Extract to a shared location (e.g. `internal/log/` or a small `internal/format/` package) to avoid drift.
-
-### Duplicate `earliest()` helper — RESOLVED
-
-Previously duplicated between `hal/fallback.go` and `boards/hypnos/hypnos.go`. Now lives once in `internal/hal/hal.go` as part of the `System` implementation. Can be removed from this list.
 
 ### Missing test coverage for `internal/log` and `internal/sink/serial`
 
@@ -176,41 +168,15 @@ type Sleeper interface {
 
 Wire the `Sleeper` calls into `manager.doSleep()`, before `sys.Sleep()`.
 
-#### 5. Target wiring — `targets/adalogger-m0/`
+#### 5. Board file — `cmd/gloom/main_adalogger_m0.go`
 
-New target directory:
+Add a build-tagged board file following the existing `main_feather_m0.go` pattern:
 
-```
-targets/adalogger-m0/
-  main.go       — wires samd21.MCU + adalogger.Board + sensors + sinks
-  registry.go   — sensorRegistry map
-  justfile      — build/flash commands
-```
-
-`main.go` follows the same structure as `targets/feather-m0/main.go`:
-1. Configure I2C, enable watchdog.
-2. `adalogger.Probe(...)` — detect PCF8523 and SD card.
-3. Load config from SD, resolve sensors, create logger + sinks + manager.
-4. `man.Run()`.
-
-Minimal setup (no MOSFETs):
 ```go
-board, err := adalogger.Probe(machine.I2C0, machine.SPI0, sck, sdo, sdi, intPin, proc)
+//go:build adalogger_m0
 ```
 
-With external MOSFET on D5 (active-high):
-```go
-board, err := adalogger.Probe(machine.I2C0, machine.SPI0, sck, sdo, sdi, intPin, proc,
-    adalogger.RailConfig{Pin: machine.D5},
-)
-```
-
-#### 6. Extract shared helpers
-
-Before adding the second board, deduplicate code shared between Hypnos and Adalogger:
-
-- **`earliest()`** — already duplicated in `hal/fallback.go` and `boards/hypnos/hypnos.go`. Move to `internal/hal/`.
-- **Sleep deadline bookkeeping** — the `nextSample`/`nextHeartbeat` pattern and wake-reason resolution logic is identical across Hypnos, Fallback, and Adalogger. Consider a shared helper in `internal/hal/` that both boards embed or call.
+Provides `initMCU() mcu.MCU`, `boardDefaults(cfg *config.Config)`, and `debugWriter() *machine.UART`. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
 
 ### Blues Notecard integration (config source + data sink)
 
@@ -250,30 +216,11 @@ SD card shifts from config authority to local backup: cached config, data loggin
 
 ### Auto-probe with graceful degradation
 
-Refactor the firmware entry point from `targets/feather-m0/` to `cmd/gloom/` with MCU-specific code separated via build tags. The single `main.go` auto-probes hardware in priority order and degrades gracefully at each step. The "target" is the MCU board (selected by `-target=` flag at build time); within it we discover which FeatherWings and peripherals are attached.
+The firmware entry point lives in `cmd/gloom/` with MCU-specific code separated via build tags. The single `main.go` auto-probes hardware in priority order and degrades gracefully at each step. The "target" is the MCU board (selected by `-target=` flag at build time); within it we discover which FeatherWings and peripherals are attached.
 
-#### 1. Move to `cmd/gloom/` with MCU build-tag split
+#### 1. Hypnos graceful degradation + Adalogger board
 
-Replace `targets/feather-m0/` with:
-
-```
-cmd/gloom/
-  main.go            — universal boot: probe cascade, config, sinks, manager
-  main_feather_m0.go — //go:build feather_m0 — initMCU(), UART0, SERCOM0 config
-  registry.go        — sensor registry (universal)
-  justfile           — build/flash commands (board passed as variable)
-```
-
-`main.go` calls `initMCU() mcu.MCU` (defined in the MCU-specific file) and never imports `device/sam` or `internal/mcu/samd21`. Everything else — `machine.I2C0`, `machine.SPI0`, `machine.LED`, pin constants — is portable across TinyGo targets. A future MCU just needs a new `main_<chip>.go` providing the same `initMCU()` signature.
-
-`main_feather_m0.go` absorbs the current `uart0.go` and provides:
-- `UART0` variable (SERCOM0 UART)
-- `configureUART0()` (register-level SERCOM0 setup)
-- `initMCU() mcu.MCU` — configures UART0, sets `debug.W`, creates `samd21.MCU`, enables watchdog
-
-#### 2. Implement next: Hypnos graceful degradation + Adalogger board
-
-This is the immediate next task. Work in this order:
+Work in this order:
 
 **Step A — Hypnos graceful SD card failure.** Change `hypnos.Probe()` so SD card failure is non-fatal: return the board with `Card = nil` and log the error. RTC is still required for Hypnos to be considered "found." This unblocks the probe cascade — Hypnos can succeed as a platform even if its SD card is missing or corrupt.
 
@@ -293,7 +240,7 @@ This is the immediate next task. Work in this order:
 
 Note: Notecard probe moves before board probe so that config (including `sd_cs_pin`) is available for Adalogger's `Probe()`. The Notecard only needs I2C, which is already up. If the Notecard isn't present, fall back to SD card config — but this creates a chicken-and-egg situation for `sd_cs_pin` on first boot without a Notecard. Resolution: use the default CS pin (10) when no config is available. The user sets `sd_cs_pin` in Notehub if they've wired it differently; on next boot the Notecard delivers the override.
 
-#### 3. Notecard I2C driver — `internal/notecard/notecard.go`
+#### 2. Notecard I2C driver — `internal/notecard/notecard.go`
 
 Minimal I2C JSON request/response wrapper for the Blues Notecard (address `0x17`). Build request JSON with `append` (no `encoding/json`). Parse responses with byte scanning.
 
@@ -304,11 +251,11 @@ Key operations:
 - `NoteAdd(file string, body []byte) error` — queue a Note for sync
 - `HubSync() error` — force sync on flush
 
-#### 4. Device ID in flash — `internal/mcu/` interface + `internal/mcu/samd21/nvm.go`
+#### 3. Device ID in flash — `internal/mcu/` interface + `internal/mcu/samd21/nvm.go`
 
 Add `DeviceID() (string, error)` and `SetDeviceID(id string) error` to `mcu.MCU`. SAMD21 implementation stores a short string in a reserved NVM flash row (64 bytes). On first boot, generate `"gloom-"` + 4 random hex chars and write to flash. Add `DeviceID` field to `config.Config`.
 
-#### 5. Config cascade — Notecard → SD card → default
+#### 4. Config cascade — Notecard → SD card → default
 
 Config is managed entirely online via Blues Notehub environment variables (project → fleet → device hierarchy). The Notecard caches env vars locally on the module, so reads succeed even when cellular is down. On each boot:
 
@@ -319,15 +266,9 @@ Config is managed entirely online via Blues Notehub environment variables (proje
 
 The SD card is a secondary black-box backup — not the source of truth. A researcher changes config in the Notehub dashboard; the device picks it up on next boot via the Notecard. The SD card copy is there so the device can still boot with last-known-good settings if the Notecard is removed or fails.
 
-#### 6. Notecard data/log sink — `internal/sink/notecard/`
+#### 5. Notecard data/log sink — `internal/sink/notecard/`
 
 Implements `sensor.Recorder` and `log.Sink`. Queue measurements into `data.qo` via `note.add`; queue error-level logs into `logs.qo`. Optionally `hub.sync` on `Flush()`.
-
-#### 7. Extract shared helpers
-
-Before adding the second board:
-- Move `earliest()` to `internal/hal/`
-- Extract sleep deadline bookkeeping (`nextSample`/`nextHeartbeat` + wake-reason resolution) into a shared helper in `internal/hal/`
 
 ### nRF52840 as second MCU target
 
