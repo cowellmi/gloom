@@ -5,24 +5,15 @@ import (
 	"machine"
 	"time"
 
-	"github.com/cowellmi/gloom/internal/wait"
-
 	"github.com/cowellmi/gloom/internal/boards/hypnos"
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
-	"github.com/cowellmi/gloom/internal/mcu/samd21"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sink/file"
 	"github.com/cowellmi/gloom/internal/sink/serial"
-)
-
-// UART0 pins on SERCOM0. D0 (PA11) and D1 (PA10) are the standard
-// Feather M0 RX/TX header pins, freeing D10/D11 for SD card CS.
-const (
-	UART_TX_PIN = machine.D1
-	UART_RX_PIN = machine.D0
+	"github.com/cowellmi/gloom/internal/wait"
 )
 
 func main() {
@@ -32,26 +23,16 @@ func main() {
 	// Keep track of non-fatal init errors for deferred logging.
 	var initErrs []error
 
-	// Configure UART0 early so fatal errors are visible on the
-	// UART monitor even before the full serial setup.
-	configureUART0(115200)
-	debug.W = UART0
+	// Initialise MCU: debug UART, watchdog, chip-specific setup.
+	// Defined in the build-tagged board file (e.g. main_feather_m0.go).
+	proc := initMCU()
+	petWatchdog = proc.PetWatchdog
 
 	// Setup I2C with default config.
 	err := machine.I2C0.Configure(machine.I2CConfig{})
 	if err != nil {
 		fatal(err)
 	}
-
-	// Load the ATSAMD21 (from Feather M0). It implements MCU.
-	proc := samd21.New()
-
-	// Enable watchdog early so SPI/I2C hangs during probe (e.g.
-	// corrupted SD card) cause a reset instead of a permanent hang.
-	// Probe and subsequent init steps pet the watchdog at strategic
-	// points to avoid tripping it during normal startup.
-	proc.EnableWatchdog()
-	petWatchdog = proc.PetWatchdog
 
 	// Load Hypnos board. Probe detects the RTC and SD card reader.
 	board, err := hypnos.Probe(
@@ -153,8 +134,8 @@ func main() {
 			initErrs = append(initErrs, err)
 		}
 
-		// UART0 was configured at startup for early error output.
-		uartSink = serial.NewSink(UART0)
+		// Debug UART was configured at startup by initMCU.
+		uartSink = serial.NewSink(debugWriter())
 		usbSink = serial.NewSink(machine.Serial)
 
 		logger.AddSink(uartSink, log.LevelDebug)
@@ -188,13 +169,14 @@ func main() {
 }
 
 // petWatchdog is set after the watchdog is enabled so that fatal()
-// can pet it during the blink loop. Nil before EnableWatchdog.
+// can pet it during the blink loop. Nil before initMCU.
 var petWatchdog func()
 
-// fatal prints the error to USB-CDC and blinks the LED forever to
-// signal a hard failure when no serial monitor is connected. If the
-// watchdog is running it is petted each blink cycle to prevent a
-// reset -- this is a permanent halt, not a transient hang.
+// fatal prints the error to the debug output and blinks the LED
+// forever to signal a hard failure when no serial monitor is
+// connected. If the watchdog is running it is petted each blink
+// cycle to prevent a reset -- this is a permanent halt, not a
+// transient hang.
 func fatal(err error) {
 	debug.Log("fatal: " + err.Error())
 	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})

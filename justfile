@@ -7,8 +7,14 @@ test:
 vet:
     go vet {{test_pkgs}}
 
+build *args:
+    just -f cmd/gloom/justfile build {{args}}
+
+flash *args:
+    just -f cmd/gloom/justfile flash {{args}}
+
 clean:
-    just -f targets/feather-m0/justfile clean
+    just -f cmd/gloom/justfile clean
 
 monitor:
     tio --log --log-file="debug.log" /dev/tty.usbserial-AI04YQAD

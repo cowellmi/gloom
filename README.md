@@ -6,7 +6,7 @@ A sleepy IoT firmware for low-power sensor sampling, written in [TinyGo](https:/
 
 ### Connecting USB <-> Serial Adapter
 
-TinyGo's Feather M0 board file only exposes UART1 on SERCOM1 (D10/D11), but those pins are needed for the Hypnos SD card chip-select. The firmware manually configures UART0 on SERCOM0 using the D0/D1 header pins instead (see `targets/feather-m0/uart0.go`). In the future, hopefully upstream TinyGo exports UART0.
+TinyGo's Feather M0 board file only exposes UART1 on SERCOM1 (D10/D11), but those pins are needed for the Hypnos SD card chip-select. The firmware manually configures UART0 on SERCOM0 using the D0/D1 header pins instead (see `cmd/gloom/main_feather_m0.go`). In the future, hopefully upstream TinyGo exports UART0.
 
 | Serial Adapter (wire color) | Feather M0 Pin | Connection Logic |
 | ------------- | ------------- | ------------- |

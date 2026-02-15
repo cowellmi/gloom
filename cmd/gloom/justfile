@@ -1,5 +1,5 @@
 board := "feather-m0"
-bin := "main.bin"
+bin := "gloom.bin"
 port := `ls /dev/cu.usbmodem* /dev/cu.usbserial* /dev/tty.usbmodem* /dev/tty.usbserial* /dev/ttyACM* /dev/ttyUSB* 2>/dev/null | head -n 1`
 
 build:

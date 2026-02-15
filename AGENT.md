@@ -13,7 +13,7 @@ Every hardware dependency hides behind an interface. Adding a new MCU, board, or
 - `sensor.Device` — Init / Name / Measure. Each sensor lives in its own sub-package.
 - `sensor.Recorder` / `log.Sink` — output destinations (serial, SD file, MQTT, LoRa, etc.).
 
-New targets get their own directory under `targets/` with a `main.go` that wires the right MCU, board, sensors, and sinks together. Shared logic in `internal/` stays target-agnostic.
+The firmware entry point lives in `cmd/gloom/` with a single generic `main.go` that auto-probes hardware. Board-specific code (UART setup, MCU init) is separated into build-tagged files (e.g. `main_feather_m0.go`). Shared logic in `internal/` stays target-agnostic.
 
 ### Current Hardware (Hypnos + Feather M0)
 
@@ -48,8 +48,11 @@ Other boards would implement `hal.Platform.Sleep()` differently (e.g. timer-base
 ## Repository Layout
 
 ```
-targets/
-  feather-m0/          First target: Feather M0 + Hypnos (main.go, registry, uart0, justfile)
+cmd/gloom/
+  main.go              Generic boot: probe cascade, config, sinks, manager
+  main_feather_m0.go   //go:build feather_m0 — initMCU(), UART0, SERCOM0 config
+  registry.go          Sensor registry (universal)
+  justfile             Build/flash commands (board variable, default feather-m0)
 internal/
   hal/                Platform interface + Fallback impl (target-agnostic)
   boards/hypnos/      Hypnos Board (Platform impl): RTC, rails, standby, SD card
@@ -67,7 +70,7 @@ internal/
   sink/file/          Daily-rotating file output to data/ and logs/ (log.Sink + sensor.Recorder)
 ```
 
-Packages marked *target-agnostic* contain no hardware imports and are testable with the standard Go toolchain. Hardware-specific code lives exclusively in `mcu/<chip>`, `boards/<board>`, and `targets/<target>`.
+Packages marked *target-agnostic* contain no hardware imports and are testable with the standard Go toolchain. Hardware-specific code lives in `mcu/<chip>`, `boards/<board>`, and the build-tagged MCU files in `cmd/gloom/`.
 
 ## Build & Test
 
@@ -78,11 +81,14 @@ just test
 # Vet pure-Go packages
 just vet
 
-# Build firmware binary (requires tinygo)
-just -f targets/feather-m0/justfile build
+# Build firmware binary for feather-m0 (requires tinygo)
+just build
 
 # Flash firmware (requires bossac)
-just -f targets/feather-m0/justfile flash
+just flash
+
+# Build for a different board (same MCU family)
+just -f cmd/gloom/justfile build board=feather-m0-express
 
 # Open serial monitor (requires tio)
 just monitor
@@ -126,19 +132,19 @@ _ = AlarmPin.SetInterrupt(0, nil)
 
 ### Interfaces & Layering
 
-- `hal.Platform` — abstracts board-level capabilities (clock, sleep). Hypnos `Board` is the primary impl. The feather-m0 target treats Probe failure as fatal (blink + halt). `hal.Fallback` exists for targets that want degraded-mode operation using `time.Now()` / `time.Sleep()`. A new board (e.g. Adalogger, custom carrier) would add a new `boards/<name>/` package implementing this interface.
-- `mcu.MCU` — abstracts chip-level standby, wake-source config, USB. SAMD21 is the only impl today. A new chip would add `mcu/<chip>/`. The MCU is injected into the board at probe time.
-- `sensor.Device` — Init / Name / Measure. Each sensor gets its own sub-package under `sensor/`. Registration is per-target via a `sensorRegistry` map in the target's package.
+- `hal.Platform` — abstracts board-level capabilities (clock, sleep). Hypnos `Board` is the primary impl. `hal.Fallback` exists for degraded-mode operation using `time.Now()` / `time.Sleep()`. A new board (e.g. Adalogger, custom carrier) adds a new `boards/<name>/` package implementing this interface. The generic `main.go` probes boards in priority order and falls back gracefully.
+- `mcu.MCU` — abstracts chip-level standby, wake-source config, USB. SAMD21 is the only impl today. A new chip adds `mcu/<chip>/`. The MCU is created by the board-specific `initMCU()` in `cmd/gloom/main_<board>.go` and injected into FeatherWing boards at probe time.
+- `sensor.Device` — Init / Name / Measure. Each sensor gets its own sub-package under `sensor/`. Registration lives in `cmd/gloom/registry.go`.
 - `sensor.Recorder` — receives measurement batches for output (serial text, CSV file, etc.). New output formats add a new `sink/<name>/` package.
 - `log.Sink` — receives log entries. Serial and file sinks implement both `Recorder` and `Sink`.
 - The manager (`internal/manager/`) knows nothing about specific hardware — it depends only on `hal.Platform`, `sensor.Device`, `sensor.Recorder`, and `log.Logger`.
 
-### Adding a New Target
+### Adding a New Board
 
-1. Create `targets/<name>/` with its own `main.go` and `Makefile`.
-2. Wire the appropriate `mcu.MCU` and `hal.Platform` implementations.
-3. Populate a `sensorRegistry` with the sensors available on that hardware.
-4. Register sinks and recorders. The manager and all `internal/` logic stay untouched.
+1. If the board uses a new MCU chip, create `internal/mcu/<chip>/` implementing the `mcu.MCU` interface.
+2. Add `cmd/gloom/main_<board>.go` with a `//go:build <board_tag>` constraint (e.g. `feather_m0`, `feather_nrf52840`). It must provide `initMCU() mcu.MCU` and `debugWriter() *machine.UART` (or equivalent). This file handles board-specific UART setup and MCU initialization.
+3. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
+4. Build with `tinygo build -target=<board> ./cmd/gloom/` — TinyGo's build tags select the right board file automatically.
 
 ### Style
 
@@ -159,11 +165,11 @@ These are specific to the current target and live in `boards/hypnos/` and `mcu/s
 - GCLK_EIC must be rerouted to GCLK6 (OSCULP32K, run-in-standby) so edge-detection works during STANDBY sleep. `PrepareStandby()` handles this and is idempotent.
 - Flash sleep-power-reduction errata: SLEEPPRM must be set to DISABLED on some SAMD21 revisions.
 - **Do not use `time.Sleep`** — it goes through TinyGo's scheduler/SysTick path, which is opaque and has shown unreliable behavior after SAMD21 standby wake. Use `wait.For(d)` from `internal/wait` everywhere instead. It busy-waits on `time.Now()` / `time.Since()` using the monotonic clock, which survives standby. There are no other goroutines on these devices, so spinning has zero downside.
-- UART0 on SERCOM0 (D0/D1) is manually configured in `targets/feather-m0/uart0.go` because TinyGo's Feather M0 board file only exposes UART1 on SERCOM1 (D10/D11), which conflicts with SD card CS pins. RX interrupts are not enabled to avoid conflicting with TinyGo's compile-time IRQ_SERCOM0 handler.
+- UART0 on SERCOM0 (D0/D1) is manually configured in `cmd/gloom/main_feather_m0.go` because TinyGo's Feather M0 board file only exposes UART1 on SERCOM1 (D10/D11), which conflicts with SD card CS pins. RX interrupts are not enabled to avoid conflicting with TinyGo's compile-time IRQ_SERCOM0 handler.
 
 ### Debugging
 
-All diagnostic output goes through **`debug.Log`** from `internal/debug`, which writes to a global `io.Writer`. In `main.go`, this is wired to the custom UART0 early in startup (`debug.W = UART0`), so messages appear on the hardware UART serial monitor.
+All diagnostic output goes through **`debug.Log`** from `internal/debug`, which writes to a global `io.Writer`. The board-specific init file (e.g. `main_feather_m0.go`) wires `debug.W = UART0` early in `initMCU()`, so messages appear on the hardware UART serial monitor.
 
 - **Use `debug.Log("msg")` for any debug/diagnostic output.** It is a no-op when `debug.W` is nil, so it is safe to call from any package at any time.
 - **Do not use `println`.** TinyGo's `println` routes to USB-CDC on the Feather M0, not to the hardware UART. The TinyGo `-serial=uart` flag cannot be used because it targets UART1 (SERCOM1 / D10/D11), which conflicts with the Hypnos SD card CS pins.

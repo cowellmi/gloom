@@ -1,8 +1,14 @@
+//go:build feather_m0
+
 package main
 
 import (
 	"device/sam"
 	"machine"
+
+	"github.com/cowellmi/gloom/internal/debug"
+	"github.com/cowellmi/gloom/internal/mcu"
+	"github.com/cowellmi/gloom/internal/mcu/samd21"
 )
 
 // UART0 on SERCOM0 using D1 (PA10, PAD2) as TX and D0 (PA11, PAD3)
@@ -17,6 +23,25 @@ var UART0 = &machine.UART{
 	Buffer: &uart0buf,
 	Bus:    sam.SERCOM0_USART,
 	SERCOM: 0,
+}
+
+// initMCU configures the Feather M0 (SAMD21): sets up UART0 on
+// SERCOM0 for debug output, creates the MCU instance, and enables
+// the hardware watchdog. Returns the MCU interface for use by the
+// generic boot logic in main.go.
+func initMCU() mcu.MCU {
+	configureUART0(115200)
+	debug.W = UART0
+
+	proc := samd21.New()
+	proc.EnableWatchdog()
+	return proc
+}
+
+// debugWriter returns the UART used for early debug output. Called by
+// main.go to create serial sinks when serial output is enabled.
+func debugWriter() *machine.UART {
+	return UART0
 }
 
 // configureUART0 manually sets up SERCOM0 as a 115200-8N1 UART.
