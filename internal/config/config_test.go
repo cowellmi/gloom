@@ -281,3 +281,111 @@ func TestParse_ZeroDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_PowerRails(t *testing.T) {
+	// Active-high is default; 5:low is active-low; 6 alone is active-high core.
+	input := []byte("power_rails = 5:low, 6")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	if len(cfg.PowerRails) != 2 {
+		t.Fatalf("PowerRails = %d entries, want 2", len(cfg.PowerRails))
+	}
+	r0 := cfg.PowerRails[0]
+	if r0.Pin != 5 || !r0.ActiveLow || r0.SampleOnly {
+		t.Errorf("PowerRails[0] = %+v, want {5 true false}", r0)
+	}
+	r1 := cfg.PowerRails[1]
+	if r1.Pin != 6 || r1.ActiveLow || r1.SampleOnly {
+		t.Errorf("PowerRails[1] = %+v, want {6 false false}", r1)
+	}
+}
+
+func TestParse_PowerRailsSampleTag(t *testing.T) {
+	input := []byte("power_rails = 5:low, 6:sample")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	if len(cfg.PowerRails) != 2 {
+		t.Fatalf("PowerRails = %d entries, want 2", len(cfg.PowerRails))
+	}
+	r0 := cfg.PowerRails[0]
+	if r0.Pin != 5 || !r0.ActiveLow || r0.SampleOnly {
+		t.Errorf("PowerRails[0] = %+v, want {5 true false}", r0)
+	}
+	r1 := cfg.PowerRails[1]
+	if r1.Pin != 6 || r1.ActiveLow || !r1.SampleOnly {
+		t.Errorf("PowerRails[1] = %+v, want {6 false true}", r1)
+	}
+}
+
+func TestParse_PowerRailsBothTags(t *testing.T) {
+	// Tags in any order: :low:sample or :sample:low
+	input := []byte("power_rails = 7:sample:low")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.PowerRails) != 1 {
+		t.Fatalf("PowerRails = %d entries, want 1", len(cfg.PowerRails))
+	}
+	r := cfg.PowerRails[0]
+	if r.Pin != 7 || !r.ActiveLow || !r.SampleOnly {
+		t.Errorf("PowerRails[0] = %+v, want {7 true true}", r)
+	}
+}
+
+func TestParse_PowerRailsPinOnly(t *testing.T) {
+	// Pin with no tags: active-high, core (always on).
+	input := []byte("power_rails = 9")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.PowerRails) != 1 {
+		t.Fatalf("PowerRails = %d entries, want 1", len(cfg.PowerRails))
+	}
+	r := cfg.PowerRails[0]
+	if r.Pin != 9 || r.ActiveLow || r.SampleOnly {
+		t.Errorf("PowerRails[0] = %+v, want {9 false false}", r)
+	}
+}
+
+func TestParse_PowerRailsBadTag(t *testing.T) {
+	input := []byte("power_rails = 5:on")
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid tag, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown rail tag") {
+		t.Errorf("expected unknown rail tag error, got: %v", err)
+	}
+}
+
+func TestParse_PowerRailsOverridesDefaults(t *testing.T) {
+	cfg := Default()
+	// Simulate previous rails (e.g. from another config source).
+	cfg.PowerRails = []RailConfig{
+		{Pin: 5, ActiveLow: true},
+		{Pin: 6, SampleOnly: true},
+	}
+
+	input := []byte("power_rails = 9:sample")
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	// Config should override previous rails.
+	if len(cfg.PowerRails) != 1 {
+		t.Fatalf("PowerRails = %d entries, want 1", len(cfg.PowerRails))
+	}
+	r := cfg.PowerRails[0]
+	if r.Pin != 9 || r.ActiveLow || !r.SampleOnly {
+		t.Errorf("PowerRails[0] = %+v, want {9 false true}", r)
+	}
+}

@@ -124,19 +124,44 @@ func main() {
 
 	// --- Power manager ---
 	//
-	// Instantiate based on config (loaded from SD card or Blues).
-	// Created after config loading so a bare board (no config.ini)
-	// doesn't activate power rail control for hardware that isn't
-	// there.
+	// Activated when "power" is set in config. Known presets expand
+	// to fixed rail configurations (e.g. "hypnos" → D5 core + D6
+	// sample). The power_rails config key overrides presets for
+	// custom MOSFET wiring. A bare board has Power="" so no pins
+	// are toggled.
 	var pm hal.PowerManager
-	switch cfg.Power {
-	case "hypnos":
-		pm = power.NewHypnos()
-		proc.PetWatchdog()
-	case "":
-		// No power management — bare board or simple setup.
-	default:
-		initErrs = append(initErrs, errors.New("unknown power manager: "+cfg.Power))
+	if cfg.Power != "" {
+		var rails []power.Rail
+
+		if len(cfg.PowerRails) > 0 {
+			// Explicit power_rails in config — use those.
+			rails = make([]power.Rail, len(cfg.PowerRails))
+			for i, rc := range cfg.PowerRails {
+				wakeOn := hal.WakeAlways
+				if rc.SampleOnly {
+					wakeOn = hal.WakeSample
+				}
+				rails[i] = power.NewRail(rc.Pin, rc.ActiveLow, wakeOn)
+			}
+		} else {
+			// No explicit rails — resolve from preset name.
+			switch cfg.Power {
+			case "hypnos":
+				// Hypnos FeatherWing: D5 3.3V core (active-low),
+				// D6 5V sensors (active-high, sample-only).
+				rails = []power.Rail{
+					power.NewRail(uint8(machine.D5), true, hal.WakeAlways),
+					power.NewRail(uint8(machine.D6), false, hal.WakeSample),
+				}
+			default:
+				initErrs = append(initErrs, errors.New("unknown power preset: "+cfg.Power+" (set power_rails for custom wiring)"))
+			}
+		}
+
+		if len(rails) > 0 {
+			pm = power.New(rails...)
+			proc.PetWatchdog()
+		}
 	}
 
 	proc.PetWatchdog()

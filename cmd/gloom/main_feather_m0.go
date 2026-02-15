@@ -40,10 +40,9 @@ func initMCU() mcu.MCU {
 }
 
 // boardDefaults applies Feather M0 pin candidates to the config
-// before external configuration is loaded. Only pin numbers are set
-// here — the power manager is left empty and should be specified in
-// config.ini (e.g. power = hypnos). This way a bare Feather M0 boots
-// cleanly without toggling pins meant for a board that isn't there.
+// before external configuration is loaded. Only MCU-specific pin
+// numbers are set here — FeatherWing-specific presets (like Hypnos
+// rails) are resolved in main.go from the "power" config key.
 func boardDefaults(cfg *config.Config) {
 	// SD card CS pins to probe, in order. All pins are checked so
 	// multiple cards can be discovered for redundancy.

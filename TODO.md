@@ -40,7 +40,7 @@ In `internal/manager/manager.go`, the `step()` switch handles `WakeSample` and `
 
 ### SD card SPI state not reset before probe when power manager loads late
 
-The Hypnos power manager (`power.NewHypnos()`) performs an initial power cycle to discharge SD card capacitors and reset its SPI state machine. This is important after a watchdog reset where the SD card can be stuck mid-command. However, the power manager is now instantiated *after* SD card probing (because `config.ini` on the SD card specifies `power = hypnos`). This means the pre-probe power cycle no longer happens. In practice this is likely fine — a WDT reset is effectively a cold boot and rails come up fresh from the voltage regulator — but if SD card probe failures are observed after watchdog resets, this is the first place to look. A possible fix: do a brief power cycle in `boardDefaults()` unconditionally if the board has known rail pins, or add a retry loop to SD probing.
+The power manager (`power.New(rails...)`) performs an initial power cycle to discharge SD card capacitors and reset its SPI state machine. This is important after a watchdog reset where the SD card can be stuck mid-command. However, the power manager is now instantiated *after* SD card probing (because `config.ini` on the SD card specifies `power = hypnos`). This means the pre-probe power cycle no longer happens. In practice this is likely fine — a WDT reset is effectively a cold boot and rails come up fresh from the voltage regulator — but if SD card probe failures are observed after watchdog resets, this is the first place to look. A possible fix: do a brief power cycle in `boardDefaults()` unconditionally if the board has known rail pins, or add a retry loop to SD probing.
 
 ---
 
@@ -128,28 +128,9 @@ SD card CS is pin 10 on the Adalogger FeatherWing.
 
 The INT pin from the PCF8523 needs to be wired to a Feather GPIO for wake-from-standby. Accept this as a parameter to `Probe()` (the Adalogger FeatherWing routes INT to a header pad, not a fixed Feather pin).
 
-#### 3. Optional MOSFET power rails
+#### 3. Optional MOSFET power rails — DONE
 
-The Adalogger has no onboard MOSFETs, but researchers who want hard sensor power-off can wire an external MOSFET to a spare GPIO. Support this as an optional addition:
-
-```go
-type RailConfig struct {
-    Pin       machine.Pin
-    ActiveLow bool
-}
-
-func Probe(
-    proc mcu.MCU,
-    bus drivers.I2C,
-    spi *machine.SPI, sck, sdo, sdi machine.Pin,
-    intPin machine.Pin,
-    rails ...RailConfig,
-) (*Board, error)
-```
-
-- Zero `RailConfig`s = no rail control, sensors stay powered (default experience).
-- With `RailConfig`s = `Sleep()` cuts power before standby, restores on wake (with a configurable `powerOnDelay`).
-- `ActiveLow` handles different MOSFET polarities.
+`config.RailConfig` and the generic `power.Manager` now handle arbitrary GPIO rails with configurable polarity and `WakeReason` bitmask. Each rail carries a `hal.WakeReason` (`WakeAlways` for core, `WakeSample` for sensors) so sensor rails stay off during heartbeat wakes. `power = hypnos` is a built-in preset; researchers can wire custom MOSFETs and set `power_rails = 5:low, 9:sample` in `config.ini`.
 
 #### 4. `sensor.Sleeper` interface — `internal/sensor/sensor.go`
 

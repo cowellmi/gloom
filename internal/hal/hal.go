@@ -35,12 +35,19 @@ type Processor interface {
 	Standby()
 }
 
+// WakeReason is a bitmask identifying why the system woke. Power
+// rails use WakeReason to decide which rails to enable: a rail tagged
+// with WakeSample only powers on when the wake reason includes
+// WakeSample. WakeAlways matches every reason and is used for core
+// infrastructure rails (RTC, SD card).
 type WakeReason uint8
 
 const (
-	WakeExternal WakeReason = iota
-	WakeSample
-	WakeHeartbeat
+	WakeSample    WakeReason = 1 << iota // 0b001
+	WakeHeartbeat                        // 0b010
+	WakeExternal                         // 0b100
+
+	WakeAlways = WakeSample | WakeHeartbeat | WakeExternal // 0b111
 )
 
 // System composes optional hardware components into a unified
@@ -84,8 +91,13 @@ func (s *System) ReadTime() (time.Time, error) {
 //   - With RTC: set RTC alarm, arm wake pin, MCU standby (deep sleep)
 //   - Without RTC: busy-wait using internal clock (no deep sleep)
 //
-// Power rails are cut before sleep and restored after wake when a
-// PowerManager is attached.
+// Power rail behaviour when a PowerManager is attached:
+//   - All rails are cut before sleep.
+//   - On wake, core rails (WakeAlways) are restored first so the RTC
+//     and SD card are accessible.
+//   - After the wake reason is determined, reason-specific rails are
+//     enabled (e.g. WakeSample rails for sensor power). This keeps
+//     sensor rails off during heartbeat-only wakes, saving power.
 func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeReason, error) {
 	var sleepErrs []error
 
@@ -103,8 +115,8 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 	// --- Update deadlines ---
 	if sampleInterval > 0 && s.nextSample.IsZero() {
 		adj := sampleInterval
-		// Subtract power-on delay so sensors are ready by the
-		// nominal sample time.
+		// Subtract sensor power-on delay so sensors are ready by
+		// the nominal sample time.
 		if s.power != nil {
 			adj -= s.power.Delay()
 		}
@@ -138,10 +150,11 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 
 		s.proc.PetWatchdog()
 
-		// Restore power rails after wake.
+		// Restore core rails (WakeAlways) so the RTC and SD card
+		// are reachable. Reason-specific rails stay off until we
+		// know which wake reason fired.
 		if s.power != nil {
-			s.power.PowerOn()
-			wait.For(s.power.Delay())
+			s.power.PowerOn(WakeAlways)
 		}
 
 		s.proc.PetWatchdog()
@@ -166,6 +179,13 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 		s.nextHeartbeat = time.Time{}
 	} else {
 		reason = WakeExternal
+	}
+
+	// --- Power on reason-specific rails ---
+	if s.power != nil && reason != WakeExternal {
+		s.power.PowerOn(reason)
+		wait.For(s.power.Delay())
+		s.proc.PetWatchdog()
 	}
 
 	return reason, errors.Join(sleepErrs...)

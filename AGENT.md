@@ -11,7 +11,7 @@ Every hardware dependency hides behind an interface. Adding a new MCU, board, or
 - `mcu.MCU` — chip-level sleep, wake-source config, USB. Currently: SAMD21. Could be: nRF52, ESP32, STM32, etc.
 - `hal.System` — composable struct that assembles optional RTC (`hal.RTC`), power manager (`hal.PowerManager`), and MCU processor (`hal.Processor`) into a unified sleep/wake platform. Nil components degrade gracefully.
 - `hal.RTC` — real-time clock interface (read time, set/clear wake alarm). Currently: DS3231 (`internal/rtc/ds3231.go`). Could be: PCF8523, etc.
-- `hal.PowerManager` — board-level power rail control. Currently: Hypnos (`internal/power/hypnos.go`). Could be: Adalogger, custom carriers, etc.
+- `hal.PowerManager` — board-level power rail control. Currently: generic `power.Manager` (`internal/power/power.go`). Each rail carries a `WakeReason` bitmask (`WakeAlways` for core, `WakeSample` for sensors). `power = hypnos` is a built-in preset (D5:low core, D6 sample-only); custom rails via `power_rails` in config.
 - `sensor.Device` — Init / Name / Measure. Each sensor lives in its own sub-package.
 - `sensor.Recorder` / `log.Sink` — output destinations (serial, SD file, MQTT, LoRa, etc.).
 
@@ -57,7 +57,7 @@ cmd/gloom/
 internal/
   hal/                 System struct + RTC/PowerManager/Processor interfaces
   rtc/                 RTC implementations (DS3231 wrapper + probe)
-  power/               PowerManager implementations (Hypnos rail control)
+  power/               Generic PowerManager (GPIO rail control, config-driven)
   sdcard/              Board-agnostic SD card + FAT filesystem wrapper
   wait/                Scheduler-free busy-wait delay (target-agnostic)
   debug/               Global debug logger backed by io.Writer (target-agnostic)
@@ -136,7 +136,7 @@ _ = s.rtc.ClearWake()
 
 - `hal.System` — composable struct that assembles optional `hal.RTC`, `hal.PowerManager`, and `hal.Processor` into a unified sleep/wake platform. Constructed with `hal.NewSystem(proc, rtc, pm)`. RTC and PowerManager can be nil for graceful degradation (no RTC = no deep sleep, no PowerManager = no rail control).
 - `hal.RTC` — real-time clock interface. Implementations live in `internal/rtc/`. Currently: `rtc.DS3231`.
-- `hal.PowerManager` — power rail control interface. Implementations live in `internal/power/`. Currently: `power.Hypnos`.
+- `hal.PowerManager` — power rail control interface. Implementation lives in `internal/power/`. `power.Manager` is a generic struct configured with GPIO rails and polarities.
 - `hal.Processor` — hal-local interface for MCU operations needed by System (ArmWake, DisarmWake, Standby, PetWatchdog, Identifier). Satisfied by any `mcu.MCU` implementation.
 - `mcu.MCU` — chip-level interface (superset of `hal.Processor`, adds EnableWatchdog). SAMD21 is the only impl today. A new chip adds `mcu/<chip>/`.
 - `sensor.Device` — Init / Name / Measure. Each sensor gets its own sub-package under `sensor/`. Registration lives in `cmd/gloom/registry.go`.
@@ -148,7 +148,7 @@ _ = s.rtc.ClearWake()
 
 1. If the board uses a new MCU chip, create `internal/mcu/<chip>/` implementing the `mcu.MCU` interface.
 2. If the board has a new RTC chip, create `internal/rtc/<chip>.go` implementing `hal.RTC`.
-3. If the board has power rail control, create `internal/power/<board>.go` implementing `hal.PowerManager`, and register it in the `switch cfg.Power` block in `main.go`.
+3. If the board has power rail control, add a preset case in the `switch cfg.Power` block in `main.go`. The generic `power.Manager` handles any combination of GPIO rails with `WakeReason` bitmasks. Users can also set `power_rails` in `config.ini` for custom MOSFET wiring.
 4. Add `cmd/gloom/main_<board>.go` with a `//go:build <board_tag>` constraint. It must provide:
    - `initMCU() mcu.MCU` — chip-specific init (UART, watchdog)
    - `boardDefaults(cfg *config.Config)` — default pin numbers, power manager name
@@ -169,7 +169,7 @@ _ = s.rtc.ClearWake()
 These are specific to the current target and live in `rtc/`, `power/`, and `mcu/samd21/`:
 
 - Pin 12 is the DS3231 alarm interrupt line (active-low, needs pullup).
-- 3.3 V rail (pin 5) is **active-low** — `Low()` = on, `High()` = off.
+- 3.3 V rail (pin 5) is **active-low** — `Low()` = on, `High()` = off. Configured via `power = hypnos` preset or `power_rails = 5:low, 6:sample` for custom wiring.
 - After powering on rails, wait `powerOnDelay` (2 s) for voltage to stabilize before talking to sensors.
 - Before STANDBY: detach USB, disable SysTick (prevents a known SAMD21 lock-up). After wake: re-enable SysTick, re-attach USB.
 - GCLK_EIC must be rerouted to GCLK6 (OSCULP32K, run-in-standby) so edge-detection works during STANDBY sleep. `prepareStandby()` (called internally by `ArmWake`) handles this and is idempotent.
