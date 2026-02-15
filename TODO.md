@@ -97,6 +97,121 @@ Implementation notes:
 - On startup or daily rotation, compute expected old filenames (`{dir}/{YYYYMMDD}{ext}`) going back beyond the retention window and call `card.Remove` for each. This avoids FAT directory listing (which is limited in fatfs) by using predictable date-stamped names.
 - `card.Remove` already exists for this purpose.
 
+### Adalogger FeatherWing as a `hal.Platform` implementation
+
+Add the Adalogger FeatherWing (PCF8523 RTC + SD card) as a second board.
+
+#### 1. PCF8523 RTC driver — `internal/boards/adalogger/rtc.go`
+
+There is no PCF8523 driver in `tinygo.org/x/drivers`. Write a minimal driver covering only what the board needs:
+
+- `ReadTime() (time.Time, error)` — read date/time registers (0x03–0x09, BCD-encoded).
+- `SetTime(t time.Time) error` — write date/time registers.
+- `SetCountdownTimer(d time.Duration) error` — configure Timer A or B as a countdown source. The countdown timer has selectable source clocks (4096 Hz, 64 Hz, 1 Hz, 1/60 Hz), so pick the coarsest clock that covers the requested duration. Assert INT on expiry.
+- `ClearTimerInterrupt() error` — clear the timer flag so the INT pin releases.
+- `Configure()` — initialize oscillator, disable unused features (CLKOUT, alarms if not used).
+
+The countdown timer is a better fit than the PCF8523 alarm for `Sleep()` because the alarm only has minute-level granularity while the timer supports sub-second precision. The timer also maps directly to durations, which is what `Sleep()` receives.
+
+#### 2. Board implementation — `internal/boards/adalogger/adalogger.go`
+
+`Board` struct implementing `hal.Platform`:
+
+```go
+type Board struct {
+    proc          mcu.MCU
+    rtc           *pcf8523.Device   // or local struct
+    Card          *sdcard.Card
+    rails         []RailConfig
+    nextSample    time.Time
+    nextHeartbeat time.Time
+}
+```
+
+- **`Identifier()`** — returns `"Adalogger"` + MCU identifier.
+- **`ReadTime()`** — delegates to PCF8523.
+- **`Sleep()`** — compute the shortest deadline, set PCF8523 countdown timer, configure INT pin as wake source, enter SAMD21 STANDBY, clear timer flag on wake. No `powerOnDelay` subtraction needed when rails are absent.
+
+SD card CS is pin 10 on the Adalogger FeatherWing.
+
+The INT pin from the PCF8523 needs to be wired to a Feather GPIO for wake-from-standby. Accept this as a parameter to `Probe()` (the Adalogger FeatherWing routes INT to a header pad, not a fixed Feather pin).
+
+#### 3. Optional MOSFET power rails
+
+The Adalogger has no onboard MOSFETs, but researchers who want hard sensor power-off can wire an external MOSFET to a spare GPIO. Support this as an optional addition:
+
+```go
+type RailConfig struct {
+    Pin       machine.Pin
+    ActiveLow bool
+}
+
+func Probe(
+    proc mcu.MCU,
+    bus drivers.I2C,
+    spi *machine.SPI, sck, sdo, sdi machine.Pin,
+    intPin machine.Pin,
+    rails ...RailConfig,
+) (*Board, error)
+```
+
+- Zero `RailConfig`s = no rail control, sensors stay powered (default experience).
+- With `RailConfig`s = `Sleep()` cuts power before standby, restores on wake (with a configurable `powerOnDelay`).
+- `ActiveLow` handles different MOSFET polarities.
+
+#### 4. `sensor.Sleeper` interface — `internal/sensor/sensor.go`
+
+For boards without MOSFETs, add an opt-in software shutdown interface:
+
+```go
+type Sleeper interface {
+    Sleep() error
+}
+```
+
+- Sensors that support a low-power register implement `Sleeper`. The manager type-asserts each sensor before sleep and calls `Sleep()` if available.
+- `Init()` already handles re-initialization on wake — no new wake method needed.
+- Works on Hypnos too (software sleep before hard rail cut = cleaner shutdown).
+- Passive analog sensors simply don't implement the interface.
+
+Wire the `Sleeper` calls into `manager.doSleep()`, before `sys.Sleep()`.
+
+#### 5. Target wiring — `targets/adalogger-m0/`
+
+New target directory:
+
+```
+targets/adalogger-m0/
+  main.go       — wires samd21.MCU + adalogger.Board + sensors + sinks
+  registry.go   — sensorRegistry map
+  justfile      — build/flash commands
+```
+
+`main.go` follows the same structure as `targets/feather-m0/main.go`:
+1. Configure I2C, enable watchdog.
+2. `adalogger.Probe(...)` — detect PCF8523 and SD card.
+3. Load config from SD, resolve sensors, create logger + sinks + manager.
+4. `man.Run()`.
+
+Minimal setup (no MOSFETs):
+```go
+board, err := adalogger.Probe(machine.I2C0, machine.SPI0, sck, sdo, sdi, intPin, proc)
+```
+
+With external MOSFET on D5 (active-high):
+```go
+board, err := adalogger.Probe(machine.I2C0, machine.SPI0, sck, sdo, sdi, intPin, proc,
+    adalogger.RailConfig{Pin: machine.D5},
+)
+```
+
+#### 6. Extract shared helpers
+
+Before adding the second board, deduplicate code shared between Hypnos and Adalogger:
+
+- **`earliest()`** — already duplicated in `hal/fallback.go` and `boards/hypnos/hypnos.go`. Move to `internal/hal/`.
+- **Sleep deadline bookkeeping** — the `nextSample`/`nextHeartbeat` pattern and wake-reason resolution logic is identical across Hypnos, Fallback, and Adalogger. Consider a shared helper in `internal/hal/` that both boards embed or call.
+
 ### Blues Notecard integration (config source + data sink)
 
 Use the Notecard as the primary config source and a data/log sink. The Notecard communicates over I2C (`0x17`) using JSON commands and provides store-and-forward sync to Notehub. SD card becomes a local black-box backup rather than the single source of truth for config.
