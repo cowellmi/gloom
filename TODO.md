@@ -97,16 +97,36 @@ Implementation notes:
 - On startup or daily rotation, compute expected old filenames (`{dir}/{YYYYMMDD}{ext}`) going back beyond the retention window and call `card.Remove` for each. This avoids FAT directory listing (which is limited in fatfs) by using predictable date-stamped names.
 - `card.Remove` already exists for this purpose.
 
-### Blues Notecard sink for cloud connectivity
+### Blues Notecard integration (config source + data sink)
 
-Add a Notecard sink at `sink/notecard/notecard.go` implementing both `sensor.Recorder` and `log.Sink`. The Notecard is a cellular module that communicates over I2C (address `0x17`) using JSON commands and provides store-and-forward sync to Notehub.
+Use the Notecard as the primary config source and a data/log sink. The Notecard communicates over I2C (`0x17`) using JSON commands and provides store-and-forward sync to Notehub. SD card becomes a local black-box backup rather than the single source of truth for config.
 
-**Measurements:** Use `note.add` to queue readings into a `data.qo` Notefile. Build the JSON payload with `append` (maybe `orsinium-labs/jsony`?) to stay within 32KB RAM. Each Note body carries the device name, label, value, and unit. The Notecard syncs to Notehub on its own schedule -- the MCU never blocks on network.
+#### 1. Notecard I2C driver — `internal/notecard/notecard.go`
 
-**Logs:** Queue error-level (or higher) log entries into a `logs.qo` Notefile via `note.add`. Consider using `"sync":true` for critical errors to trigger immediate upload.
+Low-level I2C JSON request/response wrapper. Build request JSON with `append` (no `encoding/json`). Parse responses with minimal scanning to stay within 32KB RAM. Shared by both the config source and the data sink.
 
-**Flush:** Optionally send `hub.sync` on `Flush()` to force a sync before sleep, or let the Notecard manage its own sync cadence to save power.
+#### 2. Device ID persistence — `internal/mcu/samd21/nvm.go`
 
-**Wiring:** Register the Notecard sink in `targets/feather-m0/main.go` alongside the serial and file sinks. I2C is already configured (`machine.I2C0`). The Notecard manages its own modem sleep independently, so the existing sleep/wake cycle does not change.
+Store a short device ID string in a reserved SAMD21 flash row (64 bytes) via the NVM controller. Add `ReadDeviceID() (string, error)` and `WriteDeviceID(id string) error` to the MCU. Flash write cycles (~25K) are fine since the ID rarely changes. Add a `DeviceStore` interface in `internal/mcu/` so this stays target-agnostic.
 
-**Routing:** From Notehub, data can be routed to MQTT brokers, HTTP endpoints, AWS IoT, or any other backend. This removes the need to run an MQTT client on the MCU.
+#### 3. Config from Notecard environment variables
+
+Notehub environment variables are hierarchical (project → fleet → device). Set config keys (`sample_interval`, `sensors`, etc.) from the Notehub dashboard; devices pull them via `env.get`. The Notecard caches env vars locally, so reads succeed even when cellular is down.
+
+#### 4. Boot flow in `main.go`
+
+1. Read device ID from flash. If empty, generate a random one (`"gloom-"` + 4 hex chars) and write it to flash.
+2. Add `device_id` to `Config`. Use it as the Notecard's device identity and in CSV/log output.
+3. Try `env.get` from the Notecard for config values. On success, cache to SD card `config.ini` as backup.
+4. If Notecard unavailable, fall back to SD card `config.ini`.
+5. If SD card also unavailable, use `config.Default()`.
+
+This means a freshly flashed device with no SD card still boots, self-identifies, and becomes configurable from the cloud once the Notecard connects.
+
+#### 5. Data sink — `internal/sink/notecard/notecard.go`
+
+Implement `sensor.Recorder` and `log.Sink`. Queue measurements into a `data.qo` Notefile via `note.add`; queue error-level logs into `logs.qo`. Let the Notecard manage its own sync cadence, or optionally `hub.sync` on `Flush()`. From Notehub, data routes to MQTT, HTTP, AWS IoT, etc.
+
+#### 6. SD card role change
+
+SD card shifts from config authority to local backup: cached config, data logging, log files. If the card is missing or corrupt the device still runs. Existing file sink and retention logic stay unchanged.
