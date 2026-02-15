@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -12,6 +13,20 @@ type Config struct {
 	SerialEnabled     bool
 	LedEnabled        bool
 	Sensors           []string // raw IDs, resolved by caller
+
+	// Power selects the power manager implementation. Empty means
+	// no power rail control. Known values: "hypnos".
+	Power string
+
+	// SDCSPins lists chip-select pin numbers (as uint8) to probe
+	// for an SD card, in priority order. Defaults cover Hypnos v3.3
+	// (D11) and v3.2 (D10).
+	SDCSPins []uint8
+
+	// RTCWakePin is the GPIO pin number (as uint8) connected to the
+	// RTC interrupt/alarm output. Used by the auto-prober to pass
+	// to the RTC driver. Default is D12 (Hypnos standard wiring).
+	RTCWakePin uint8
 }
 
 // DefaultINI is the default configuration file content, written to the
@@ -38,15 +53,37 @@ enable_led = true
 # Comma-separated sensor IDs to sample each cycle.
 # Must match IDs registered in the target's sensor registry.
 sensors = fake
+
+# Power manager: "hypnos" for Hypnos board rail control, empty for none.
+# power = hypnos
+
+# Comma-separated SD card chip-select pin numbers to probe (in order).
+# Board-specific defaults are applied automatically; override here if
+# your wiring differs.
+# sd_cs_pins = 16,18
+
+# RTC alarm/interrupt pin number. Board-specific default is applied
+# automatically; override here if your wiring differs.
+# rtc_wake_pin = 19
 `
 
-// Default returns a Config with debug-friendly defaults.
+// Default returns a Config with debug-friendly defaults. The fake
+// sensor is included so a bare board with no config source still
+// produces visible output on serial. When config is loaded from
+// Blues Notecard or SD card, the sensors list is overridden.
+//
+// Board-specific defaults (pin numbers for SDCSPins, RTCWakePin, and
+// Power) are not set here because they depend on machine.Pin values
+// that are only available under TinyGo. Board files (e.g.
+// main_feather_m0.go) apply those via boardDefaults() before any
+// external config is loaded.
 func Default() Config {
 	return Config{
 		SampleInterval:    5 * time.Second,
 		HeartbeatInterval: 0,
 		SerialEnabled:     true,
 		LedEnabled:        true,
+		Sensors:           []string{"fake"},
 	}
 }
 
@@ -107,6 +144,25 @@ func Parse(data []byte, cfg *Config) error {
 				cfg.Sensors = append(cfg.Sensors, id)
 			}
 
+		case "power":
+			cfg.Power = value
+
+		case "sd_cs_pins":
+			pins, err := parsePinList(key, value)
+			if err != nil {
+				errs = append(errs, err)
+			} else {
+				cfg.SDCSPins = pins
+			}
+
+		case "rtc_wake_pin":
+			pin, err := parsePin(key, value)
+			if err != nil {
+				errs = append(errs, err)
+			} else {
+				cfg.RTCWakePin = pin
+			}
+
 		default:
 			errs = append(errs, errors.New("unknown config key: "+key))
 		}
@@ -126,4 +182,31 @@ func parseDuration(key, value string) (time.Duration, error) {
 		return 0, errors.New(key + ": negative duration not allowed: " + value)
 	}
 	return d, nil
+}
+
+// parsePinList parses a comma-separated list of numeric pin numbers.
+func parsePinList(key, value string) ([]uint8, error) {
+	var pins []uint8
+	parts := strings.Split(value, ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		pin, err := parsePin(key, p)
+		if err != nil {
+			return nil, err
+		}
+		pins = append(pins, pin)
+	}
+	return pins, nil
+}
+
+// parsePin parses a single numeric pin number (0–255).
+func parsePin(key, value string) (uint8, error) {
+	n, err := strconv.ParseUint(value, 10, 8)
+	if err != nil {
+		return 0, errors.New(key + ": invalid pin number: " + value)
+	}
+	return uint8(n), nil
 }

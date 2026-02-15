@@ -6,7 +6,7 @@ build:
 	tinygo build -size=short -stack-size=8KB -target={{board}} -o={{bin}} .
 
 flash: build
-	bossac --port="{{port}}" --offset=0x2000 --erase --write --verify --reset "{{bin}}" 
+	bossac --port="{{port}}" --offset=0x2000 --erase --write --verify "{{bin}}" 
 
 clean:
 	rm -f {{bin}}

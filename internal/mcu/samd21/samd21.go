@@ -38,32 +38,58 @@ func New() *MCU {
 
 func (m *MCU) Identifier() string { return Name }
 
-// EnableWake arms pin as a standby wake source by setting the
-// corresponding EIC.WAKEUP bit.
-func (m *MCU) EnableWake(pin machine.Pin) {
-	sam.EIC.WAKEUP.SetBits(1 << extIntChannel(pin))
+// ArmWake configures pin as a deep-sleep wake source. It:
+//  1. Configures the pin as input with pullup.
+//  2. Registers a falling-edge interrupt (the ISR automatically disarms).
+//  3. Performs one-time standby clock preparation (reroutes GCLK_EIC
+//     to OSCULP32K with run-in-standby, per SAMD21 datasheet §18.6.4).
+//  4. Sets the EIC.WAKEUP bit for the pin's external interrupt channel.
+//
+// The pin number is a uint8 matching machine.Pin's underlying type.
+func (m *MCU) ArmWake(pin uint8) error {
+	p := machine.Pin(pin)
+
+	p.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+
+	// Register interrupt. The first call also initialises the EIC
+	// peripheral and its default GCLK0 clock routing in TinyGo.
+	if err := p.SetInterrupt(machine.PinFalling, func(_ machine.Pin) {
+		m.DisarmWake(pin)
+	}); err != nil {
+		return err
+	}
+
+	// One-time standby clock reconfiguration. Must come after the
+	// first SetInterrupt which initialises the EIC peripheral.
+	m.prepareStandby()
+
+	// Enable the EIC wakeup bit for this channel.
+	sam.EIC.WAKEUP.SetBits(1 << extIntChannel(p))
+
+	return nil
 }
 
-// DisableWake clears pin as a standby wake source.
-func (m *MCU) DisableWake(pin machine.Pin) {
-	sam.EIC.WAKEUP.ClearBits(1 << extIntChannel(pin))
+// DisarmWake tears down pin as a wake source: clears the interrupt
+// registration and the EIC wakeup bit. Safe to call even if the pin
+// was not previously armed.
+func (m *MCU) DisarmWake(pin uint8) {
+	p := machine.Pin(pin)
+	_ = p.SetInterrupt(0, nil)
+	sam.EIC.WAKEUP.ClearBits(1 << extIntChannel(p))
 }
 
-// PrepareStandby performs one-time clock reconfiguration so that
+// prepareStandby performs one-time clock reconfiguration so that
 // external interrupts can wake the processor from standby sleep.
 //
 // By default, TinyGo routes GCLK_EIC through GCLK0 (48 MHz), which
 // is halted during standby. This method reroutes GCLK_EIC to a
 // dedicated generator sourced from the ultra-low-power 32 kHz
-// oscillator with run-in-standby enabled, per SAMD21 datasheet §18.6.4:
-//
-//	"If edge-detection is required while the CPU is in standby, the
-//	 GCLK_EIC must be configured to run in standby mode."
+// oscillator with run-in-standby enabled.
 //
 // Must be called after the first pin.SetInterrupt call, which
 // initialises the EIC peripheral and its default clock routing.
 // Repeated calls are no-ops.
-func (m *MCU) PrepareStandby() {
+func (m *MCU) prepareStandby() {
 	if m.standbyReady {
 		return
 	}

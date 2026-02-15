@@ -43,7 +43,7 @@ type Card struct {
 // pin, then mounts the FAT filesystem. The SPI bus is configured
 // internally by the sdcard driver; the caller should not pre-configure
 // it.
-func New(spi *machine.SPI, sck, sdo, sdi, cs machine.Pin) (*Card, error) {
+func NewCard(spi *machine.SPI, sck, sdo, sdi, cs machine.Pin) (*Card, error) {
 	debug.Log("sdcard: configuring spi")
 	dev := sdcard.New(spi, sck, sdo, sdi, cs)
 	if err := dev.Configure(); err != nil {

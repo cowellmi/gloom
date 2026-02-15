@@ -6,6 +6,7 @@ import (
 	"device/sam"
 	"machine"
 
+	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/mcu"
 	"github.com/cowellmi/gloom/internal/mcu/samd21"
@@ -36,6 +37,22 @@ func initMCU() mcu.MCU {
 	proc := samd21.New()
 	proc.EnableWatchdog()
 	return proc
+}
+
+// boardDefaults applies Feather M0 pin candidates to the config
+// before external configuration is loaded. Only pin numbers are set
+// here — the power manager is left empty and should be specified in
+// config.ini (e.g. power = hypnos). This way a bare Feather M0 boots
+// cleanly without toggling pins meant for a board that isn't there.
+func boardDefaults(cfg *config.Config) {
+	// SD card CS pins to probe, in order. All pins are checked so
+	// multiple cards can be discovered for redundancy.
+	//   D11 — Hypnos v3.3
+	//   D10 — Hypnos v3.2, Adalogger FeatherWing
+	cfg.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
+
+	// DS3231 alarm/interrupt pin on D12 (standard Hypnos wiring).
+	cfg.RTCWakePin = uint8(machine.D12)
 }
 
 // debugWriter returns the UART used for early debug output. Called by

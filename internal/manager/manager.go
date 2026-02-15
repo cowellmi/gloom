@@ -16,8 +16,16 @@ import (
 // without heap allocation.
 const recorderBufSize = 512
 
+// system is the interface the manager needs from the hardware layer.
+// It is satisfied by *hal.System and by test mocks.
+type system interface {
+	Identifier() string
+	ReadTime() (time.Time, error)
+	Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.WakeReason, error)
+}
+
 type Manager struct {
-	sys        hal.Platform
+	sys        system
 	cfg        config.Config
 	sensors    []sensor.Device
 	recorders  []sensor.Recorder
@@ -30,7 +38,7 @@ type Manager struct {
 	petWDT     func()
 }
 
-func New(sys hal.Platform, cfg config.Config, devices []sensor.Device, logger *log.Logger) *Manager {
+func New(sys system, cfg config.Config, devices []sensor.Device, logger *log.Logger) *Manager {
 	return &Manager{
 		sys:     sys,
 		cfg:     cfg,
@@ -77,7 +85,6 @@ func (m *Manager) Run() {
 		m.logger.SetTime(t)
 	}
 
-	m.logger.Debug("platform: " + m.sys.Identifier())
 	m.pet()
 
 	for {

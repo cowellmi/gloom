@@ -21,8 +21,9 @@ func TestDefault(t *testing.T) {
 	if !cfg.LedEnabled {
 		t.Error("LedEnabled = false, want true")
 	}
-	if len(cfg.Sensors) != 0 {
-		t.Errorf("Sensors = %v, want empty", cfg.Sensors)
+	// Default includes "fake" sensor for bare-board debugging.
+	if len(cfg.Sensors) != 1 || cfg.Sensors[0] != "fake" {
+		t.Errorf("Sensors = %v, want [fake]", cfg.Sensors)
 	}
 }
 

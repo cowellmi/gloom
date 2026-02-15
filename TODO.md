@@ -38,9 +38,9 @@ In `internal/debug/debug.go`, `append([]byte(nil), msg...)` allocates a new `[]b
 
 In `internal/manager/manager.go`, the `step()` switch handles `WakeSample` and `WakeHeartbeat` but `WakeExternal` falls through with no log entry. For field debugging, add a `logger.Debug("external wake")` case.
 
-### `Fallback.Sleep` uses `time.Sleep` instead of `wait.For`
+### SD card SPI state not reset before probe when power manager loads late
 
-In `internal/hal/fallback.go`, `Sleep()` calls `time.Sleep(target.Sub(now))`. The AGENT.md and codebase convention say to avoid `time.Sleep` in favor of `wait.For` because of unreliable TinyGo scheduler behavior after SAMD21 standby wake. Even though Fallback is degraded-mode, it should use `wait.For` for consistency and to avoid issues if Fallback ever runs on bare metal.
+The Hypnos power manager (`power.NewHypnos()`) performs an initial power cycle to discharge SD card capacitors and reset its SPI state machine. This is important after a watchdog reset where the SD card can be stuck mid-command. However, the power manager is now instantiated *after* SD card probing (because `config.ini` on the SD card specifies `power = hypnos`). This means the pre-probe power cycle no longer happens. In practice this is likely fine — a WDT reset is effectively a cold boot and rails come up fresh from the voltage regulator — but if SD card probe failures are observed after watchdog resets, this is the first place to look. A possible fix: do a brief power cycle in `boardDefaults()` unconditionally if the board has known rail pins, or add a retry loop to SD probing.
 
 ---
 
@@ -66,9 +66,9 @@ In `internal/manager/manager.go`, the `[recorderBufSize]byte` scratch buffer is 
 
 Both `internal/sink/serial/serial.go` and `internal/sink/file/file.go` define identical `appendLevel` helper functions. Extract to a shared location (e.g. `internal/log/` or a small `internal/format/` package) to avoid drift.
 
-### Duplicate `earliest()` helper
+### Duplicate `earliest()` helper — RESOLVED
 
-Both `internal/hal/fallback.go` and `internal/boards/hypnos/hypnos.go` define identical `earliest(a, b time.Time) time.Time` functions. Extract to `internal/hal/` as an exported or unexported helper so the two Platform implementations share one copy.
+Previously duplicated between `hal/fallback.go` and `boards/hypnos/hypnos.go`. Now lives once in `internal/hal/hal.go` as part of the `System` implementation. Can be removed from this list.
 
 ### Missing test coverage for `internal/log` and `internal/sink/serial`
 
