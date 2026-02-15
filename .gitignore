@@ -1,14 +1,8 @@
-# Build artifacts
 *.bin
 *.elf
 build/
-
-# The tinygo extension handles project level settings.
 .vscode/
 .direnv/
-
-# See .envrc.example
 .envrc
-
-# Other
 *.log
+vendor/
