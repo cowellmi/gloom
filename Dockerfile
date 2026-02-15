@@ -16,7 +16,7 @@ WORKDIR /workspace
 
 RUN curl -fsSL https://cursor.com/install | bash
 
-ENV PATH="/home/gloom/.local/bin:/usr/local/tinygo/bin:${PATH}"
+ENV PATH="/home/gloom/.local/bin:/usr/local/tinygo/bin:/usr/local/go/bin:${PATH}"
 
 ENTRYPOINT ["agent"]
 CMD ["--model", "auto"]
