@@ -15,7 +15,6 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/cowellmi/gloom/internal/debug"
 	"tinygo.org/x/drivers/sdcard"
 	"tinygo.org/x/tinyfs/fatfs"
 )
@@ -44,13 +43,10 @@ type Card struct {
 // internally by the sdcard driver; the caller should not pre-configure
 // it.
 func NewCard(spi *machine.SPI, sck, sdo, sdi, cs machine.Pin) (*Card, error) {
-	debug.Log("sdcard: configuring spi")
 	dev := sdcard.New(spi, sck, sdo, sdi, cs)
 	if err := dev.Configure(); err != nil {
-		debug.Log("sdcard: spi configure failed: " + err.Error())
 		return nil, errors.New("sdcard: " + err.Error())
 	}
-	debug.Log("sdcard: spi ok")
 
 	filesystem := fatfs.New(&dev)
 	filesystem.Configure(&fatfs.Config{SectorSize: 512})
@@ -61,13 +57,10 @@ func NewCard(spi *machine.SPI, sck, sdo, sdi, cs machine.Pin) (*Card, error) {
 	// destroying data unnecessarily.
 	var mountErr error
 	for attempt := 0; attempt < mountRetries; attempt++ {
-		debug.Log("sdcard: mount attempt " + strconv.Itoa(attempt+1) + "/" + strconv.Itoa(mountRetries))
 		mountErr = filesystem.Mount()
 		if mountErr == nil {
-			debug.Log("sdcard: mounted")
 			return &Card{dev: dev, fs: filesystem}, nil
 		}
-		debug.Log("sdcard: mount failed: " + mountErr.Error())
 	}
 
 	// All mount attempts exhausted. Return the last error so the

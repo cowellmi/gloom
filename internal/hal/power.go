@@ -2,7 +2,7 @@ package hal
 
 import "time"
 
-// PowerManager abstracts board-level power rail control. Each rail is
+// Rails abstracts board-level power rail control. Each rail is
 // tagged with a WakeReason bitmask that determines when it activates:
 //
 //   - WakeAlways rails (core): powered on every wake so the RTC and
@@ -15,9 +15,9 @@ import "time"
 // up reason-specific rails. A rail activates when its tag ANDs with
 // the reason.
 //
-// Boards without rail control simply omit the PowerManager from the
-// System (pass nil to NewSystem).
-type PowerManager interface {
+// Boards without rail control simply omit Rails from the System
+// (pass nil to NewSystem).
+type Rails interface {
 	// PowerOn enables all rails whose WakeReason tag overlaps with
 	// reason. Rails already on are left unchanged.
 	PowerOn(reason WakeReason)

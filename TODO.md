@@ -38,9 +38,17 @@ In `internal/debug/debug.go`, `append([]byte(nil), msg...)` allocates a new `[]b
 
 In `internal/manager/manager.go`, the `step()` switch handles `WakeSample` and `WakeHeartbeat` but `WakeExternal` falls through with no log entry. For field debugging, add a `logger.Debug("external wake")` case.
 
-### SD card SPI state not reset before probe when power manager loads late
+### I2C bus recovery on boot
 
-The power manager (`power.New(rails...)`) performs an initial power cycle to discharge SD card capacitors and reset its SPI state machine. This is important after a watchdog reset where the SD card can be stuck mid-command. However, the power manager is now instantiated *after* SD card probing (because `config.ini` on the SD card specifies `power = hypnos`). This means the pre-probe power cycle no longer happens. In practice this is likely fine — a WDT reset is effectively a cold boot and rails come up fresh from the voltage regulator — but if SD card probe failures are observed after watchdog resets, this is the first place to look. A possible fix: do a brief power cycle in `boardDefaults()` unconditionally if the board has known rail pins, or add a retry loop to SD probing.
+The I2C bus can latch into a stuck state if the MCU resets (watchdog, brownout, debug flash) while a slave device (e.g. DS3231) is mid-transaction. The slave holds SDA low waiting for clocks that never come, and the SAMD21 SERCOM's `Configure()` cannot clear this — it sees the bus as busy and all subsequent transactions timeout.
+
+The standard fix is a bit-banged bus recovery before configuring the I2C peripheral: temporarily configure SDA/SCL as GPIO outputs, toggle SCL 9+ times (giving the slave a chance to release SDA on each clock), generate a STOP condition (SDA low→high while SCL is high), then switch back to I2C mode. This is what Linux's `i2c_recover_bus()` does.
+
+Currently `waitForReady` in `internal/rtc/ds3231/ds3231.go` reconfigures the SERCOM between retries, which helps with soft bus errors but not a fully latched slave. A proper recovery would live on `hal.MCU` (e.g. `RecoverI2C(sda, scl machine.Pin)`) since it's chip-specific register access, and would be called once in `main.go` before `machine.I2C0.Configure`.
+
+### SD card SPI state not reset before probe when rail controller loads late
+
+The power controller (`power.NewController(rails...)`) performs an initial power cycle to discharge SD card capacitors and reset its SPI state machine. This is important after a watchdog reset where the SD card can be stuck mid-command. Power rails are now enabled before peripheral probing (via build-tagged `boardPower()`), so the power cycle happens early. If SD card probe failures are observed after watchdog resets, this is the first place to look.
 
 ---
 
@@ -111,7 +119,7 @@ The countdown timer is a better fit than the PCF8523 alarm for `Sleep()` because
 
 ```go
 type Board struct {
-    proc          mcu.MCU
+    proc          hal.MCU
     rtc           *pcf8523.Device   // or local struct
     Card          *sdcard.Card
     rails         []RailConfig
@@ -130,7 +138,7 @@ The INT pin from the PCF8523 needs to be wired to a Feather GPIO for wake-from-s
 
 #### 3. Optional MOSFET power rails — DONE
 
-`config.RailConfig` and the generic `power.Manager` now handle arbitrary GPIO rails with configurable polarity and `WakeReason` bitmask. Each rail carries a `hal.WakeReason` (`WakeAlways` for core, `WakeSample` for sensors) so sensor rails stay off during heartbeat wakes. `power = hypnos` is a built-in preset; researchers can wire custom MOSFETs and set `power_rails = 5:low, 9:sample` in `config.ini`.
+`config.RailConfig` and the generic `power.Controller` now handles arbitrary GPIO rails with configurable polarity and `WakeReason` bitmask. Each rail carries a `hal.WakeReason` (`WakeAlways` for core, `WakeSample` for sensors) so sensor rails stay off during heartbeat wakes. `power = hypnos` is a built-in preset; researchers can wire custom MOSFETs and set `power_rails = 5:low, 9:sample` in `config.ini`.
 
 #### 4. `sensor.Sleeper` interface — `internal/sensor/sensor.go`
 
@@ -157,7 +165,7 @@ Add a build-tagged board file following the existing `main_feather_m0.go` patter
 //go:build adalogger_m0
 ```
 
-Provides `initMCU() mcu.MCU`, `boardDefaults(cfg *config.Config)`, and `debugWriter() *machine.UART`. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
+Provides `initMCU() hal.MCU`, `boardDefaults(cfg *config.Config)`, and `debugWriter() *machine.UART`. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
 
 ### Blues Notecard integration (config source + data sink)
 
@@ -234,7 +242,7 @@ Key operations:
 
 #### 3. Device ID in flash — `internal/mcu/` interface + `internal/mcu/samd21/nvm.go`
 
-Add `DeviceID() (string, error)` and `SetDeviceID(id string) error` to `mcu.MCU`. SAMD21 implementation stores a short string in a reserved NVM flash row (64 bytes). On first boot, generate `"gloom-"` + 4 random hex chars and write to flash. Add `DeviceID` field to `config.Config`.
+Add `DeviceID() (string, error)` and `SetDeviceID(id string) error` to `hal.MCU`. SAMD21 implementation stores a short string in a reserved NVM flash row (64 bytes). On first boot, generate `"gloom-"` + 4 random hex chars and write to flash. Add `DeviceID` field to `config.Config`.
 
 #### 4. Config cascade — Notecard → SD card → default
 
@@ -257,7 +265,7 @@ Add the Nordic nRF52840 (Adafruit Feather nRF52840 Express) as the second suppor
 
 #### 1. MCU implementation — `internal/mcu/nrf52/nrf52.go`
 
-Implement `mcu.MCU` for the nRF52840:
+Implement `hal.MCU` for the nRF52840:
 
 - **`Standby()`** — use System ON sleep with `__WFE`. The nRF52 sleep model differs from SAMD21: no explicit SLEEPDEEP bit, instead the CPU sleeps automatically when all events are handled. Wake via RTC COMPARE event or GPIO SENSE.
 - **`PrepareStandby()`** — configure GPIOTE for wake-on-pin (alarm interrupt from RTC FeatherWing). Enable RTC2 or similar peripheral as wake source.
@@ -271,7 +279,7 @@ Implement `mcu.MCU` for the nRF52840:
 //go:build feather_nrf52840
 ```
 
-Provides `initMCU() mcu.MCU` and `debugWriter() *machine.UART`. The nRF52840 Feather exposes UART on D0/D1 via the standard `machine.UART0`, so no manual SERCOM configuration is needed (unlike SAMD21).
+Provides `initMCU() hal.MCU` and `debugWriter() *machine.UART`. The nRF52840 Feather exposes UART on D0/D1 via the standard `machine.UART0`, so no manual SERCOM configuration is needed (unlike SAMD21).
 
 #### 3. Sleep considerations
 
@@ -290,7 +298,7 @@ Add the RP2040 (Adafruit Feather RP2040, ~$12) as a budget MCU target for deploy
 
 #### 1. MCU implementation — `internal/mcu/rp2040/rp2040.go`
 
-Implement `mcu.MCU` for the RP2040:
+Implement `hal.MCU` for the RP2040:
 
 - **`Standby()`** — use dormant mode with GPIO wake. The RP2040 can be woken from dormant by an edge on a GPIO pin (e.g. from an external RTC alarm). Alternatively, use `__WFE` sleep (lighter, ~1-3mA board-level) if dormant mode proves unreliable under TinyGo.
 - **`EnableWatchdog()` / `PetWatchdog()`** — RP2040 has a hardware watchdog with configurable timeout. Straightforward register access.

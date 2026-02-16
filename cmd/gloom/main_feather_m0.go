@@ -8,7 +8,7 @@ import (
 
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
-	"github.com/cowellmi/gloom/internal/mcu"
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/mcu/samd21"
 )
 
@@ -30,7 +30,7 @@ var UART0 = &machine.UART{
 // SERCOM0 for debug output, creates the MCU instance, and enables
 // the hardware watchdog. Returns the MCU interface for use by the
 // generic boot logic in main.go.
-func initMCU() mcu.MCU {
+func initMCU() hal.MCU {
 	configureUART0(115200)
 	debug.W = UART0
 

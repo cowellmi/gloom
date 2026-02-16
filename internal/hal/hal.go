@@ -1,8 +1,8 @@
 // Package hal defines the hardware abstraction layer for Gloom.
 //
 // The central type is System, a composable struct that assembles
-// optional hardware components (RTC, power manager) alongside a
-// required MCU processor into a unified sleep/wake interface. All pin
+// optional hardware components (RTC, power rails) alongside a
+// required MCU into a unified sleep/wake interface. All pin
 // references use uint8 so this package remains testable with the
 // standard Go toolchain.
 package hal
@@ -13,27 +13,6 @@ import (
 
 	"github.com/cowellmi/gloom/internal/wait"
 )
-
-// Processor abstracts the MCU operations needed by the System for
-// deep sleep. This is a hal-local interface satisfied by mcu.MCU
-// implementations. It uses uint8 for pin numbers to avoid importing
-// the machine package.
-type Processor interface {
-	Identifier() string
-	PetWatchdog()
-
-	// ArmWake configures pin as a wake source: sets it as input
-	// pullup, registers a falling-edge interrupt, prepares standby
-	// clocks, and enables the EIC wakeup bit. The interrupt handler
-	// is internal and disarms the wake source on fire.
-	ArmWake(pin uint8) error
-
-	// DisarmWake tears down the wake source for pin.
-	DisarmWake(pin uint8)
-
-	// Standby puts the processor into its deepest sleep mode.
-	Standby()
-}
 
 // WakeReason is a bitmask identifying why the system woke. Power
 // rails use WakeReason to decide which rails to enable: a rail tagged
@@ -52,26 +31,26 @@ const (
 
 // System composes optional hardware components into a unified
 // sleep/wake platform. The processor is always required (if the MCU
-// isn't running, the firmware isn't running). RTC and PowerManager
-// are optional — pass nil for graceful degradation:
+// isn't running, the firmware isn't running). RTC and Rails are
+// optional — pass nil for graceful degradation:
 //   - nil RTC: use time.Now(), no alarm-based wake, no deep sleep
-//   - nil PowerManager: no rail control
+//   - nil Rails: no rail control
 type System struct {
-	proc  Processor
+	mcu   MCU
 	rtc   RTC
-	power PowerManager
+	rails Rails
 
 	nextSample    time.Time
 	nextHeartbeat time.Time
 }
 
-// NewSystem creates a System. proc is required. rtc and pm may be nil.
-func NewSystem(proc Processor, rtc RTC, pm PowerManager) *System {
-	return &System{proc: proc, rtc: rtc, power: pm}
+// NewSystem creates a System. mcu is required. rtc and rails may be nil.
+func NewSystem(mcu MCU, rtc RTC, rails Rails) *System {
+	return &System{mcu: mcu, rtc: rtc, rails: rails}
 }
 
 func (s *System) Identifier() string {
-	return s.proc.Identifier()
+	return s.mcu.Identifier()
 }
 
 // ReadTime returns the current time from the RTC, or time.Now() if
@@ -91,7 +70,7 @@ func (s *System) ReadTime() (time.Time, error) {
 //   - With RTC: set RTC alarm, arm wake pin, MCU standby (deep sleep)
 //   - Without RTC: busy-wait using internal clock (no deep sleep)
 //
-// Power rail behaviour when a PowerManager is attached:
+// Power rail behaviour when Rails is attached:
 //   - All rails are cut before sleep.
 //   - On wake, core rails (WakeAlways) are restored first so the RTC
 //     and SD card are accessible.
@@ -101,7 +80,7 @@ func (s *System) ReadTime() (time.Time, error) {
 func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeReason, error) {
 	var sleepErrs []error
 
-	s.proc.PetWatchdog()
+	s.mcu.PetWatchdog()
 
 	// --- Read current time ---
 	now, err := s.ReadTime()
@@ -110,15 +89,15 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 		now = time.Now()
 	}
 
-	s.proc.PetWatchdog()
+	s.mcu.PetWatchdog()
 
 	// --- Update deadlines ---
 	if sampleInterval > 0 && s.nextSample.IsZero() {
 		adj := sampleInterval
 		// Subtract sensor power-on delay so sensors are ready by
 		// the nominal sample time.
-		if s.power != nil {
-			adj -= s.power.Delay()
+		if s.rails != nil {
+			adj -= s.rails.Delay()
 		}
 		if adj < 0 {
 			adj = 0
@@ -133,7 +112,7 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 
 	// --- Sleep until target ---
 	if now.Before(target) || target.IsZero() {
-		s.proc.PetWatchdog()
+		s.mcu.PetWatchdog()
 
 		// Attempt deep sleep if we have an RTC.
 		if s.rtc != nil {
@@ -148,16 +127,21 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 			s.idleSleep(target)
 		}
 
-		s.proc.PetWatchdog()
+		s.mcu.PetWatchdog()
 
 		// Restore core rails (WakeAlways) so the RTC and SD card
 		// are reachable. Reason-specific rails stay off until we
 		// know which wake reason fired.
-		if s.power != nil {
-			s.power.PowerOn(WakeAlways)
+		if s.rails != nil {
+			s.rails.PowerOn(WakeAlways)
 		}
 
-		s.proc.PetWatchdog()
+		// Clear the RTC alarm so the interrupt pin releases.
+		if s.rtc != nil {
+			_ = s.rtc.ClearWake() // best-effort
+		}
+
+		s.mcu.PetWatchdog()
 
 		// Re-read time after wake.
 		now, err = s.ReadTime()
@@ -166,7 +150,7 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 			now = time.Now()
 		}
 
-		s.proc.PetWatchdog()
+		s.mcu.PetWatchdog()
 	}
 
 	// --- Resolve wake reason ---
@@ -182,10 +166,10 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 	}
 
 	// --- Power on reason-specific rails ---
-	if s.power != nil && reason != WakeExternal {
-		s.power.PowerOn(reason)
-		wait.For(s.power.Delay())
-		s.proc.PetWatchdog()
+	if s.rails != nil && reason != WakeExternal {
+		s.rails.PowerOn(reason)
+		wait.For(s.rails.Delay())
+		s.mcu.PetWatchdog()
 	}
 
 	return reason, errors.Join(sleepErrs...)
@@ -204,26 +188,35 @@ func (s *System) deepSleep(target time.Time) error {
 		}
 	}
 
+	s.mcu.PetWatchdog()
+
+	// Cut power rails before arming the wake interrupt. The
+	// DS3231 INT pin can glitch during the 3.3V→battery
+	// transition. If the EIC is already armed, that glitch
+	// fires the ISR (which disarms the wake source), and the
+	// real alarm later has nothing to wake the CPU.
+	if s.rails != nil {
+		s.rails.PowerOff()
+	}
+
 	// Arm the MCU wake source on the RTC interrupt pin.
-	if err := s.proc.ArmWake(s.rtc.WakePin()); err != nil {
-		s.proc.DisarmWake(s.rtc.WakePin())
+	if err := s.mcu.ArmWake(s.rtc.WakePin()); err != nil {
+		s.mcu.DisarmWake(s.rtc.WakePin())
 		return err
 	}
 
-	s.proc.PetWatchdog()
-
-	// Cut power rails.
-	if s.power != nil {
-		s.power.PowerOff()
-	}
+	// Disable the watchdog before standby. The WDT GCLK is
+	// configured without RUNSTDBY, but in practice the WDT
+	// still fires during standby (possibly due to stale GCLK0
+	// routing from TinyGo's runtime init). Disabling it
+	// explicitly prevents resets during intentional sleep.
+	s.mcu.DisableWatchdog()
 
 	// Enter deep sleep — execution halts until wake interrupt.
-	s.proc.Standby()
+	s.mcu.Standby()
 
-	s.proc.PetWatchdog()
-
-	// Clear the RTC alarm so the interrupt pin releases.
-	_ = s.rtc.ClearWake() // best-effort
+	s.mcu.EnableWatchdog()
+	s.mcu.PetWatchdog()
 
 	return nil
 }
@@ -240,7 +233,7 @@ func (s *System) idleSleep(target time.Time) {
 	}
 
 	for time.Now().Before(target) {
-		s.proc.PetWatchdog()
+		s.mcu.PetWatchdog()
 		remaining := time.Until(target)
 		if remaining > tick {
 			remaining = tick

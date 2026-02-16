@@ -1,4 +1,4 @@
-// Package power provides a generic hal.PowerManager implementation for
+// Package power provides a generic hal.Rails implementation for
 // boards with MOSFET-switched power rails. Each rail is a GPIO pin
 // with a configurable polarity and a WakeReason bitmask that controls
 // when it activates.
@@ -53,20 +53,20 @@ func (r Rail) off() {
 	}
 }
 
-// Manager controls one or more MOSFET-switched power rails.
-// It satisfies hal.PowerManager.
-type Manager struct {
+// Controller controls one or more MOSFET-switched power rails.
+// It satisfies hal.Rails.
+type Controller struct {
 	rails []Rail
 }
 
 // compile-time check
-var _ hal.PowerManager = (*Manager)(nil)
+var _ hal.Rails = (*Controller)(nil)
 
-// New creates a power Manager for the given rails. It configures each
-// pin as an output and performs an initial power cycle to reset
-// peripherals (SD card SPI state, etc.).
-func New(rails ...Rail) *Manager {
-	m := &Manager{rails: rails}
+// NewController creates a power Controller for the given rails. It
+// configures each pin as an output and performs an initial power cycle
+// to reset peripherals (SD card SPI state, etc.).
+func NewController(rails ...Rail) *Controller {
+	m := &Controller{rails: rails}
 
 	for _, r := range m.rails {
 		r.pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
@@ -83,7 +83,7 @@ func New(rails ...Rail) *Manager {
 
 // PowerOn enables all rails whose wakeOn mask overlaps with reason.
 // Rails that don't match are left unchanged.
-func (m *Manager) PowerOn(reason hal.WakeReason) {
+func (m *Controller) PowerOn(reason hal.WakeReason) {
 	for _, r := range m.rails {
 		if r.wakeFor&reason != 0 {
 			r.on()
@@ -92,7 +92,7 @@ func (m *Manager) PowerOn(reason hal.WakeReason) {
 }
 
 // PowerOff disables all power rails.
-func (m *Manager) PowerOff() {
+func (m *Controller) PowerOff() {
 	for _, r := range m.rails {
 		r.off()
 	}
@@ -100,6 +100,6 @@ func (m *Manager) PowerOff() {
 
 // Delay returns how long to wait after PowerOn for voltages to
 // stabilise before talking to peripherals.
-func (m *Manager) Delay() time.Duration {
+func (m *Controller) Delay() time.Duration {
 	return StabiliseDelay
 }

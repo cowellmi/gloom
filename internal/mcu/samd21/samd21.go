@@ -1,4 +1,4 @@
-// Package samd21 implements mcu.MCU for the Microchip SAMD21 Cortex-M0.
+// Package samd21 implements hal.MCU for the Microchip SAMD21 Cortex-M0.
 package samd21
 
 import (
@@ -34,7 +34,7 @@ func New() *MCU {
 	return &MCU{}
 }
 
-// --- mcu.MCU interface ---
+// --- hal.MCU interface ---
 
 func (m *MCU) Identifier() string { return Name }
 
@@ -131,8 +131,10 @@ func (m *MCU) Standby() {
 
 // EnableWatchdog starts the hardware watchdog with an ~8 second timeout.
 // The WDT is clocked from OSCULP32K / 32 (~1.024 kHz) via gclkWDT.
-// gclkWDT does NOT have run-in-standby, so the watchdog halts during
-// deep sleep and will not reset the MCU while it is intentionally stopped.
+// gclkWDT is configured without RUNSTDBY, but in practice the WDT may
+// still fire during standby (possibly due to stale GCLK0 routing from
+// TinyGo's runtime init). Callers must use DisableWatchdog/EnableWatchdog
+// around standby to prevent resets during intentional sleep.
 //
 // If PetWatchdog is not called within ~8 seconds during normal
 // operation, the MCU resets. This guards against I2C bus lockups
@@ -151,6 +153,14 @@ func (m *MCU) EnableWatchdog() {
 // PetWatchdog resets the watchdog countdown, preventing a reset.
 func (m *MCU) PetWatchdog() {
 	sam.WDT.CLEAR.Set(sam.WDT_CLEAR_CLEAR_KEY)
+	syncWDT()
+}
+
+// DisableWatchdog stops the hardware watchdog. Used before entering
+// standby so a potentially-running WDT clock doesn't reset the MCU
+// during intentional deep sleep.
+func (m *MCU) DisableWatchdog() {
+	sam.WDT.CTRL.ClearBits(sam.WDT_CTRL_ENABLE)
 	syncWDT()
 }
 

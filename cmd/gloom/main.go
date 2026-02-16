@@ -7,12 +7,11 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
-	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/power"
-	"github.com/cowellmi/gloom/internal/rtc"
+	"github.com/cowellmi/gloom/internal/rtc/ds3231"
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sink/file"
@@ -22,7 +21,7 @@ import (
 
 func main() {
 	// Keep track of non-fatal init issues for deferred logging.
-	var initErrs  []error
+	var initErrs []error
 	var initWarns []string
 
 	// Initialise MCU: debug UART, watchdog, chip-specific setup.
@@ -30,13 +29,8 @@ func main() {
 	proc := initMCU()
 	petWatchdog = proc.PetWatchdog
 
-	// Setup I2C with default config.
-	if err := machine.I2C0.Configure(machine.I2CConfig{}); err != nil {
-		fatal(err)
-	}
-
 	// Start with debug-friendly defaults (fake sensor, serial on).
-	// Board-specific defaults set pin candidates only (no power manager).
+	// Board-specific defaults set pin candidates only.
 	cfg := config.Default()
 	boardDefaults(&cfg)
 
@@ -46,12 +40,30 @@ func main() {
 
 	proc.PetWatchdog()
 
+	// --- Power rails ---
+	//
+	// Power rails are a compile-time board decision via boardPower()
+	// (build-tagged). On Hypnos, this enables the D5 3.3V core rail
+	// and D6 5V sensor rail before any peripheral probing. Builds
+	// with the no_hypnos tag return nil, skipping rail control.
+	var rails hal.Rails
+	if r := boardPower(); len(r) > 0 {
+		rails = power.NewController(r...)
+		proc.PetWatchdog()
+	}
+
+	// Setup I2C after power rails are up so peripherals behind
+	// MOSFET switches (e.g. DS3231 on Hypnos) don't pull the bus
+	// low through ESD diodes during configuration.
+	if err := machine.I2C0.Configure(machine.I2CConfig{}); err != nil {
+		fatal(err)
+	}
+
 	// --- RTC probe ---
 	//
-	// Try DS3231 first (Hypnos, Adalogger). Future: add PCF8523, etc.
-	// No power manager yet — rails are on from voltage regulator at boot.
+	// Try DS3231 first (Hypnos). Future: add PCF8523 (Adalogger), etc.
 	var clock hal.RTC
-	ds, err := rtc.ProbeDS3231(machine.I2C0, cfg.RTCWakePin)
+	ds, err := ds3231.Probe(machine.I2C0, cfg.RTCWakePin)
 	if err != nil {
 		initWarns = append(initWarns, err.Error())
 		// No RTC — System will use time.Now() and idle sleep.
@@ -75,7 +87,6 @@ func main() {
 	for _, cs := range cfg.SDCSPins {
 		proc.PetWatchdog()
 		pin := strconv.Itoa(int(cs))
-		debug.Log("sdcard: probing CS pin " + pin)
 		c, err := sdcard.NewCard(
 			machine.SPI0,
 			machine.SPI0_SCK_PIN,
@@ -84,11 +95,9 @@ func main() {
 			machine.Pin(cs),
 		)
 		if err != nil {
-			debug.Log("sdcard: CS pin " + pin + ": " + err.Error())
 			initWarns = append(initWarns, "sdcard: CS pin "+pin+": "+err.Error())
 			continue
 		}
-		debug.Log("sdcard: CS pin " + pin + ": found")
 		cards = append(cards, sdEntry{card: c, cs: cs})
 	}
 
@@ -122,52 +131,8 @@ func main() {
 
 	proc.PetWatchdog()
 
-	// --- Power manager ---
-	//
-	// Activated when "power" is set in config. Known presets expand
-	// to fixed rail configurations (e.g. "hypnos" → D5 core + D6
-	// sample). The power_rails config key overrides presets for
-	// custom MOSFET wiring. A bare board has Power="" so no pins
-	// are toggled.
-	var pm hal.PowerManager
-	if cfg.Power != "" {
-		var rails []power.Rail
-
-		if len(cfg.PowerRails) > 0 {
-			// Explicit power_rails in config — use those.
-			rails = make([]power.Rail, len(cfg.PowerRails))
-			for i, rc := range cfg.PowerRails {
-				wakeOn := hal.WakeAlways
-				if rc.SampleOnly {
-					wakeOn = hal.WakeSample
-				}
-				rails[i] = power.NewRail(rc.Pin, rc.ActiveLow, wakeOn)
-			}
-		} else {
-			// No explicit rails — resolve from preset name.
-			switch cfg.Power {
-			case "hypnos":
-				// Hypnos FeatherWing: D5 3.3V core (active-low),
-				// D6 5V sensors (active-high, sample-only).
-				rails = []power.Rail{
-					power.NewRail(uint8(machine.D5), true, hal.WakeAlways),
-					power.NewRail(uint8(machine.D6), false, hal.WakeSample),
-				}
-			default:
-				initErrs = append(initErrs, errors.New("unknown power preset: "+cfg.Power+" (set power_rails for custom wiring)"))
-			}
-		}
-
-		if len(rails) > 0 {
-			pm = power.New(rails...)
-			proc.PetWatchdog()
-		}
-	}
-
-	proc.PetWatchdog()
-
 	// --- Build system ---
-	sys := hal.NewSystem(proc, clock, pm)
+	sys := hal.NewSystem(proc, clock, rails)
 
 	// --- Logger + serial sinks ---
 
@@ -311,7 +276,6 @@ var petWatchdog func()
 // cycle to prevent a reset — this is a permanent halt, not a
 // transient hang.
 func fatal(err error) {
-	debug.Log("fatal: " + err.Error())
 	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	for {
 		if petWatchdog != nil {
