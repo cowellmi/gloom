@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"errors"
 	"runtime"
 	"strconv"
 	"time"
@@ -204,9 +205,17 @@ func (m *Manager) logMem() {
 // flush flushes the logger sinks and all recorders. Called before
 // sleep so buffered data (SD writes, network payloads) is committed
 // before the MCU enters standby.
-func (m *Manager) flush() {
-	m.logger.Flush()
-	for _, r := range m.recorders {
-		r.Flush()
+func (m *Manager) flush() error {
+	var errs []error
+	err := m.logger.Flush()
+	if err != nil {
+		errs = append(errs, err)
 	}
+	for _, r := range m.recorders {
+		err := r.Flush()
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }

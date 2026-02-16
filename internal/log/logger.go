@@ -7,7 +7,10 @@
 // RTC time once per wake cycle and pushes it into the Logger.
 package log
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // Level represents log severity. Values mirror slog conventions.
 type Level int
@@ -86,8 +89,13 @@ func (l *Logger) Error(msg string) { l.Log(LevelError, msg) }
 
 // Flush forces all sinks to write any buffered data. Called by the
 // manager before entering sleep.
-func (l *Logger) Flush() {
+func (l *Logger) Flush() error {
+	var errs []error
 	for i := range l.targets {
-		l.targets[i].sink.Flush()
+		err := l.targets[i].sink.Flush()
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
+	return errors.Join(errs...)
 }
