@@ -2,11 +2,9 @@
 
 A sleepy IoT firmware for low-power sensor sampling, written in [TinyGo](https://tinygo.org/).
 
-## Notes
+## Development
 
-### Connecting USB <-> Serial Adapter
-
-TinyGo's Feather M0 board file only exposes UART1 on SERCOM1 (D10/D11), but those pins are needed for the Hypnos SD card chip-select. The firmware manually configures UART0 on SERCOM0 using the D0/D1 header pins instead (see `cmd/gloom/main_feather_m0.go`). In the future, hopefully upstream TinyGo exports UART0.
+### Serial Monitor
 
 | Serial Adapter (wire color) | Feather M0 Pin | Connection Logic |
 | ------------- | ------------- | ------------- |
@@ -14,6 +12,26 @@ TinyGo's Feather M0 board file only exposes UART1 on SERCOM1 (D10/D11), but thos
 | RX (Yellow) | TX (D1) | Feather TX -> Adapter RX
 | TX (Orange) | RX (D0) | Feather RX <- Adapter TX
 
-#### Why use UART instead of USB Serial?
+#### When to use UART instead of USB CDC?
 
-When we put the device into low-power standby mode, we are also closing the usb serial connection to save power. By using UART, we achieve a reliable serial connection without complex logic to ensure USB serial connection during each wake cycle.
+I recommend using a USB serial adapter to read UART when working with a system that an RTC (e.g. Hypnos board). Any system with a supported RTC and an MMU with a low-power standby mode will enter a deep sleep after every wake cycle. USB CDC connection is unstable after waking from standby mode on the Feather M0. If you are not working with a Hypnos board, then the device will enter a busy-wait loop and the USB connection should be undisturbed.
+
+#### How to connect serial monitor?
+
+Replace with your device:
+
+```
+just monitor /dev/DEVICE_NAME
+```
+
+You can also define the device in your .envrc file:
+
+```
+export GLOOMPORT=/dev/ttyACM0
+```
+
+And run: 
+
+```
+just monitor
+```
