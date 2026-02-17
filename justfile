@@ -11,19 +11,20 @@ vet:
 
 board := "feather-m0"
 bin := "gloom.bin"
+log := "gloom.log"
 
 build:
 	tinygo build -size=short -stack-size=8KB -target={{board}} -o={{bin}} ./cmd/gloom
 
 # Example: just flash /dev/ttyACM0 --reset
-flash port=env_var("GLOOMPORT") *args: build
-    bossac --port="{{port}}" --offset=0x2000 --erase --write --verify "{{bin}}" {{args}}
+flash port=env_var("GLOOMPORT"): build
+    bossac --port="{{port}}" --offset=0x2000 --erase --write --verify "{{bin}}"
 
 clean:
 	rm -f {{bin}}
 
 monitor port=env_var("GLOOMPORT"):
-    tio --log --log-file="debug.log" {{port}}
+    tio --log --log-file="gloom.log" {{port}}
 
 # Expiremental: sandboxed coding agent.
 image_name := "gloom-agent"

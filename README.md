@@ -24,7 +24,7 @@ Replace with your device:
 just monitor /dev/DEVICE_NAME
 ```
 
-You can also define the device in your .envrc file:
+You can also define the device in your `.envrc` file:
 
 ```
 export GLOOMPORT=/dev/ttyACM0
@@ -35,3 +35,5 @@ And run:
 ```
 just monitor
 ```
+
+Output is automatically written to `gloom.log`.

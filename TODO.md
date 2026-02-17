@@ -4,18 +4,6 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 ---
 
-## Critical
-
-### `flush()` in manager discards errors
-
-In `internal/manager/manager.go`, `flush()` calls `Flush()` on the logger and all recorders but never checks the returned errors. For an SD card sink, a failed flush before sleep means data loss. Log the error before entering sleep.
-
-### Serial sink permanently self-disables on a single write error
-
-In `internal/sink/serial/serial.go`, any `Write` error sets `s.w = nil` permanently. For UART this is reasonable, but for USB-CDC the connection is torn down and re-established every sleep/wake cycle. A transient write failure (e.g. host not listening) kills the sink for the entire device lifetime. Consider adding a `Reset(w io.Writer)` method that the manager can call after wake to re-inject the writer, or track an error counter and only disable after N consecutive failures.
-
----
-
 ## High
 
 ### `formatTimestamp` in `sink/file` heap-allocates every call
