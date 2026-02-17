@@ -189,6 +189,10 @@ Implement `sensor.Recorder` and `log.Sink`. Queue measurements into a `data.qo` 
 
 SD card shifts from config authority to local backup: cached config, data logging, log files. If the card is missing or corrupt the device still runs. Existing file sink and retention logic stay unchanged.
 
+#### 7. Update config on env var updates from Blues Notehub
+
+When we receive a message from Blues Notecard that their have been env vars updates for this device from Notehub, update the manager.cfg with the new values (or just do a hard reset?).
+
 ---
 
 ### Auto-probe with graceful degradation

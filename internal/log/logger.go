@@ -10,6 +10,8 @@ package log
 import (
 	"errors"
 	"time"
+
+	"github.com/cowellmi/gloom/internal/debug"
 )
 
 // Level represents log severity. Values mirror slog conventions.
@@ -68,9 +70,11 @@ func (l *Logger) SetTime(t time.Time) {
 func (l *Logger) Log(level Level, msg string) {
 	for i := range l.targets {
 		if level >= l.targets[i].minLevel {
-			// Sink errors are silently ignored. Sinks self-disable
-			// on persistent write failures.
-			l.targets[i].sink.WriteLog(l.buf[:0], l.t, level, msg)
+			if err := l.targets[i].sink.WriteLog(l.buf[:0], l.t, level, msg); err != nil {
+				// Route to debug (UART) instead of logging through
+				// ourselves to avoid a recursive log loop.
+				debug.Log("sink error: " + err.Error())
+			}
 		}
 	}
 }
