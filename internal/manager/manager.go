@@ -125,7 +125,9 @@ func (m *Manager) doSleep() hal.WakeReason {
 	m.pet()
 
 	// Flush all outputs before powering down peripherals and sleeping.
-	m.flush()
+	if err := m.flush(); err != nil {
+		m.logger.Error("flush: " + err.Error())
+	}
 
 	m.pet()
 

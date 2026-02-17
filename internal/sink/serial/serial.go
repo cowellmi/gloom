@@ -15,8 +15,9 @@ import (
 )
 
 // Sink writes formatted text lines to a serial io.Writer.
-// Self-disables on write error: if a write fails, the writer is
-// set to nil and all subsequent calls become no-ops.
+// Write errors are ignored: serial is a diagnostic channel and
+// transient failures (e.g. USB-CDC host not listening) should not
+// impact behaviour.
 type Sink struct {
 	w io.Writer
 }
@@ -44,10 +45,7 @@ func (s *Sink) Record(buf []byte, t time.Time, device string, ms []sensor.Measur
 		buf = append(buf, ' ')
 		buf = append(buf, m.Unit...)
 		buf = append(buf, '\r', '\n')
-		if _, err := s.w.Write(buf); err != nil {
-			s.w = nil
-			return err
-		}
+		_, _ = s.w.Write(buf) // best-effort
 	}
 	return nil
 }
@@ -62,10 +60,7 @@ func (s *Sink) WriteLog(buf []byte, t time.Time, level log.Level, msg string) er
 	buf = append(buf, " | "...)
 	buf = append(buf, msg...)
 	buf = append(buf, '\r', '\n')
-	if _, err := s.w.Write(buf); err != nil {
-		s.w = nil
-		return err
-	}
+	_, _ = s.w.Write(buf) // best-effort
 	return nil
 }
 
