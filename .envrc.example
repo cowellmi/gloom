@@ -1,2 +1,4 @@
 export GOTOOLCHAIN=go1.24.0
 export GLOOMPORT=/dev/ttyACM0
+export GLOOMBOARD=feather-m0
+export GLOOMOFFSET=0x2000

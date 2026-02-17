@@ -10,10 +10,6 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 In `internal/sink/file/file.go`, `formatTimestamp` returns `string(buf[:])` which escapes the stack-allocated `[19]byte` to the heap on every call. This runs once per measurement per cycle. On 32KB RAM it adds up. Refactor to accept a `[]byte` parameter and append into the caller's scratch buffer, consistent with how the serial sink formats timestamps.
 
-### Logger silently discards sink errors
-
-In `internal/log/logger.go`, `Log()` calls `WriteLog` but discards the returned error without even an `_ =` assignment. Per project conventions, intentionally discarded errors need `_ =` with a comment. Consider tracking a `failed` bool per target so the logger knows when a sink has died, or at minimum use `_ =` with an explanation. Same issue in `Flush()`.
-
 ### `Measure()` allocates `[]Measurement` per call
 
 In `internal/sensor/fake/fake.go` (and any real sensor), `Measure()` returns a freshly allocated `[]sensor.Measurement` slice every call. On 32KB RAM, consider pre-allocating a fixed-size array in the Device struct and returning a slice of it, or changing the interface to `Measure(buf []Measurement) ([]Measurement, error)`.
