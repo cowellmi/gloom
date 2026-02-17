@@ -12,6 +12,7 @@ import (
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/power"
 	"github.com/cowellmi/gloom/internal/rtc/ds3231"
+	"github.com/cowellmi/gloom/internal/rtc/pcf8523"
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sink/file"
@@ -22,19 +23,16 @@ import (
 func main() {
 	// Keep track of non-fatal init issues for deferred logging.
 	var initErrs []error
-	var initWarns []string
+	var initWarns []error
 
 	// Initialise MCU: debug UART, watchdog, chip-specific setup.
 	// Defined in the build-tagged board file (e.g. main_feather_m0.go).
 	proc := initMCU()
-	petWatchdog = proc.PetWatchdog
 
 	// Start with debug-friendly defaults (fake sensor, serial on).
 	// Board-specific defaults set pin candidates only.
 	cfg := config.Default()
 	boardDefaults(&cfg)
-	cfg.HeartbeatInterval = 3 * time.Second
-	cfg.SampleInterval = 6 * time.Second
 
 	// TODO: probe Blues Notecard on I2C 0x17.
 	// If found, read config from env vars: blues.readConfig(&cfg).
@@ -52,8 +50,9 @@ func main() {
 	var rails hal.Rails
 	if r := boardPower(); len(r) > 0 {
 		rails = power.NewController(r...)
-		proc.PetWatchdog()
 	}
+
+	proc.PetWatchdog()
 
 	// Setup I2C after power rails are up so peripherals behind
 	// MOSFET switches (e.g. DS3231 on Hypnos) don't pull the bus
@@ -64,12 +63,21 @@ func main() {
 
 	// --- RTC probe ---
 	//
-	// Try DS3231 first (Hypnos). Future: add PCF8523 (Adalogger), etc.
+	// Try DS3231 first (Hypnos).
 	var clock hal.RTC
 	ds, err := ds3231.Probe(machine.I2C0, cfg.RTCWakePin)
 	if err != nil {
-		initWarns = append(initWarns, err.Error())
-		// No RTC — System will use time.Now() and idle sleep.
+		proc.PetWatchdog()
+
+		initWarns = append(initWarns, err)
+		// Then try PCF8523 (Adalogger).
+		pcf, err := pcf8523.Probe(machine.I2C0, cfg.RTCWakePin)
+		if err != nil {
+			initWarns = append(initWarns, err)
+			// No RTC — System will use time.Now() and idle sleep.
+		} else {
+			clock = pcf
+		}
 	} else {
 		clock = ds
 	}
@@ -98,7 +106,7 @@ func main() {
 			machine.Pin(cs),
 		)
 		if err != nil {
-			initWarns = append(initWarns, "sdcard: CS pin "+pin+": "+err.Error())
+			initWarns = append(initWarns, errors.New("sdcard: CS pin "+pin+": "+err.Error()))
 			continue
 		}
 		cards = append(cards, sdEntry{card: c, cs: cs})
@@ -131,6 +139,8 @@ func main() {
 			}
 		}
 	}
+
+	cfg.HeartbeatInterval = 3 * time.Second
 
 	proc.PetWatchdog()
 
@@ -223,7 +233,7 @@ func main() {
 	// --- Report init warnings and errors ---
 
 	for _, w := range initWarns {
-		logger.Warn("init: " + w)
+		logger.Warn("init: " + w.Error())
 	}
 	for _, e := range initErrs {
 		logger.Error("init: " + e.Error())

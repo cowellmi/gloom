@@ -7,20 +7,13 @@ import (
 	"errors"
 	"time"
 
+	"machine"
+
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/wait"
-	"machine"
 
 	"tinygo.org/x/drivers"
 	driver "tinygo.org/x/drivers/ds3231"
-)
-
-const (
-	// Number of attempts to retry I2C operations during probe.
-	probeRetries = 5
-
-	// Delay between retries to allow bus recovery.
-	probeRetryDelay = 500 * time.Millisecond
 )
 
 // RTC wraps the TinyGo DS3231 driver and satisfies hal.RTC.
@@ -146,6 +139,14 @@ func (r *RTC) ClearWake() error {
 func (r *RTC) WakePin() uint8 {
 	return r.wakePin
 }
+
+const (
+	// Number of attempts to retry I2C operations during probe.
+	probeRetries = 5
+
+	// Delay between retries to allow bus recovery.
+	probeRetryDelay = 500 * time.Millisecond
+)
 
 func waitForReady(bus drivers.I2C, dev *driver.Device) error {
 	for attempt := 1; attempt <= probeRetries; attempt++ {

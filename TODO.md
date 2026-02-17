@@ -58,6 +58,10 @@ Both `internal/sink/serial/serial.go` and `internal/sink/file/file.go` define id
 
 Both packages show `[no test files]`. The logger fan-out logic (level filtering, multi-sink dispatch) and serial formatting deserve at least basic unit tests, especially since the logger silently swallows errors.
 
+### Build-tag `machine` imports for standard Go testability
+
+Several packages (`internal/rtc/ds3231`, `internal/mcu/samd21`, `internal/power`, `internal/sdcard`, `cmd/gloom`) import `machine`, which is a TinyGo-only pseudo-package. This means they can't be compiled or tested under the standard Go toolchain. Moving `machine`-dependent code into `//go:build tinygo` files with no-op stubs for `//go:build !tinygo` would allow unit testing, `go vet`, and IDE tooling to work on all packages without a TinyGo install.
+
 ---
 
 ## Low
@@ -85,42 +89,11 @@ Implementation notes:
 
 Add the Adalogger FeatherWing (PCF8523 RTC + SD card) as a second board.
 
-#### 1. PCF8523 RTC driver — `internal/boards/adalogger/rtc.go`
+#### 1. PCF8523 RTC driver — DONE
 
-There is no PCF8523 driver in `tinygo.org/x/drivers`. Write a minimal driver covering only what the board needs:
+Implemented in `internal/rtc/pcf8523/`. Wraps `tinygo.org/x/drivers/pcf8523` for time read/write and power management; hand-rolls countdown timer A for wake interrupts. Probed automatically in `main.go` as a fallback when DS3231 is not found. Wire the PCF8523 INT pad to D12 (or set `rtc_wake_pin` in config).
 
-- `ReadTime() (time.Time, error)` — read date/time registers (0x03–0x09, BCD-encoded).
-- `SetTime(t time.Time) error` — write date/time registers.
-- `SetCountdownTimer(d time.Duration) error` — configure Timer A or B as a countdown source. The countdown timer has selectable source clocks (4096 Hz, 64 Hz, 1 Hz, 1/60 Hz), so pick the coarsest clock that covers the requested duration. Assert INT on expiry.
-- `ClearTimerInterrupt() error` — clear the timer flag so the INT pin releases.
-- `Configure()` — initialize oscillator, disable unused features (CLKOUT, alarms if not used).
-
-The countdown timer is a better fit than the PCF8523 alarm for `Sleep()` because the alarm only has minute-level granularity while the timer supports sub-second precision. The timer also maps directly to durations, which is what `Sleep()` receives.
-
-#### 2. Board implementation — `internal/boards/adalogger/adalogger.go`
-
-`Board` struct implementing `hal.Platform`:
-
-```go
-type Board struct {
-    proc          hal.MCU
-    rtc           *pcf8523.Device   // or local struct
-    Card          *sdcard.Card
-    rails         []RailConfig
-    nextSample    time.Time
-    nextHeartbeat time.Time
-}
-```
-
-- **`Identifier()`** — returns `"Adalogger"` + MCU identifier.
-- **`ReadTime()`** — delegates to PCF8523.
-- **`Sleep()`** — compute the shortest deadline, set PCF8523 countdown timer, configure INT pin as wake source, enter SAMD21 STANDBY, clear timer flag on wake. No `powerOnDelay` subtraction needed when rails are absent.
-
-SD card CS is pin 10 on the Adalogger FeatherWing.
-
-The INT pin from the PCF8523 needs to be wired to a Feather GPIO for wake-from-standby. Accept this as a parameter to `Probe()` (the Adalogger FeatherWing routes INT to a header pad, not a fixed Feather pin).
-
-#### 3. Optional MOSFET power rails — DONE
+#### 2. Optional MOSFET power rails — DONE
 
 `config.RailConfig` and the generic `power.Controller` now handles arbitrary GPIO rails with configurable polarity and `WakeReason` bitmask. Each rail carries a `hal.WakeReason` (`WakeAlways` for core, `WakeSample` for sensors) so sensor rails stay off during heartbeat wakes. `power = hypnos` is a built-in preset; researchers can wire custom MOSFETs and set `power_rails = 5:low, 9:sample` in `config.ini`.
 
@@ -201,7 +174,7 @@ Work in this order:
 
 **Step A — Hypnos graceful SD card failure.** Change `hypnos.Probe()` so SD card failure is non-fatal: return the board with `Card = nil` and log the error. RTC is still required for Hypnos to be considered "found." This unblocks the probe cascade — Hypnos can succeed as a platform even if its SD card is missing or corrupt.
 
-**Step B — Adalogger board implementation** (`internal/boards/adalogger/`). PCF8523 RTC driver + `hal.Platform`. The Adalogger FeatherWing uses SD card CS on pin 10 by default, but the CS pin should be configurable — add `sd_cs_pin` to config so users can wire an SD card reader to any GPIO. This works because config lives in Notehub (Blues Notecard env vars) and is pushed to the device over the air. The Notecard caches env vars locally, so they're available even when cellular is offline. On boot, config syncs down to SD card `config.ini` as a backup, giving graceful degradation when neither Notecard nor connectivity is available.
+**Step B — Adalogger board implementation** (`internal/boards/adalogger/`). PCF8523 RTC driver is done (`internal/rtc/pcf8523/`); remaining work is the `hal.Platform` board struct. The Adalogger FeatherWing uses SD card CS on pin 10 by default, but the CS pin should be configurable — add `sd_cs_pin` to config so users can wire an SD card reader to any GPIO. This works because config lives in Notehub (Blues Notecard env vars) and is pushed to the device over the air. The Notecard caches env vars locally, so they're available even when cellular is offline. On boot, config syncs down to SD card `config.ini` as a backup, giving graceful degradation when neither Notecard nor connectivity is available.
 
 **Step C — Auto-probe cascade in `main.go`.** Boot sequence probes hardware in priority order, collecting non-fatal errors:
 
