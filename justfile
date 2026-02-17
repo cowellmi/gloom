@@ -15,8 +15,9 @@ bin := "gloom.bin"
 build:
 	tinygo build -size=short -stack-size=8KB -target={{board}} -o={{bin}} ./cmd/gloom
 
-flash port=env_var("GLOOMPORT"): build
-    bossac --port="{{port}}" --offset=0x2000 --erase --write --verify "{{bin}}"
+# Example: just flash /dev/ttyACM0 --reset
+flash port=env_var("GLOOMPORT") *args: build
+    bossac --port="{{port}}" --offset=0x2000 --erase --write --verify "{{bin}}" {{args}}
 
 clean:
 	rm -f {{bin}}
