@@ -1,1 +1,2 @@
 export GOTOOLCHAIN=go1.24.0
+export GLOOMPORT=/dev/ttyACM0

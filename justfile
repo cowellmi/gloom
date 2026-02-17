@@ -1,3 +1,5 @@
+default:
+    @just --list
 
 test_pkgs := "./internal/config/ ./internal/log/ ./internal/manager/ ./internal/sensor/... ./internal/sink/..."
 
@@ -7,17 +9,20 @@ test:
 vet:
     go vet {{test_pkgs}}
 
-build *args:
-    just -f cmd/gloom/justfile build {{args}}
+board := "feather-m0"
+bin := "gloom.bin"
 
-flash *args:
-    just -f cmd/gloom/justfile flash {{args}}
+build:
+	tinygo build -size=short -stack-size=8KB -target={{board}} -o={{bin}} ./cmd/gloom
+
+flash port=env_var("GLOOMPORT"): build
+    bossac --port="{{port}}" --offset=0x2000 --erase --write --verify "{{bin}}"
 
 clean:
-    just -f cmd/gloom/justfile clean
+	rm -f {{bin}}
 
-monitor:
-    tio --log --log-file="debug.log" /dev/tty.usbserial-AI04YQAD
+monitor port=env_var("GLOOMPORT"):
+    tio --log --log-file="debug.log" {{port}}
 
 # Expiremental: sandboxed coding agent.
 image_name := "gloom-agent"
@@ -25,13 +30,13 @@ image_name := "gloom-agent"
 agent-build:
     podman build -t {{image_name}} .
 
-agent *args:
+agent:
     podman run -it --rm \
         --init \
         --userns keep-id \
         -v "$(pwd):/workspace:Z" \
         -v "$HOME/.config/cursor:/home/gloom/.config/cursor:ro,Z" \
-        {{image_name}} {{args}}
+        {{image_name}}
 
 agent-shell:
     podman run -it --rm \
