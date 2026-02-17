@@ -231,7 +231,7 @@ func TestStep_LEDCallbacks(t *testing.T) {
 
 	sys := &mockSystem{
 		name:    "mock",
-		sleepFn: sampleWake,
+		sleepFn: heartbeatWake,
 		timeFn:  fixedTime,
 	}
 
@@ -239,11 +239,11 @@ func TestStep_LEDCallbacks(t *testing.T) {
 	man.EnableLED(func() { ledOnCalled = true }, func() { ledOffCalled = true })
 	man.step()
 
-	if !ledOffCalled {
-		t.Error("LEDOff callback was not called")
-	}
 	if !ledOnCalled {
 		t.Error("LEDOn callback was not called")
+	}
+	if !ledOffCalled {
+		t.Error("LEDOff callback was not called")
 	}
 }
 

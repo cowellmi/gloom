@@ -10,6 +10,7 @@ import (
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
+	"github.com/cowellmi/gloom/internal/wait"
 )
 
 // Size of the shared scratch buffer used by recorders for formatting.
@@ -24,6 +25,8 @@ type system interface {
 	ReadTime() (time.Time, error)
 	Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.WakeReason, error)
 }
+
+func nop() {}
 
 type Manager struct {
 	sys        system
@@ -45,6 +48,8 @@ func New(sys system, cfg config.Config, devices []sensor.Device, logger *log.Log
 		cfg:     cfg,
 		sensors: devices,
 		logger:  logger,
+		ledOn:   nop,
+		ledOff:  nop,
 	}
 }
 
@@ -68,8 +73,8 @@ func (m *Manager) pet() {
 	}
 }
 
-// EnableLED sets callbacks invoked when the manager turns the LED off
-// (before sleep) and on (after wake). Nil by default (LED ignored).
+// EnableLED sets callbacks the manager uses to pulse the LED during
+// heartbeat wakes. Both callbacks must be non-nil.
 func (m *Manager) EnableLED(on, off func()) {
 	if on == nil || off == nil {
 		return
@@ -81,6 +86,10 @@ func (m *Manager) EnableLED(on, off func()) {
 
 func (m *Manager) Run() {
 	m.pet()
+	if m.ledEnabled {
+		m.pulseLED()
+		m.pet()
+	}
 
 	if t, err := m.sys.ReadTime(); err == nil {
 		m.logger.SetTime(t)
@@ -103,6 +112,8 @@ func (m *Manager) step() {
 		m.doSample()
 	case hal.WakeHeartbeat:
 		m.doHeartbeat()
+	case hal.WakeExternal:
+		m.logger.Debug("external wake")
 	}
 
 	m.logMem()
@@ -131,20 +142,12 @@ func (m *Manager) doSleep() hal.WakeReason {
 
 	m.pet()
 
-	if m.ledEnabled {
-		m.ledOff()
-	}
-
 	// Put system to sleep. Execution halts here until wake from sleep.
 	reason, err := m.sys.Sleep(m.cfg.SampleInterval, m.cfg.HeartbeatInterval)
 	if err != nil {
 		m.logger.Error("sleep: " + err.Error())
 	}
 	// Resume execution after wake from sleep.
-
-	if m.ledEnabled {
-		m.ledOn()
-	}
 
 	// Update wake time and push it to the logger so all subsequent
 	// log entries in this cycle carry the correct timestamp.
@@ -189,7 +192,21 @@ func (m *Manager) doSample() {
 
 func (m *Manager) doHeartbeat() {
 	m.logger.Debug("heartbeat")
+	if m.ledEnabled {
+		m.pulseLED()
+	}
 	// TODO: transmit keep-alive message
+}
+
+// Pulse LED on/off, on/off
+func (m *Manager) pulseLED() {
+	m.ledOn()
+	wait.For(50 * time.Millisecond)
+	m.ledOff()
+	wait.For(100 * time.Millisecond)
+	m.ledOn()
+	wait.For(50 * time.Millisecond)
+	m.ledOff()
 }
 
 func (m *Manager) logMem() {

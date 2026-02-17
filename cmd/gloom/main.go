@@ -33,10 +33,13 @@ func main() {
 	// Board-specific defaults set pin candidates only.
 	cfg := config.Default()
 	boardDefaults(&cfg)
+	cfg.HeartbeatInterval = 3 * time.Second
+	cfg.SampleInterval = 6 * time.Second
 
 	// TODO: probe Blues Notecard on I2C 0x17.
 	// If found, read config from env vars: blues.readConfig(&cfg).
 	// This would override sensors (removing "fake"), intervals, etc.
+	// with the Blueshub env vars values.
 
 	proc.PetWatchdog()
 
