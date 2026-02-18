@@ -1,4 +1,6 @@
-export GOTOOLCHAIN=go1.24.0
-export GLOOMPORT=/dev/ttyACM0
-export GLOOMBOARD=feather-m0
-export GLOOMOFFSET=0x2000
+use flake
+
+export GOTOOLCHAIN="go1.24.0"
+export GLOOM_PORT="" # e.g. macOS: /dev/cu.usbmodem* Linux: /dev/ttyACM0
+# export GLOOM_SERIAL_PORT=""  # defaults to GLOOM_PORT if unset
+export GLOOM_BOARD="feather-m0"
