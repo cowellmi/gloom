@@ -55,13 +55,9 @@ Implementation notes:
 - On startup or daily rotation, compute expected old filenames (`{dir}/{YYYYMMDD}{ext}`) going back beyond the retention window and call `card.Remove` for each. This avoids FAT directory listing (which is limited in fatfs) by using predictable date-stamped names.
 - `card.Remove` already exists for this purpose.
 
-### Adalogger FeatherWing as a `hal.Platform` implementation
+### Sensor software sleep (`sensor.Sleeper` interface)
 
-Add the Adalogger FeatherWing (PCF8523 RTC + SD card) as a second board.
-
-#### 1. `sensor.Sleeper` interface — `internal/sensor/sensor.go`
-
-For boards without MOSFETs, add an opt-in software shutdown interface:
+For boards without MOSFETs (e.g. Adalogger FeatherWing), add an opt-in software shutdown interface in `internal/sensor/sensor.go`:
 
 ```go
 type Sleeper interface {
@@ -76,16 +72,6 @@ type Sleeper interface {
 
 Wire the `Sleeper` calls into `manager.doSleep()`, before `sys.Sleep()`.
 
-#### 2. Board file — `cmd/gloom/main_adalogger_m0.go`
-
-Add a build-tagged board file following the existing `main_feather_m0.go` pattern:
-
-```go
-//go:build adalogger_m0
-```
-
-Provides `initMCU() hal.MCU`, `boardDefaults(cfg *config.Config)`, and `debugWriter() *machine.UART`. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
-
 ### Blues Notecard integration (config source + data sink)
 
 Use the Notecard as the primary config source and a data/log sink. The Notecard communicates over I2C (`0x17`) using JSON commands and provides store-and-forward sync to Notehub. SD card becomes a local black-box backup rather than the single source of truth for config.
@@ -96,7 +82,7 @@ Low-level I2C JSON request/response wrapper. Build request JSON with `append` (n
 
 #### 2. Device ID persistence — `internal/targets/samd21/nvm.go`
 
-Store a short device ID string in a reserved SAMD21 flash row (64 bytes) via the NVM controller. Add `ReadDeviceID() (string, error)` and `WriteDeviceID(id string) error` to the MCU. Flash write cycles (~25K) are fine since the ID rarely changes. Add a `DeviceStore` interface in `internal/targets/` so this stays target-agnostic.
+Store a short device ID string in a reserved SAMD21 flash row (64 bytes) via the NVM controller. Add `ReadDeviceID() (string, error)` and `WriteDeviceID(id string) error` to the MCU. Flash write cycles (~25K) are fine since the ID rarely changes. Add a `DeviceStore` interface so this stays target-agnostic.
 
 #### 3. Config from Notecard environment variables
 
@@ -124,64 +110,6 @@ SD card shifts from config authority to local backup: cached config, data loggin
 
 When we receive a message from Blues Notecard that there have been env vars updates for this device from Notehub, update the manager.cfg with the new values (or just do a hard reset?).
 
----
-
-### Auto-probe with graceful degradation
-
-The firmware entry point lives in `cmd/gloom/` with MCU-specific code separated via build tags. The single `main.go` auto-probes hardware in priority order and degrades gracefully at each step. The "target" is the MCU board (selected by `-target=` flag at build time); within it we discover which FeatherWings and peripherals are attached.
-
-#### 1. Hypnos graceful degradation + Adalogger board
-
-Work in this order:
-
-**Step A — Hypnos graceful SD card failure.** Change `hypnos.Probe()` so SD card failure is non-fatal: return the board with `Card = nil` and log the error. RTC is still required for Hypnos to be considered "found." This unblocks the probe cascade — Hypnos can succeed as a platform even if its SD card is missing or corrupt.
-
-**Step B — Adalogger board implementation** (`internal/boards/adalogger/`). PCF8523 RTC driver is done (`internal/drivers/pcf8523/`); remaining work is the `hal.Platform` board struct. The Adalogger FeatherWing uses SD card CS on pin 10 by default, but the CS pin should be configurable — add `sd_cs_pin` to config so users can wire an SD card reader to any GPIO. This works because config lives in Notehub (Blues Notecard env vars) and is pushed to the device over the air. The Notecard caches env vars locally, so they're available even when cellular is offline. On boot, config syncs down to SD card `config.ini` as a backup, giving graceful degradation when neither Notecard nor connectivity is available.
-
-**Step C — Auto-probe cascade in `main.go`.** Boot sequence probes hardware in priority order, collecting non-fatal errors:
-
-1. `initMCU()` — board + MCU + debug output (fatal on failure)
-2. `machine.I2C0.Configure()` — I2C bus (fatal on failure)
-3. Probe Notecard on I2C `0x17` → `nc` (nil if not found)
-4. Load config: Notecard env vars → SD card `config.ini` → `config.Default()` (need config before board probe so `sd_cs_pin` is available)
-5. Probe Hypnos → if found: `platform = hypnos.Board`, `card = board.Card` (may be nil)
-6. Else probe Adalogger (using `sd_cs_pin` from config if set, else default pin 10) → if found: `platform = adalogger.Board`, `card = board.Card`
-7. Else: `platform = hal.Fallback{}`, `card = nil`
-8. Wire sinks/recorders with nil guards: file sink only if `card != nil`, notecard sink only if `nc != nil`
-9. Serial UART always enabled by default for debugging
-
-Note: Notecard probe moves before board probe so that config (including `sd_cs_pin`) is available for Adalogger's `Probe()`. The Notecard only needs I2C, which is already up. If the Notecard isn't present, fall back to SD card config — but this creates a chicken-and-egg situation for `sd_cs_pin` on first boot without a Notecard. Resolution: use the default CS pin (10) when no config is available. The user sets `sd_cs_pin` in Notehub if they've wired it differently; on next boot the Notecard delivers the override.
-
-#### 2. Notecard I2C driver — `internal/notecard/notecard.go`
-
-Minimal I2C JSON request/response wrapper for the Blues Notecard (address `0x17`). Build request JSON with `append` (no `encoding/json`). Parse responses with byte scanning.
-
-Key operations:
-- `Probe(bus drivers.I2C) (*Notecard, error)` — send `card.version`, verify response
-- `EnvGet(name string) (string, error)` — pull a single env var
-- `HubSet(productUID, sn string) error` — configure Notecard identity
-- `NoteAdd(file string, body []byte) error` — queue a Note for sync
-- `HubSync() error` — force sync on flush
-
-#### 3. Device ID in flash — `internal/targets/` interface + `internal/targets/samd21/nvm.go`
-
-Add `DeviceID() (string, error)` and `SetDeviceID(id string) error` to `hal.MCU`. SAMD21 implementation stores a short string in a reserved NVM flash row (64 bytes). On first boot, generate `"gloom-"` + 4 random hex chars and write to flash. Add `DeviceID` field to `config.Config`.
-
-#### 4. Config cascade — Notecard → SD card → default
-
-Config is managed entirely online via Blues Notehub environment variables (project → fleet → device hierarchy). The Notecard caches env vars locally on the module, so reads succeed even when cellular is down. On each boot:
-
-1. Read device ID from flash (generate + write if empty)
-2. If Notecard available: `env.get` config keys → parse into Config; on success, cache to SD card `config.ini` as backup
-3. Else if SD card available: read `config.ini` → parse (stale but functional)
-4. Else: `config.Default()`
-
-The SD card is a secondary black-box backup — not the source of truth. A researcher changes config in the Notehub dashboard; the device picks it up on next boot via the Notecard. The SD card copy is there so the device can still boot with last-known-good settings if the Notecard is removed or fails.
-
-#### 5. Notecard data/log sink — `internal/sink/notecard/`
-
-Implements `sensor.Recorder` and `log.Sink`. Queue measurements into `data.qo` via `note.add`; queue error-level logs into `logs.qo`. Optionally `hub.sync` on `Flush()`.
-
 ### nRF52840 as second MCU target
 
 Add the Nordic nRF52840 (Adafruit Feather nRF52840 Express) as the second supported MCU. 256KB RAM, Cortex-M4F, BLE 5.0, excellent TinyGo support, Feather form factor (FeatherWings plug in directly). Very low power: System OFF ~0.3µA, System ON with RTC ~1.5µA.
@@ -202,7 +130,7 @@ Implement `hal.MCU` for the nRF52840:
 //go:build feather_nrf52840
 ```
 
-Provides `initMCU() hal.MCU` and `debugWriter() *machine.UART`. The nRF52840 Feather exposes UART on D0/D1 via the standard `machine.UART0`, so no manual SERCOM configuration is needed (unlike SAMD21).
+Provides `initMCU() hal.MCU` and `boardDefaults(cfg *config.Config)`. The nRF52840 Feather exposes UART on D0/D1 via `machine.UART0`.
 
 #### 3. Sleep considerations
 
