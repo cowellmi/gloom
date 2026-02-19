@@ -281,3 +281,115 @@ func TestParse_ZeroDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_SDCSPins(t *testing.T) {
+	input := []byte("sd_cs_pins = 16, 18")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.SDCSPins) != 2 {
+		t.Fatalf("SDCSPins = %v, want [16 18]", cfg.SDCSPins)
+	}
+	if cfg.SDCSPins[0] != 16 || cfg.SDCSPins[1] != 18 {
+		t.Errorf("SDCSPins = %v, want [16 18]", cfg.SDCSPins)
+	}
+}
+
+func TestParse_SDCSPinsSingle(t *testing.T) {
+	input := []byte("sd_cs_pins = 10")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.SDCSPins) != 1 || cfg.SDCSPins[0] != 10 {
+		t.Errorf("SDCSPins = %v, want [10]", cfg.SDCSPins)
+	}
+}
+
+func TestParse_SDCSPinsEmpty(t *testing.T) {
+	input := []byte("sd_cs_pins = ")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.SDCSPins) != 0 {
+		t.Errorf("SDCSPins = %v, want empty", cfg.SDCSPins)
+	}
+}
+
+func TestParse_SDCSPinsInvalid(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"non-numeric", "sd_cs_pins = abc"},
+		{"negative", "sd_cs_pins = -1"},
+		{"overflow", "sd_cs_pins = 256"},
+		{"mixed valid and invalid", "sd_cs_pins = 16, abc"},
+	}
+	for _, tt := range tests {
+		cfg := Default()
+		err := Parse([]byte(tt.input), &cfg)
+		if err == nil {
+			t.Errorf("%s: Parse() expected error, got nil", tt.name)
+		}
+	}
+}
+
+func TestParse_SDCSPinsBoundary(t *testing.T) {
+	input := []byte("sd_cs_pins = 0, 255")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.SDCSPins) != 2 {
+		t.Fatalf("SDCSPins = %v, want [0 255]", cfg.SDCSPins)
+	}
+	if cfg.SDCSPins[0] != 0 || cfg.SDCSPins[1] != 255 {
+		t.Errorf("SDCSPins = %v, want [0 255]", cfg.SDCSPins)
+	}
+}
+
+func TestParse_RTCWakePin(t *testing.T) {
+	input := []byte("rtc_wake_pin = 19")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if cfg.RTCWakePin != 19 {
+		t.Errorf("RTCWakePin = %d, want 19", cfg.RTCWakePin)
+	}
+}
+
+func TestParse_RTCWakePinInvalid(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"non-numeric", "rtc_wake_pin = abc"},
+		{"negative", "rtc_wake_pin = -1"},
+		{"overflow", "rtc_wake_pin = 300"},
+	}
+	for _, tt := range tests {
+		cfg := Default()
+		err := Parse([]byte(tt.input), &cfg)
+		if err == nil {
+			t.Errorf("%s: Parse() expected error, got nil", tt.name)
+		}
+	}
+}
+
+func TestParse_SDCSPinsTrailingComma(t *testing.T) {
+	input := []byte("sd_cs_pins = 16, 18,")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.SDCSPins) != 2 {
+		t.Fatalf("SDCSPins = %v, want [16 18]", cfg.SDCSPins)
+	}
+	if cfg.SDCSPins[0] != 16 || cfg.SDCSPins[1] != 18 {
+		t.Errorf("SDCSPins = %v, want [16 18]", cfg.SDCSPins)
+	}
+}

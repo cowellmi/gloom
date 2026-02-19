@@ -18,10 +18,6 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 In `internal/config/config.go`, boolean fields like `serial` and `enable_led` only accept the exact string `"true"` to enable. Any other value (including `"yes"`, `"1"`, `"TRUE"`) silently means false. For a framework targeting non-programmers, either document the accepted values clearly in a sample config file, or accept common truthy variants (`"true"`, `"yes"`, `"1"`, case-insensitive).
 
-### Build-tag `machine` imports for standard Go testability
-
-Several packages (`internal/rtc/ds3231`, `internal/mcu/samd21`, `internal/power`, `internal/sdcard`, `cmd/gloom`) import `machine`, which is a TinyGo-only pseudo-package. This means they can't be compiled or tested under the standard Go toolchain. Moving `machine`-dependent code into `//go:build tinygo` files with no-op stubs for `//go:build !tinygo` would allow unit testing, `go vet`, and IDE tooling to work on all packages without a TinyGo install.
-
 ---
 
 ## Low
