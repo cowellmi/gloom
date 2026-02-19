@@ -3,13 +3,14 @@ LOG	 		?= gloom.log
 BOARD		?= $(GLOOM_BOARD)
 PORT		?= $(GLOOM_PORT)
 SERIAL_PORT ?= $(or $(GLOOM_SERIAL_PORT),$(PORT))
+TAGS		?= $(GLOOM_TAGS)
 
 TEST_PKGS := ./internal/config/ ./internal/log/ ./internal/manager/ ./internal/sensor/... ./internal/sink/...
 
 SOURCES := $(shell find cmd internal -name '*.go')
 
 $(BIN): $(SOURCES)
-	tinygo build -size=short -tags=no_lfn -target=$(BOARD) -o=$(BIN) ./cmd/gloom
+	tinygo build -size=short -stack-size=8KB -target=$(BOARD) -tags=$(TAGS) -o=$(BIN) ./cmd/gloom
 
 .PHONY: flash clean test vet monitor
 

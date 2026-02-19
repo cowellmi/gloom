@@ -8,3 +8,5 @@ require (
 )
 
 require github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
+
+replace tinygo.org/x/tinyfs => github.com/cowellmi/tinyfs v0.5.1-0.20260215224512-3de04b468176
