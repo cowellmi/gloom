@@ -14,7 +14,7 @@ cp .env.example .env     # configure your board, port, etc.
 
 Edit `.env` to set `GLOOM_PORT` and other variables for your setup. The Makefile loads `.env` directly, so `make build`, `make flash`, etc. work out of the box.
 
-If you use [direnv](https://direnv.net/), run `direnv allow` and it will automatically activate the Nix dev shell when you start a terminal session in the project directory. Without direnv, activate the Nix shell manually with `nix develop`.
+If you use [direnv](https://direnv.net/), run `direnv allow` and it will automatically activate the Nix dev shell when you start a terminal session in the project directory. The `.envrc` bootstraps [nix-direnv](https://github.com/nix-community/nix-direnv) to cache the dev shell. Without direnv, activate the Nix shell manually with `nix develop`.
 
 ### Serial Monitor
 
