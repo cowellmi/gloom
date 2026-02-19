@@ -55,9 +55,12 @@ func main() {
 
 	proc.PetWatchdog()
 
-	// Setup I2C after power rails are up so peripherals behind
-	// MOSFET switches (e.g. DS3231 on Hypnos) don't pull the bus
-	// low through ESD diodes during configuration.
+	// Recover the I2C bus before configuring the peripheral. If the
+	// MCU reset (watchdog, brownout) while a slave was mid-transaction,
+	// the slave may be holding SDA low. The bit-banged recovery clocks
+	// SCL to let it release.
+	proc.RecoverI2C(uint8(machine.SDA_PIN), uint8(machine.SCL_PIN))
+
 	if err := machine.I2C0.Configure(machine.I2CConfig{}); err != nil {
 		proc.DisableWatchdog()
 		fatal(err)
@@ -108,7 +111,7 @@ func main() {
 			machine.Pin(cs),
 		)
 		if err != nil {
-			initWarns = append(initWarns, errors.New("sdcard: CS pin "+pin+": "+err.Error()))
+			initWarns = append(initWarns, errors.New("CS: "+pin+": "+err.Error()))
 			continue
 		}
 		cards = append(cards, sdEntry{card: c, cs: cs})

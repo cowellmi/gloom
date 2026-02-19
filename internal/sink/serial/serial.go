@@ -57,7 +57,7 @@ func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
 	}
 	b := s.buf[:0]
 	b = appendTimestamp(b, t)
-	b = appendLevel(b, level)
+	b = log.AppendLevel(b, level)
 	b = append(b, " | "...)
 	b = append(b, msg...)
 	b = append(b, '\r', '\n')
@@ -85,17 +85,3 @@ func appendTwoDigits(buf []byte, n int) []byte {
 	return strconv.AppendInt(buf, int64(n), 10)
 }
 
-func appendLevel(buf []byte, level log.Level) []byte {
-	switch level {
-	case log.LevelDebug:
-		return append(buf, "DBG"...)
-	case log.LevelInfo:
-		return append(buf, "INF"...)
-	case log.LevelWarn:
-		return append(buf, "WRN"...)
-	case log.LevelError:
-		return append(buf, "ERR"...)
-	default:
-		return append(buf, "???"...)
-	}
-}

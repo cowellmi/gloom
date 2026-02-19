@@ -14,7 +14,6 @@ package file
 import (
 	"errors"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/cowellmi/gloom/internal/log"
@@ -49,8 +48,8 @@ type Sink struct {
 	open     Opener
 	dataSpec FileSpec
 	logSpec  FileSpec
-	data     AppendFile
-	log      AppendFile
+	dataFile AppendFile
+	logFile  AppendFile
 	curDate  uint32 // YYYYMMDD — zero means no file open yet
 	buf      [256]byte
 }
@@ -80,10 +79,15 @@ func (s *Sink) Name() string { return s.name }
 //
 //	timestamp,device,label,value,unit
 func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error {
-	s.maybeRotate(t)
-	if s.data == nil {
+	if s.dataFile == nil {
 		return nil
 	}
+
+	err := s.maybeRotate(t)
+	if err != nil {
+		return err
+	}
+
 	for _, m := range ms {
 		b := s.buf[:0]
 		b = appendTimestamp(b, t)
@@ -96,8 +100,8 @@ func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error
 		b = append(b, ',')
 		b = append(b, m.Unit...)
 		b = append(b, '\n')
-		if _, err := s.data.Write(b); err != nil {
-			s.data = nil
+		if _, err := s.dataFile.Write(b); err != nil {
+			s.dataFile = nil
 			return err
 		}
 	}
@@ -106,34 +110,40 @@ func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error
 
 // WriteLog formats a log line: timestamp level msg
 func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
-	s.maybeRotate(t)
-	if s.log == nil {
+	if s.logFile == nil {
 		return nil
 	}
+
+	err := s.maybeRotate(t)
+	if err != nil {
+		return err
+	}
+
 	b := s.buf[:0]
 	b = appendTimestamp(b, t)
 	b = append(b, ' ')
-	b = appendLevel(b, level)
+	b = log.AppendLevel(b, level)
 	b = append(b, ' ')
 	b = append(b, msg...)
 	b = append(b, '\n')
-	if _, err := s.log.Write(b); err != nil {
-		s.log = nil
+	if _, err := s.logFile.Write(b); err != nil {
+		s.logFile = nil
 		return err
 	}
+
 	return nil
 }
 
 // Flush syncs both open files to durable storage.
 func (s *Sink) Flush() error {
 	var errs []error
-	if s.data != nil {
-		if err := s.data.Sync(); err != nil {
+	if s.dataFile != nil {
+		if err := s.dataFile.Sync(); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	if s.log != nil {
-		if err := s.log.Sync(); err != nil {
+	if s.logFile != nil {
+		if err := s.logFile.Sync(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -142,12 +152,12 @@ func (s *Sink) Flush() error {
 
 // maybeRotate checks whether the date has changed and opens new files
 // if so. Called at the top of every write path.
-func (s *Sink) maybeRotate(t time.Time) {
+func (s *Sink) maybeRotate(t time.Time) error {
 	dk := dateKey(t)
 	if dk == s.curDate {
-		return
+		return nil
 	}
-	s.openForDate(t)
+	return s.openForDate(t)
 }
 
 // openForDate closes any existing files and opens new date-stamped
@@ -158,16 +168,16 @@ func (s *Sink) openForDate(t time.Time) error {
 
 	// Close existing files. Sync before close so data written in
 	// the current cycle is durable.
-	if s.data != nil {
+	if s.dataFile != nil {
 		// Sync errors on close are non-fatal; we're moving on.
-		_ = s.data.Sync()
-		_ = s.data.Close()
-		s.data = nil
+		_ = s.dataFile.Sync()
+		_ = s.dataFile.Close()
+		s.dataFile = nil
 	}
-	if s.log != nil {
-		_ = s.log.Sync()
-		_ = s.log.Close()
-		s.log = nil
+	if s.logFile != nil {
+		_ = s.logFile.Sync()
+		_ = s.logFile.Close()
+		s.logFile = nil
 	}
 
 	s.curDate = dateKey(t)
@@ -177,7 +187,7 @@ func (s *Sink) openForDate(t time.Time) error {
 		if err != nil {
 			errs = append(errs, err)
 		} else {
-			s.data = f
+			s.dataFile = f
 		}
 	}
 
@@ -186,7 +196,7 @@ func (s *Sink) openForDate(t time.Time) error {
 		if err != nil {
 			errs = append(errs, err)
 		} else {
-			s.log = f
+			s.logFile = f
 		}
 	}
 
@@ -254,17 +264,3 @@ func append4(buf []byte, n int) []byte {
 	)
 }
 
-func appendLevel(buf []byte, level log.Level) []byte {
-	switch level {
-	case log.LevelDebug:
-		return append(buf, "DBG"...)
-	case log.LevelInfo:
-		return append(buf, "INF"...)
-	case log.LevelWarn:
-		return append(buf, "WRN"...)
-	case log.LevelError:
-		return append(buf, "ERR"...)
-	default:
-		return strconv.AppendInt(buf, int64(level), 10)
-	}
-}

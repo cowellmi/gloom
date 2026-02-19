@@ -6,37 +6,17 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 ## High
 
-### I2C bus recovery on boot
+### Verify I2C bus recovery on Hypnos hardware
 
-The I2C bus can latch into a stuck state if the MCU resets (watchdog, brownout, debug flash) while a slave device (e.g. DS3231) is mid-transaction. The slave holds SDA low waiting for clocks that never come, and the SAMD21 SERCOM's `Configure()` cannot clear this — it sees the bus as busy and all subsequent transactions timeout.
-
-The standard fix is a bit-banged bus recovery before configuring the I2C peripheral: temporarily configure SDA/SCL as GPIO outputs, toggle SCL 9+ times (giving the slave a chance to release SDA on each clock), generate a STOP condition (SDA low→high while SCL is high), then switch back to I2C mode. This is what Linux's `i2c_recover_bus()` does.
-
-Currently `waitForReady` in `internal/rtc/ds3231/ds3231.go` reconfigures the SERCOM between retries, which helps with soft bus errors but not a fully latched slave. A proper recovery would live on `hal.MCU` (e.g. `RecoverI2C(sda, scl machine.Pin)`) since it's chip-specific register access, and would be called once in `main.go` before `machine.I2C0.Configure`.
-
-### SD card SPI state not reset before probe when rail controller loads late
-
-The power controller (`power.NewController(rails...)`) performs an initial power cycle to discharge SD card capacitors and reset its SPI state machine. This is important after a watchdog reset where the SD card can be stuck mid-command. Power rails are now enabled before peripheral probing (via build-tagged `boardPower()`), so the power cycle happens early. If SD card probe failures are observed after watchdog resets, this is the first place to look.
+`RecoverI2C` has been implemented and confirmed to boot cleanly on a bare Feather M0 (no peripherals), but the stuck-bus recovery path has not been exercised with a real DS3231. To test: run a tight `ReadTime()` loop on Hypnos, trigger a mid-transaction reset (reset button or watchdog timeout), and confirm the device boots cleanly and probes the DS3231 on the next cycle.
 
 ---
 
 ## Medium
 
-### `maybeRotate` discards `openForDate` error
-
-In `internal/sink/file/file.go`, `maybeRotate` calls `s.openForDate(t)` but ignores the returned error. Per project conventions, this should be `_ = s.openForDate(t)` with a comment, or the error should be propagated so callers know rotation failed.
-
 ### Config boolean values not documented for non-programmers
 
 In `internal/config/config.go`, boolean fields like `serial` and `enable_led` only accept the exact string `"true"` to enable. Any other value (including `"yes"`, `"1"`, `"TRUE"`) silently means false. For a framework targeting non-programmers, either document the accepted values clearly in a sample config file, or accept common truthy variants (`"true"`, `"yes"`, `"1"`, case-insensitive).
-
-### Duplicate `appendLevel` function
-
-Both `internal/sink/serial/serial.go` and `internal/sink/file/file.go` define identical `appendLevel` helper functions. Extract to a shared location (e.g. `internal/log/` or a small `internal/format/` package) to avoid drift.
-
-### Missing test coverage for `internal/sink/serial`
-
-The serial sink package has no test files. The formatting logic and nil-writer handling deserve at least basic unit tests.
 
 ### Build-tag `machine` imports for standard Go testability
 
@@ -45,6 +25,10 @@ Several packages (`internal/rtc/ds3231`, `internal/mcu/samd21`, `internal/power`
 ---
 
 ## Low
+
+### SD card probe may fail after watchdog reset on Hypnos
+
+After a watchdog reset, the SD card can be stuck mid-SPI-command. `power.NewController` power-cycles the rails (250ms off, 2s stabilise) before any peripheral probing, which should discharge the card's capacitors and reset its state machine. If SD card probe failures are observed specifically after watchdog resets on Hypnos, the power-cycle timing in `internal/power/power.go` (`powerCycleDelay`) is the first place to adjust.
 
 ### No CSV header row in data files
 

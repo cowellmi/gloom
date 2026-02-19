@@ -5,6 +5,9 @@ import (
 	"device/arm"
 	"device/sam"
 	"machine"
+	"time"
+
+	"github.com/cowellmi/gloom/internal/wait"
 )
 
 // Name is the human-readable identifier for this MCU.
@@ -34,9 +37,71 @@ func New() *MCU {
 	return &MCU{}
 }
 
+// i2cRecoverClocks is the number of SCL toggles in the bus recovery
+// sequence. 9 clocks covers one full byte + ACK, which is the maximum
+// a slave can be holding SDA for.
+const i2cRecoverClocks = 9
+
+// i2cBitDelay is the half-period delay for bit-banged SCL toggling.
+// ~5µs per half-cycle ≈ ~100 kHz, well within I2C standard-mode timing.
+const i2cBitDelay = 5 * time.Microsecond
+
 // --- hal.MCU interface ---
 
 func (m *MCU) Identifier() string { return Name }
+
+// RecoverI2C bit-bangs a bus recovery sequence before the I2C
+// peripheral is configured. If a slave (e.g. DS3231) was mid-
+// transaction when the MCU reset, it may be holding SDA low waiting
+// for clocks. This toggles SCL 9 times to let the slave finish its
+// byte and release SDA, then generates a STOP condition. Equivalent
+// to Linux's i2c_recover_bus().
+//
+// Pins are left as GPIO inputs afterward; the caller is expected to
+// call machine.I2C0.Configure() next, which reconfigures them for
+// the SERCOM peripheral.
+func (m *MCU) RecoverI2C(sda, scl uint8) {
+	sdaPin := machine.Pin(sda)
+	sclPin := machine.Pin(scl)
+
+	// Drive SCL high, read SDA to check bus state.
+	sclPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	sdaPin.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	sclPin.High()
+	wait.For(i2cBitDelay)
+
+	// If SDA is already high the bus is idle — nothing to recover.
+	if sdaPin.Get() {
+		sclPin.Configure(machine.PinConfig{Mode: machine.PinInput})
+		return
+	}
+
+	// Clock SCL up to 9 times. On each rising edge the slave may
+	// release SDA if it has finished its current bit.
+	for i := 0; i < i2cRecoverClocks; i++ {
+		sclPin.Low()
+		wait.For(i2cBitDelay)
+		sclPin.High()
+		wait.For(i2cBitDelay)
+
+		if sdaPin.Get() {
+			break
+		}
+	}
+
+	// Generate a STOP condition: SDA low → high while SCL is high.
+	sdaPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	sdaPin.Low()
+	wait.For(i2cBitDelay)
+	sclPin.High()
+	wait.For(i2cBitDelay)
+	sdaPin.High()
+	wait.For(i2cBitDelay)
+
+	// Leave pins as inputs for the I2C peripheral to reconfigure.
+	sdaPin.Configure(machine.PinConfig{Mode: machine.PinInput})
+	sclPin.Configure(machine.PinConfig{Mode: machine.PinInput})
+}
 
 // ArmWake configures pin as a deep-sleep wake source. It:
 //  1. Configures the pin as input with pullup.

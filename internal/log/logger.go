@@ -9,6 +9,7 @@ package log
 
 import (
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/cowellmi/gloom/internal/debug"
@@ -23,6 +24,24 @@ const (
 	LevelWarn  Level = 4
 	LevelError Level = 8
 )
+
+// AppendLevel appends the short display string for a log level
+// ("DBG", "INF", "WRN", "ERR") to buf. Unknown levels are appended
+// as their numeric value.
+func AppendLevel(buf []byte, level Level) []byte {
+	switch level {
+	case LevelDebug:
+		return append(buf, "DBG"...)
+	case LevelInfo:
+		return append(buf, "INF"...)
+	case LevelWarn:
+		return append(buf, "WRN"...)
+	case LevelError:
+		return append(buf, "ERR"...)
+	default:
+		return strconv.AppendInt(buf, int64(level), 10)
+	}
+}
 
 // Sink receives log entries for output. Implementations decide their
 // own serialization format and manage their own scratch buffers

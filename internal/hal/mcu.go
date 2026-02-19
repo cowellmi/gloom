@@ -21,6 +21,12 @@ type MCU interface {
 	// even if the pin was not previously armed.
 	DisarmWake(pin uint8)
 
+	// RecoverI2C performs a bit-banged bus recovery sequence on the
+	// given SDA/SCL pins. It toggles SCL 9 times to let any slave
+	// release SDA, then generates a STOP condition. Must be called
+	// before the I2C peripheral is configured.
+	RecoverI2C(sda, scl uint8)
+
 	// Standby puts the MCU into its deepest sleep mode.
 	Standby()
 }
