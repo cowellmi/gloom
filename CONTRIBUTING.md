@@ -8,7 +8,7 @@ We would like your help to make this project better, so we appreciate any contri
 
 Please open a Github issue with your problem, and we will be happy to assist.
 
-### Some specific feature does not appear to be in TinyFS
+### Some specific feature does not appear to be in Gloom
 
 We probably have not implemented it yet. Your contribution would be greatly appreciated.
 
