@@ -130,7 +130,7 @@ SD card shifts from config authority to local backup: cached config, data loggin
 
 #### 7. Update config on env var updates from Blues Notehub
 
-When we receive a message from Blues Notecard that their have been env vars updates for this device from Notehub, update the manager.cfg with the new values (or just do a hard reset?).
+When we receive a message from Blues Notecard that there have been env vars updates for this device from Notehub, update the manager.cfg with the new values (or just do a hard reset?).
 
 ---
 

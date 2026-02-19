@@ -68,7 +68,7 @@ func main() {
 
 	// --- RTC probe ---
 	//
-	// Try DS3231 first (Hypnos). f
+	// Try DS3231 first (Hypnos).
 	var clock hal.RTC
 	ds, err := ds3231.Probe(machine.I2C0, cfg.RTCWakePin)
 	if err != nil {
