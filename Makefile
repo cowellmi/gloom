@@ -9,7 +9,7 @@ TEST_PKGS := ./internal/config/ ./internal/log/ ./internal/manager/ ./internal/s
 SOURCES := $(shell find cmd internal -name '*.go')
 
 $(BIN): $(SOURCES)
-	tinygo build -size=short -stack-size=8KB -target=$(BOARD) -o=$(BIN) ./cmd/gloom
+	tinygo build -size=short -stack-size=8KB -tags=no_lfn -target=$(BOARD) -o=$(BIN) ./cmd/gloom
 
 .PHONY: flash clean test vet monitor
 
