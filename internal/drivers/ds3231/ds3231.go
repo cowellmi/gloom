@@ -1,6 +1,7 @@
 // Package ds3231 implements hal.RTC for the Maxim DS3231 real-time clock.
 // It wraps the TinyGo driver and adds probe, wake-alarm, and
-// pin-reporting logic that hal.System needs.
+// pin-reporting logic that hal.System needs. Lives under drivers/ to
+// decouple peripheral implementations from the HAL interfaces they satisfy.
 package ds3231
 
 import (

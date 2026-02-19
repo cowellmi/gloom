@@ -10,7 +10,7 @@ Every hardware dependency hides behind an interface. Adding a new MCU, board, or
 
 - `hal.MCU` — chip-level sleep, wake-source config, watchdog. Currently: SAMD21. Could be: nRF52, ESP32, STM32, etc.
 - `hal.System` — composable struct that assembles optional RTC (`hal.RTC`), power rails (`hal.Rails`), and MCU (`hal.MCU`) into a unified sleep/wake platform. Nil components degrade gracefully.
-- `hal.RTC` — real-time clock interface (read time, set/clear wake alarm). Currently: DS3231 (`internal/rtc/ds3231/ds3231.go`). Could be: PCF8523, etc.
+- `hal.RTC` — real-time clock interface (read time, set/clear wake alarm). Currently: DS3231 (`internal/drivers/ds3231/ds3231.go`). Could be: PCF8523, etc.
 - `hal.Rails` — board-level power rail control. Currently: generic `power.Controller` (`internal/power/power.go`). Each rail carries a `WakeReason` bitmask (`WakeAlways` for core, `WakeSample` for sensors). Power rails are a compile-time board decision via build-tagged `boardPower()` functions (e.g. `board_hypnos.go`). Builds with `no_hypnos` tag skip rail control.
 - `sensor.Device` — Init / Name / Measure. Each sensor lives in its own sub-package.
 - `sensor.Recorder` / `log.Sink` — output destinations (serial, SD file, MQTT, LoRa, etc.).
@@ -58,13 +58,14 @@ cmd/gloom/
   justfile             Build/flash commands (board variable, default feather-m0)
 internal/
   hal/                 System struct + MCU/RTC/Rails interfaces
-  rtc/ds3231/          DS3231 hal.RTC implementation (probe + wake-alarm)
+  drivers/ds3231/      DS3231 hal.RTC implementation (probe + wake-alarm)
+  drivers/pcf8523/     PCF8523 hal.RTC implementation (countdown timer wake)
   power/               Generic Rails (GPIO rail control)
   sdcard/              Board-agnostic SD card + FAT filesystem wrapper
   wait/                Scheduler-free busy-wait delay (target-agnostic)
   debug/               Global debug logger backed by io.Writer (target-agnostic)
-  mcu/                 Parent directory for chip-specific MCU implementations
-  mcu/samd21/          SAMD21 impl: standby, USB detach/reattach, GCLK config
+  targets/             Parent directory for chip-specific MCU implementations
+  targets/samd21/      SAMD21 impl: standby, USB detach/reattach, GCLK config
   manager/             Wake/sleep loop, sensor sampling, recorder fan-out (target-agnostic)
   config/              key=value config parser + DefaultINI template (target-agnostic)
   log/                 Leveled logger with per-sink filtering (target-agnostic)
@@ -74,7 +75,7 @@ internal/
   sink/file/           Daily-rotating file output to data/ and logs/ (log.Sink + sensor.Recorder)
 ```
 
-Packages marked *target-agnostic* contain no hardware imports and are testable with the standard Go toolchain. Hardware-specific code lives in `mcu/<chip>`, `rtc/<chip>`, `power/`, and the build-tagged board files in `cmd/gloom/`.
+Packages marked *target-agnostic* contain no hardware imports and are testable with the standard Go toolchain. Hardware-specific code lives in `targets/<chip>`, `drivers/<chip>`, `power/`, and the build-tagged board files in `cmd/gloom/`.
 
 ## Build & Test
 
@@ -98,7 +99,7 @@ just -f cmd/gloom/justfile build board=feather-m0-express
 just monitor
 ```
 
-`test_pkgs` in the root justfile lists pure-Go packages testable with `go test`. Hardware-dependent packages (`rtc/ds3231`, `power/`, `mcu/samd21`) are only buildable with TinyGo and have no host-side tests.
+`test_pkgs` in the root justfile lists pure-Go packages testable with `go test`. Hardware-dependent packages (`drivers/ds3231`, `power/`, `targets/samd21`) are only buildable with TinyGo and have no host-side tests.
 
 ## Coding Conventions
 
@@ -137,12 +138,12 @@ _ = s.rtc.ClearWake()
 
 ### Interfaces & Layering
 
-**The `hal` package is the source of truth for all hardware interfaces.** `hal.MCU`, `hal.RTC`, and `hal.Rails` define what hardware implementations must provide. Implementation packages (`mcu/samd21`, `rtc/ds3231`, `power/`) satisfy these interfaces via Go structural typing — they do not import `hal` for the interface definition (except for shared types like `hal.WakeReason`). This keeps the dependency graph clean: `hal` depends on nothing, implementations depend on `hal` only for types, and the composition happens in `cmd/gloom/main.go`.
+**The `hal` package is the source of truth for all hardware interfaces.** `hal.MCU`, `hal.RTC`, and `hal.Rails` define what hardware implementations must provide. Implementation packages (`targets/samd21`, `drivers/ds3231`, `power/`) satisfy these interfaces via Go structural typing — they do not import `hal` for the interface definition (except for shared types like `hal.WakeReason`). This keeps the dependency graph clean: `hal` depends on nothing, implementations depend on `hal` only for types, and the composition happens in `cmd/gloom/main.go`.
 
 - `hal.System` — composable struct that assembles optional `hal.RTC`, `hal.Rails`, and `hal.MCU` into a unified sleep/wake platform. Constructed with `hal.NewSystem(mcu, rtc, rails)`. RTC and Rails can be nil for graceful degradation (no RTC = no deep sleep, no Rails = no rail control).
-- `hal.RTC` — real-time clock interface. Implementations live in `internal/rtc/<chip>/`. Currently: `ds3231.RTC`.
+- `hal.RTC` — real-time clock interface. Implementations live in `internal/drivers/<chip>/`. Currently: `ds3231.RTC`, `pcf8523.RTC`.
 - `hal.Rails` — power rail control interface. Implementation lives in `internal/power/`. `power.Controller` is a generic struct configured with GPIO rails and polarities.
-- `hal.MCU` — chip-level interface for MCU operations (ArmWake, DisarmWake, Standby, EnableWatchdog, DisableWatchdog, PetWatchdog, Identifier). Defined in `hal/mcu.go`. SAMD21 is the only impl today. A new chip adds `mcu/<chip>/`.
+- `hal.MCU` — chip-level interface for MCU operations (ArmWake, DisarmWake, Standby, EnableWatchdog, DisableWatchdog, PetWatchdog, Identifier). Defined in `hal/mcu.go`. SAMD21 is the only impl today. A new chip adds `targets/<chip>/`.
 - `sensor.Device` — Init / Name / Measure. Each sensor gets its own sub-package under `sensor/`. Registration lives in `cmd/gloom/registry.go`.
 - `sensor.Recorder` — receives measurement batches for output (serial text, CSV file, etc.). New output formats add a new `sink/<name>/` package.
 - `log.Sink` — receives log entries. Serial and file sinks implement both `Recorder` and `Sink`.
@@ -150,8 +151,8 @@ _ = s.rtc.ClearWake()
 
 ### Adding a New Board
 
-1. If the board uses a new MCU chip, create `internal/mcu/<chip>/` implementing `hal.MCU`.
-2. If the board has a new RTC chip, create `internal/rtc/<chip>/<chip>.go` implementing `hal.RTC`.
+1. If the board uses a new MCU chip, create `internal/targets/<chip>/` implementing `hal.MCU`.
+2. If the board has a new RTC chip, create `internal/drivers/<chip>/<chip>.go` implementing `hal.RTC`.
 3. If the board has power rail control, add a build-tagged `board_<name>.go` in `cmd/gloom/` that provides `boardPower() []power.Rail`. The generic `power.Controller` handles any combination of GPIO rails with `WakeReason` bitmasks. Hypnos is the default for `feather_m0`; pass `-tags no_hypnos` to build without rail control.
 4. Add `cmd/gloom/main_<board>.go` with a `//go:build <board_tag>` constraint. It must provide:
    - `initMCU() hal.MCU` — chip-specific init (UART, watchdog)
@@ -170,7 +171,7 @@ _ = s.rtc.ClearWake()
 
 ### Hypnos / SAMD21 Hardware Notes
 
-These are specific to the current target and live in `rtc/ds3231/`, `power/`, and `mcu/samd21/`:
+These are specific to the current target and live in `drivers/ds3231/`, `power/`, and `targets/samd21/`:
 
 - Pin 12 is the DS3231 alarm interrupt line (active-low, needs pullup).
 - 3.3 V rail (pin 5) is **active-low** — `Low()` = on, `High()` = off. Configured at compile time via `board_hypnos.go` (build tag: `feather_m0 && !no_hypnos`).

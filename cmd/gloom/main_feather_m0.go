@@ -9,7 +9,7 @@ import (
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/mcu/samd21"
+	"github.com/cowellmi/gloom/internal/targets/samd21"
 )
 
 // UART0 on SERCOM0 using D1 (PA10, PAD2) as TX and D0 (PA11, PAD3)

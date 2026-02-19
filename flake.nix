@@ -10,6 +10,24 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
+        lib = pkgs.lib;
+
+        tinygo-fork = pkgs.tinygo.overrideAttrs (old: rec {
+          version = "0.40.1-feather-m0-uart0";
+          src = pkgs.fetchFromGitHub {
+            owner = "cowellmi";
+            repo = "tinygo";
+            rev = "0173ee3814ee915533931a2f61b702f20c69ee43";
+            hash = "sha256-rQSM1V1loGLTLhYtGQHEoi8T+qPd2rbVSrIaYRZiaQQ=";
+            fetchSubmodules = true;
+            postFetch = ''
+              rm -r $out/lib/cmsis-svd/data/{SiliconLabs,Freescale}
+            '';
+          };
+          goModules = old.goModules.overrideAttrs {
+            inherit src;
+          };
+        });
 
         bossac-adafruit = pkgs.stdenv.mkDerivation {
           pname = "bossac-adafruit";
@@ -56,7 +74,7 @@
             git
             gnumake
             go
-            tinygo
+            tinygo-fork
             tio
             bossac-adafruit
           ];

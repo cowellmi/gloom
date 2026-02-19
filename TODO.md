@@ -4,14 +4,6 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 ---
 
-## High
-
-### Verify I2C bus recovery on Hypnos hardware
-
-`RecoverI2C` has been implemented and confirmed to boot cleanly on a bare Feather M0 (no peripherals), but the stuck-bus recovery path has not been exercised with a real DS3231. To test: run a tight `ReadTime()` loop on Hypnos, trigger a mid-transaction reset (reset button or watchdog timeout), and confirm the device boots cleanly and probes the DS3231 on the next cycle.
-
----
-
 ## Medium
 
 ### Config boolean values not documented for non-programmers
@@ -102,9 +94,9 @@ Use the Notecard as the primary config source and a data/log sink. The Notecard 
 
 Low-level I2C JSON request/response wrapper. Build request JSON with `append` (no `encoding/json`). Parse responses with minimal scanning to stay within 32KB RAM. Shared by both the config source and the data sink.
 
-#### 2. Device ID persistence — `internal/mcu/samd21/nvm.go`
+#### 2. Device ID persistence — `internal/targets/samd21/nvm.go`
 
-Store a short device ID string in a reserved SAMD21 flash row (64 bytes) via the NVM controller. Add `ReadDeviceID() (string, error)` and `WriteDeviceID(id string) error` to the MCU. Flash write cycles (~25K) are fine since the ID rarely changes. Add a `DeviceStore` interface in `internal/mcu/` so this stays target-agnostic.
+Store a short device ID string in a reserved SAMD21 flash row (64 bytes) via the NVM controller. Add `ReadDeviceID() (string, error)` and `WriteDeviceID(id string) error` to the MCU. Flash write cycles (~25K) are fine since the ID rarely changes. Add a `DeviceStore` interface in `internal/targets/` so this stays target-agnostic.
 
 #### 3. Config from Notecard environment variables
 
@@ -144,7 +136,7 @@ Work in this order:
 
 **Step A — Hypnos graceful SD card failure.** Change `hypnos.Probe()` so SD card failure is non-fatal: return the board with `Card = nil` and log the error. RTC is still required for Hypnos to be considered "found." This unblocks the probe cascade — Hypnos can succeed as a platform even if its SD card is missing or corrupt.
 
-**Step B — Adalogger board implementation** (`internal/boards/adalogger/`). PCF8523 RTC driver is done (`internal/rtc/pcf8523/`); remaining work is the `hal.Platform` board struct. The Adalogger FeatherWing uses SD card CS on pin 10 by default, but the CS pin should be configurable — add `sd_cs_pin` to config so users can wire an SD card reader to any GPIO. This works because config lives in Notehub (Blues Notecard env vars) and is pushed to the device over the air. The Notecard caches env vars locally, so they're available even when cellular is offline. On boot, config syncs down to SD card `config.ini` as a backup, giving graceful degradation when neither Notecard nor connectivity is available.
+**Step B — Adalogger board implementation** (`internal/boards/adalogger/`). PCF8523 RTC driver is done (`internal/drivers/pcf8523/`); remaining work is the `hal.Platform` board struct. The Adalogger FeatherWing uses SD card CS on pin 10 by default, but the CS pin should be configurable — add `sd_cs_pin` to config so users can wire an SD card reader to any GPIO. This works because config lives in Notehub (Blues Notecard env vars) and is pushed to the device over the air. The Notecard caches env vars locally, so they're available even when cellular is offline. On boot, config syncs down to SD card `config.ini` as a backup, giving graceful degradation when neither Notecard nor connectivity is available.
 
 **Step C — Auto-probe cascade in `main.go`.** Boot sequence probes hardware in priority order, collecting non-fatal errors:
 
@@ -171,7 +163,7 @@ Key operations:
 - `NoteAdd(file string, body []byte) error` — queue a Note for sync
 - `HubSync() error` — force sync on flush
 
-#### 3. Device ID in flash — `internal/mcu/` interface + `internal/mcu/samd21/nvm.go`
+#### 3. Device ID in flash — `internal/targets/` interface + `internal/targets/samd21/nvm.go`
 
 Add `DeviceID() (string, error)` and `SetDeviceID(id string) error` to `hal.MCU`. SAMD21 implementation stores a short string in a reserved NVM flash row (64 bytes). On first boot, generate `"gloom-"` + 4 random hex chars and write to flash. Add `DeviceID` field to `config.Config`.
 
@@ -194,7 +186,7 @@ Implements `sensor.Recorder` and `log.Sink`. Queue measurements into `data.qo` v
 
 Add the Nordic nRF52840 (Adafruit Feather nRF52840 Express) as the second supported MCU. 256KB RAM, Cortex-M4F, BLE 5.0, excellent TinyGo support, Feather form factor (FeatherWings plug in directly). Very low power: System OFF ~0.3µA, System ON with RTC ~1.5µA.
 
-#### 1. MCU implementation — `internal/mcu/nrf52/nrf52.go`
+#### 1. MCU implementation — `internal/targets/nrf52/nrf52.go`
 
 Implement `hal.MCU` for the nRF52840:
 
@@ -227,7 +219,7 @@ The nRF52840's built-in BLE could enable field configuration without physical SD
 
 Add the RP2040 (Adafruit Feather RP2040, ~$12) as a budget MCU target for deployments with a stable power source (mains, solar, large battery). 264KB RAM, dual Cortex-M0+, excellent TinyGo support, widely available. The RP2040 lacks a true ultra-low-power sleep mode — its dormant mode draws ~0.18mA at the chip level but ~2-4mA board-level due to the voltage regulator and peripherals. With a 10,000mAh battery and a 5-minute sample interval, expect roughly 4 months of runtime. This makes it unsuitable for long-term battery-only deployments (where SAMD21 or nRF52840 last years) but perfectly viable when connected to mains power, solar with a charge controller, or a large battery bank that is periodically serviced.
 
-#### 1. MCU implementation — `internal/mcu/rp2040/rp2040.go`
+#### 1. MCU implementation — `internal/targets/rp2040/rp2040.go`
 
 Implement `hal.MCU` for the RP2040:
 

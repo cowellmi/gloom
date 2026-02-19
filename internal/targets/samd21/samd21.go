@@ -1,4 +1,6 @@
 // Package samd21 implements hal.MCU for the Microchip SAMD21 Cortex-M0.
+// Lives under targets/ to separate target-specific code from the HAL
+// interfaces it satisfies.
 package samd21
 
 import (

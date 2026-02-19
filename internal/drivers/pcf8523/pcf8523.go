@@ -1,7 +1,8 @@
 // Package pcf8523 implements hal.RTC for the NXP PCF8523 real-time clock
 // found on the Adalogger FeatherWing. It wraps the TinyGo driver for
 // basic time and power management, and adds countdown timer A logic
-// for wake interrupts.
+// for wake interrupts. Lives under drivers/ to decouple peripheral
+// implementations from the HAL interfaces they satisfy.
 //
 // Wake interrupts use countdown timer A rather than the alarm because
 // the alarm only has minute-level granularity while the timer supports
