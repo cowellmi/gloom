@@ -2,29 +2,6 @@
 
 Items are ordered by severity: critical (data loss / field failure) first, then high (correctness / memory), medium (conventions / maintainability), low (polish), and finally features.
 
-## TOP
-
-### Heartbeat interval is +2 seconds from config
-
-For example: in `CONFIG.INI` on SD card: heartbeat_interval = 3s but the logs show:
-
-[18:42:47] WRN | init: CS: 18: sdcard: no SD card
-[18:42:47] DBG | mcu: ATSAMD21
-[18:42:47] DBG | rtc: DS3231
-[18:42:47] DBG | sd: CS 16
-[18:42:48] DBG | sleep: sample=17s heartbeat=3s
-[18:42:53] DBG | heartbeat
-[18:42:53] DBG | mem: heap_alloc=23kb heap_sys=23kb
-[18:42:53] DBG | sleep: sample=17s heartbeat=3s
-[18:42:58] DBG | heartbeat
-[18:42:58] DBG | mem: heap_alloc=15kb heap_sys=23kb
-[18:42:58] DBG | sleep: sample=17s heartbeat=3s
-[18:43:03] DBG | heartbeat
-
-Where the delta between heartbeats is 5 seconds.
-
----
-
 ## Medium
 
 ### make DBG | sleep: next wake: sample 17s heartbeat 3s

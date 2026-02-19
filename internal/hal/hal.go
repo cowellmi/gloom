@@ -210,7 +210,10 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 	}
 
 	// --- Power on reason-specific rails ---
-	if s.rails != nil && reason != WakeExternal {
+	// Only wait for rail stabilisation on sample wakes where sensors
+	// need power. Heartbeat wakes use only the core rails already
+	// restored above and don't need the delay.
+	if s.rails != nil && reason == WakeSample {
 		s.rails.PowerOn(reason)
 		wait.For(s.rails.Delay())
 		s.mcu.PetWatchdog()

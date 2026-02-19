@@ -212,6 +212,28 @@ func TestSleep_HeartbeatWake(t *testing.T) {
 	}
 }
 
+func TestSleep_HeartbeatWake_NoRailDelay(t *testing.T) {
+	rtc := &mockRTC{
+		times: []time.Time{T, T.Add(61 * time.Second)},
+		pin:   12,
+	}
+	rails := &mockRails{}
+	sys := NewSystem(&mockMCU{}, rtc, rails)
+
+	reason, err := sys.Sleep(0, time.Minute)
+	if err != nil {
+		t.Fatalf("Sleep() error: %v", err)
+	}
+	if reason != WakeHeartbeat {
+		t.Errorf("reason = %d, want WakeHeartbeat (%d)", reason, WakeHeartbeat)
+	}
+	// Heartbeat wakes should only get core rails (WakeAlways), not a
+	// reason-specific PowerOn, so there's no stabilisation delay.
+	if len(rails.powerOnCalls) != 1 || rails.powerOnCalls[0] != WakeAlways {
+		t.Errorf("PowerOn calls = %v, want [WakeAlways]", rails.powerOnCalls)
+	}
+}
+
 func TestSleep_SampleBeforeHeartbeat(t *testing.T) {
 	rtc := &mockRTC{
 		times: []time.Time{T, T.Add(11 * time.Second)},
