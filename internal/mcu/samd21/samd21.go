@@ -51,11 +51,12 @@ func (m *MCU) ArmWake(pin uint8) error {
 
 	p.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
 
-	// Register interrupt. The first call also initialises the EIC
-	// peripheral and its default GCLK0 clock routing in TinyGo.
-	if err := p.SetInterrupt(machine.PinFalling, func(_ machine.Pin) {
-		m.DisarmWake(pin)
-	}); err != nil {
+	// Register a falling-edge interrupt. The callback is intentionally
+	// empty — disarming happens explicitly after Standby returns.
+	// If the DS3231 INT pin glitches during the 3.3V→battery
+	// transition and fires the ISR before Standby, an empty callback
+	// keeps the wake source armed so the real alarm still wakes the CPU.
+	if err := p.SetInterrupt(machine.PinFalling, func(_ machine.Pin) {}); err != nil {
 		return err
 	}
 

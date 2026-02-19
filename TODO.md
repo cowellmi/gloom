@@ -58,6 +58,24 @@ Data files are written as bare CSV (`timestamp,device,label,value,unit`) but the
 
 ## Features
 
+### Configurable external wake pins
+
+`hal.System` supports multiple wake pins via `AddWakePin(pin)`, but there's no way to configure them from `config.ini` yet. Add a `wake_pins` config key that accepts a comma-separated list of GPIO pin numbers. These pins are armed as falling-edge wake sources alongside the RTC alarm pin before each standby entry.
+
+Primary use case: a tipping-bucket rain gauge with a reed switch that pulls a GPIO low on each tip. The device sleeps between sample intervals but wakes immediately on a tip event to record it with a precise timestamp. Other examples include pushbuttons for manual wake and sensor threshold interrupt lines.
+
+Config example:
+```
+# GPIO pins that wake the device from deep sleep (comma-separated).
+# Example: pin 7 connected to a tipping-bucket rain gauge reed switch.
+wake_pins = 7
+```
+
+Implementation:
+- Add `WakePins []uint8` to `config.Config` and parse `wake_pins` using the existing `parsePinList` helper.
+- In `cmd/gloom/main.go`, after building the `hal.System`, call `sys.AddWakePin(pin)` for each configured pin.
+- The `WakeReason` will resolve as `WakeExternal` for non-RTC wake sources. Callers can handle this in the manager's `step()` if tip-counting or event logging is needed.
+
 ### File retention / pruning for SD card logs and sensor data
 
 Daily rotation is implemented with files organized into directories: `data/20260214.csv` for sensor recordings and `logs/20260214.log` for log entries. Old files are never deleted. Add configurable retention periods with separate settings for logs and sensor recordings:
@@ -73,15 +91,7 @@ Implementation notes:
 
 Add the Adalogger FeatherWing (PCF8523 RTC + SD card) as a second board.
 
-#### 1. PCF8523 RTC driver — DONE
-
-Implemented in `internal/rtc/pcf8523/`. Wraps `tinygo.org/x/drivers/pcf8523` for time read/write and power management; hand-rolls countdown timer A for wake interrupts. Probed automatically in `main.go` as a fallback when DS3231 is not found. Wire the PCF8523 INT pad to D12 (or set `rtc_wake_pin` in config).
-
-#### 2. Optional MOSFET power rails — DONE
-
-`config.RailConfig` and the generic `power.Controller` now handles arbitrary GPIO rails with configurable polarity and `WakeReason` bitmask. Each rail carries a `hal.WakeReason` (`WakeAlways` for core, `WakeSample` for sensors) so sensor rails stay off during heartbeat wakes. `power = hypnos` is a built-in preset; researchers can wire custom MOSFETs and set `power_rails = 5:low, 9:sample` in `config.ini`.
-
-#### 4. `sensor.Sleeper` interface — `internal/sensor/sensor.go`
+#### 1. `sensor.Sleeper` interface — `internal/sensor/sensor.go`
 
 For boards without MOSFETs, add an opt-in software shutdown interface:
 
@@ -98,7 +108,7 @@ type Sleeper interface {
 
 Wire the `Sleeper` calls into `manager.doSleep()`, before `sys.Sleep()`.
 
-#### 5. Board file — `cmd/gloom/main_adalogger_m0.go`
+#### 2. Board file — `cmd/gloom/main_adalogger_m0.go`
 
 Add a build-tagged board file following the existing `main_feather_m0.go` pattern:
 
