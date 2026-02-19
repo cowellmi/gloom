@@ -41,3 +41,14 @@ func TestDevice_Measure(t *testing.T) {
 		t.Error("Value is empty, want a numeric string")
 	}
 }
+
+func TestDevice_MeasureNoAlloc(t *testing.T) {
+	d := NewDevice()
+
+	ms1, _ := d.Measure()
+	ms2, _ := d.Measure()
+
+	if &ms1[0] != &ms2[0] {
+		t.Error("Measure() allocated a new slice instead of reusing internal buffer")
+	}
+}

@@ -6,10 +6,6 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 ## High
 
-### `Measure()` allocates `[]Measurement` per call
-
-In `internal/sensor/fake/fake.go` (and any real sensor), `Measure()` returns a freshly allocated `[]sensor.Measurement` slice every call. On 32KB RAM, consider pre-allocating a fixed-size array in the Device struct and returning a slice of it, or changing the interface to `Measure(buf []Measurement) ([]Measurement, error)`.
-
 ### I2C bus recovery on boot
 
 The I2C bus can latch into a stuck state if the MCU resets (watchdog, brownout, debug flash) while a slave device (e.g. DS3231) is mid-transaction. The slave holds SDA low waiting for clocks that never come, and the SAMD21 SERCOM's `Configure()` cannot clear this — it sees the bus as busy and all subsequent transactions timeout.

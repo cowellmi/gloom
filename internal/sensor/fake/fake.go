@@ -7,7 +7,9 @@ import (
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
-type Device struct{}
+type Device struct {
+	ms [1]sensor.Measurement
+}
 
 func NewDevice() *Device {
 	return &Device{}
@@ -21,13 +23,12 @@ func (*Device) Name() string {
 	return "fake"
 }
 
-func (*Device) Measure() ([]sensor.Measurement, error) {
+func (d *Device) Measure() ([]sensor.Measurement, error) {
 	n := rand.Int()
-	m := sensor.Measurement{
+	d.ms[0] = sensor.Measurement{
 		Label: "foo",
 		Value: strconv.Itoa(n),
 		Unit:  "bars",
 	}
-
-	return []sensor.Measurement{m}, nil
+	return d.ms[:], nil
 }
