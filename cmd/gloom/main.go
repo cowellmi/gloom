@@ -128,14 +128,18 @@ func main() {
 	// --- Config loading ---
 	//
 	// TODO: once Blues Notecard is implemented, config is loaded
-	// from env vars above. On success, cache to SD card config.ini.
+	// from env vars above. On success, cache to SD card CONFIG.INI.
 	// For now, load from SD card if available.
+	//
+	// NOTE: we use all caps for SD card filenames and directories
+	// to support 8.3 file format (so we can disable LFN).
 	if card != nil {
-		raw, err := card.ReadFile("config.ini")
+		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
 			// No config file — seed a default so the user has a
 			// template to edit.
-			if wErr := card.WriteFile("config.ini", []byte(config.DefaultINI)); wErr != nil {
+			wErr := card.WriteFile("CONFIG.INI", []byte(config.DefaultINI))
+			if wErr != nil {
 				initErrs = append(initErrs, wErr)
 			}
 		} else if raw != nil {
@@ -185,10 +189,10 @@ func main() {
 
 	var fileSink *file.Sink
 	if card != nil {
-		if err := card.Mkdir("data"); err != nil {
+		if err := card.Mkdir("DATA"); err != nil {
 			initErrs = append(initErrs, err)
 		}
-		if err := card.Mkdir("logs"); err != nil {
+		if err := card.Mkdir("LOGS"); err != nil {
 			initErrs = append(initErrs, err)
 		}
 
@@ -197,11 +201,11 @@ func main() {
 		}
 		var fileErr error
 		fileSink, fileErr = file.New("sd", opener, file.FileSpec{
-			Dir: "data",
-			Ext: ".csv",
+			Dir: "DATA",
+			Ext: ".CSV",
 		}, file.FileSpec{
-			Dir: "logs",
-			Ext: ".log",
+			Dir: "LOGS",
+			Ext: ".LOG",
 		}, now)
 		if fileErr != nil {
 			initErrs = append(initErrs, fileErr)
