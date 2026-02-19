@@ -1,8 +1,8 @@
 *.bin
 *.elf
+*.log
+.env
 build/
 .vscode/
 .direnv/
-.envrc
-*.log
 vendor/

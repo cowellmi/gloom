@@ -1,7 +1,0 @@
-use flake
-
-export GOTOOLCHAIN="go1.24.0"
-export GLOOM_PORT="" # e.g. macOS: /dev/cu.usbmodem* Linux: /dev/ttyACM0
-# export GLOOM_SERIAL_PORT=""  # defaults to GLOOM_PORT if unset
-export GLOOM_BOARD="feather-m0"
-export GLOOM_TAGS="no_lfn" # disable lfn support. Restrics to 8.3 file format on fatfs (for SD cards).

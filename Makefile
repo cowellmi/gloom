@@ -1,3 +1,6 @@
+-include .env
+export GOTOOLCHAIN
+
 MAIN		?= ./cmd/gloom
 BIN 		?= ./build/gloom.bin
 I2CTEST		?= ./cmd/i2ctest
@@ -22,13 +25,13 @@ $(I2CBIN): $(SOURCES)
 
 flash: $(BIN)
 ifeq ($(PORT),)
-	$(error PORT is not set: set GLOOM_PORT in your .envrc)
+	$(error PORT is not set: set GLOOM_PORT in your .env)
 endif
 	bossac --port="$(PORT)" --offset 0x2000 --erase --write --verify "$(BIN)"
 
 flash-i2ctest: $(I2CBIN)
 ifeq ($(PORT),)
-	$(error PORT is not set: set GLOOM_PORT in your .envrc)
+	$(error PORT is not set: set GLOOM_PORT in your .env)
 endif
 	bossac --port="$(PORT)" --offset 0x2000 --erase --write --verify "$(I2CBIN)"
 
@@ -43,6 +46,6 @@ vet:
 
 monitor:
 ifeq ($(SERIAL_PORT),)
-	$(error SERIAL_PORT is not set: set GLOOM_SERIAL_PORT in your .envrc)
+	$(error SERIAL_PORT is not set: set GLOOM_SERIAL_PORT in your .env)
 endif
 	tio --log --log-file=$(LOG) $(SERIAL_PORT)
