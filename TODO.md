@@ -6,21 +6,9 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 ## High
 
-### `formatTimestamp` in `sink/file` heap-allocates every call
-
-In `internal/sink/file/file.go`, `formatTimestamp` returns `string(buf[:])` which escapes the stack-allocated `[19]byte` to the heap on every call. This runs once per measurement per cycle. On 32KB RAM it adds up. Refactor to accept a `[]byte` parameter and append into the caller's scratch buffer, consistent with how the serial sink formats timestamps.
-
 ### `Measure()` allocates `[]Measurement` per call
 
 In `internal/sensor/fake/fake.go` (and any real sensor), `Measure()` returns a freshly allocated `[]sensor.Measurement` slice every call. On 32KB RAM, consider pre-allocating a fixed-size array in the Device struct and returning a slice of it, or changing the interface to `Measure(buf []Measurement) ([]Measurement, error)`.
-
-### `debug.Log` allocates on every call
-
-In `internal/debug/debug.go`, `append([]byte(nil), msg...)` allocates a new `[]byte` on every call. If `debug.Log` is used in any hot path, this adds unnecessary GC pressure on 32KB RAM. Use a package-level `[256]byte` scratch buffer instead, or accept a `[]byte` parameter.
-
-### `WakeExternal` is silently ignored in `step()`
-
-In `internal/manager/manager.go`, the `step()` switch handles `WakeSample` and `WakeHeartbeat` but `WakeExternal` falls through with no log entry. For field debugging, add a `logger.Debug("external wake")` case.
 
 ### I2C bus recovery on boot
 
@@ -46,17 +34,13 @@ In `internal/sink/file/file.go`, `maybeRotate` calls `s.openForDate(t)` but igno
 
 In `internal/config/config.go`, boolean fields like `serial` and `enable_led` only accept the exact string `"true"` to enable. Any other value (including `"yes"`, `"1"`, `"TRUE"`) silently means false. For a framework targeting non-programmers, either document the accepted values clearly in a sample config file, or accept common truthy variants (`"true"`, `"yes"`, `"1"`, case-insensitive).
 
-### Shared `buf` in Manager needs concurrency note
-
-In `internal/manager/manager.go`, the `[recorderBufSize]byte` scratch buffer is shared across all recorders and `logMem`. Currently single-threaded so it works, but if goroutine-based sensor polling is ever added this becomes a data race. Add a comment documenting the single-goroutine assumption.
-
 ### Duplicate `appendLevel` function
 
 Both `internal/sink/serial/serial.go` and `internal/sink/file/file.go` define identical `appendLevel` helper functions. Extract to a shared location (e.g. `internal/log/` or a small `internal/format/` package) to avoid drift.
 
-### Missing test coverage for `internal/log` and `internal/sink/serial`
+### Missing test coverage for `internal/sink/serial`
 
-Both packages show `[no test files]`. The logger fan-out logic (level filtering, multi-sink dispatch) and serial formatting deserve at least basic unit tests, especially since the logger silently swallows errors.
+The serial sink package has no test files. The formatting logic and nil-writer handling deserve at least basic unit tests.
 
 ### Build-tag `machine` imports for standard Go testability
 

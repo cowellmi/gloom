@@ -199,4 +199,3 @@ func parsePin(key, value string) (uint8, error) {
 	}
 	return uint8(n), nil
 }
-

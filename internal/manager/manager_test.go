@@ -26,13 +26,13 @@ type mockOutput struct {
 
 func (m *mockOutput) Name() string { return m.name }
 
-func (m *mockOutput) Record(_ []byte, _ time.Time, device string, ms []sensor.Measurement) error {
+func (m *mockOutput) Record(_ time.Time, device string, ms []sensor.Measurement) error {
 	m.measDevice = device
 	m.measurements = append(m.measurements, ms...)
 	return nil
 }
 
-func (m *mockOutput) WriteLog(_ []byte, _ time.Time, _ log.Level, msg string) error {
+func (m *mockOutput) WriteLog(_ time.Time, _ log.Level, msg string) error {
 	m.logEntries = append(m.logEntries, msg)
 	return nil
 }

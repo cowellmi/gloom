@@ -17,11 +17,15 @@ import "io"
 // any io.Writer early in main. nil by default (all output dropped).
 var W io.Writer
 
+var buf [128]byte
+
 // Log writes msg followed by \r\n to W. No-op when W is nil.
 func Log(msg string) {
 	if W == nil {
 		return
 	}
-	// Single write to reduce interleaving risk.
-	W.Write(append(append([]byte(nil), msg...), '\r', '\n'))
+	b := buf[:0]
+	b = append(b, msg...)
+	b = append(b, '\r', '\n')
+	W.Write(b)
 }

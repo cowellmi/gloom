@@ -130,7 +130,8 @@ _ = s.rtc.ClearWake()
 ### Memory & Allocations
 
 - The current MCU has only 32 KB RAM. Minimize heap allocations even if a future target has more memory — the core code must remain viable on constrained devices.
-- Use stack-allocated `[N]byte` scratch buffers passed as `buf[:0]` to avoid per-call allocations (see `recorderBufSize` in manager, `logBufSize` in logger).
+- **Scratch buffers are owned by the component that uses them.** Each sink, recorder, or package that needs formatting scratch space declares its own `[N]byte` field (struct) or package-level var, sized to fit its workload. Callers never pass buffers through interfaces — the buffer is an internal optimization detail, not part of the API contract. Use `s.buf[:0]` (struct field) or `buf[:0]` (package var) and build output via `append` chains.
+- Never allocate in a formatting hot path. Avoid `string(buf[:])` returns that escape stack arrays to the heap — prefer `appendX(buf, ...)` helpers that append directly into the caller's scratch buffer.
 - Call `runtime.GC()` once per wake cycle to collect per-cycle garbage.
 - Log heap stats (`runtime.MemStats`) each cycle for monitoring.
 

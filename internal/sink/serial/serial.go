@@ -19,7 +19,8 @@ import (
 // transient failures (e.g. USB-CDC host not listening) should not
 // impact behaviour.
 type Sink struct {
-	w io.Writer
+	w   io.Writer
+	buf [128]byte
 }
 
 // NewSink creates a serial Sink. If w is nil, all writes are no-ops.
@@ -29,38 +30,38 @@ func NewSink(w io.Writer) *Sink {
 
 func (*Sink) Name() string { return "serial" }
 
-func (s *Sink) Record(buf []byte, t time.Time, device string, ms []sensor.Measurement) error {
+func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error {
 	if s.w == nil {
 		return nil
 	}
 	for _, m := range ms {
-		buf = buf[:0]
-		buf = appendTimestamp(buf, t)
-		buf = append(buf, "INF | "...)
-		buf = append(buf, device...)
-		buf = append(buf, ": "...)
-		buf = append(buf, m.Label...)
-		buf = append(buf, ": "...)
-		buf = append(buf, m.Value...)
-		buf = append(buf, ' ')
-		buf = append(buf, m.Unit...)
-		buf = append(buf, '\r', '\n')
-		_, _ = s.w.Write(buf) // best-effort
+		b := s.buf[:0]
+		b = appendTimestamp(b, t)
+		b = append(b, "INF | "...)
+		b = append(b, device...)
+		b = append(b, ": "...)
+		b = append(b, m.Label...)
+		b = append(b, ": "...)
+		b = append(b, m.Value...)
+		b = append(b, ' ')
+		b = append(b, m.Unit...)
+		b = append(b, '\r', '\n')
+		_, _ = s.w.Write(b) // best-effort
 	}
 	return nil
 }
 
-func (s *Sink) WriteLog(buf []byte, t time.Time, level log.Level, msg string) error {
+func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
 	if s.w == nil {
 		return nil
 	}
-	buf = buf[:0]
-	buf = appendTimestamp(buf, t)
-	buf = appendLevel(buf, level)
-	buf = append(buf, " | "...)
-	buf = append(buf, msg...)
-	buf = append(buf, '\r', '\n')
-	_, _ = s.w.Write(buf) // best-effort
+	b := s.buf[:0]
+	b = appendTimestamp(b, t)
+	b = appendLevel(b, level)
+	b = append(b, " | "...)
+	b = append(b, msg...)
+	b = append(b, '\r', '\n')
+	_, _ = s.w.Write(b) // best-effort
 	return nil
 }
 

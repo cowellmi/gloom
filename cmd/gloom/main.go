@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
+	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
@@ -58,12 +59,13 @@ func main() {
 	// MOSFET switches (e.g. DS3231 on Hypnos) don't pull the bus
 	// low through ESD diodes during configuration.
 	if err := machine.I2C0.Configure(machine.I2CConfig{}); err != nil {
+		proc.DisableWatchdog()
 		fatal(err)
 	}
 
 	// --- RTC probe ---
 	//
-	// Try DS3231 first (Hypnos).
+	// Try DS3231 first (Hypnos). f
 	var clock hal.RTC
 	ds, err := ds3231.Probe(machine.I2C0, cfg.RTCWakePin)
 	if err != nil {
@@ -139,8 +141,6 @@ func main() {
 			}
 		}
 	}
-
-	cfg.HeartbeatInterval = 3 * time.Second
 
 	proc.PetWatchdog()
 
@@ -279,21 +279,13 @@ func main() {
 	man.Run()
 }
 
-// petWatchdog is set after the watchdog is enabled so that fatal()
-// can pet it during the blink loop. Nil before initMCU.
-var petWatchdog func()
-
-// fatal prints the error to the debug output and blinks the LED
-// forever to signal a hard failure when no serial monitor is
-// connected. If the watchdog is running it is petted each blink
-// cycle to prevent a reset — this is a permanent halt, not a
-// transient hang.
+// fatal blinks the LED forever to signal a hard failure when no
+// serial monitor is connected. The caller must disable the watchdog
+// before calling fatal.
 func fatal(err error) {
+	debug.Log("FATAL: " + err.Error())
 	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	for {
-		if petWatchdog != nil {
-			petWatchdog()
-		}
 		machine.LED.High()
 		wait.For(250 * time.Millisecond)
 		machine.LED.Low()

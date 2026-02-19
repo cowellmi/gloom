@@ -17,7 +17,7 @@ type mockSink struct {
 	err     error
 }
 
-func (m *mockSink) WriteLog(_ []byte, _ time.Time, _ Level, msg string) error {
+func (m *mockSink) WriteLog(_ time.Time, _ Level, msg string) error {
 	m.entries = append(m.entries, msg)
 	return m.err
 }

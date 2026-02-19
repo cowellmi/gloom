@@ -52,6 +52,7 @@ type Sink struct {
 	data     AppendFile
 	log      AppendFile
 	curDate  uint32 // YYYYMMDD — zero means no file open yet
+	buf      [256]byte
 }
 
 // New creates a file Sink that uses opener to create daily-rotating
@@ -78,25 +79,24 @@ func (s *Sink) Name() string { return s.name }
 // Record formats each measurement as a CSV row:
 //
 //	timestamp,device,label,value,unit
-func (s *Sink) Record(buf []byte, t time.Time, device string, ms []sensor.Measurement) error {
+func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error {
 	s.maybeRotate(t)
 	if s.data == nil {
 		return nil
 	}
-	ts := formatTimestamp(t)
 	for _, m := range ms {
-		buf = buf[:0]
-		buf = append(buf, ts...)
-		buf = append(buf, ',')
-		buf = append(buf, device...)
-		buf = append(buf, ',')
-		buf = append(buf, m.Label...)
-		buf = append(buf, ',')
-		buf = append(buf, m.Value...)
-		buf = append(buf, ',')
-		buf = append(buf, m.Unit...)
-		buf = append(buf, '\n')
-		if _, err := s.data.Write(buf); err != nil {
+		b := s.buf[:0]
+		b = appendTimestamp(b, t)
+		b = append(b, ',')
+		b = append(b, device...)
+		b = append(b, ',')
+		b = append(b, m.Label...)
+		b = append(b, ',')
+		b = append(b, m.Value...)
+		b = append(b, ',')
+		b = append(b, m.Unit...)
+		b = append(b, '\n')
+		if _, err := s.data.Write(b); err != nil {
 			s.data = nil
 			return err
 		}
@@ -105,19 +105,19 @@ func (s *Sink) Record(buf []byte, t time.Time, device string, ms []sensor.Measur
 }
 
 // WriteLog formats a log line: timestamp level msg
-func (s *Sink) WriteLog(buf []byte, t time.Time, level log.Level, msg string) error {
+func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
 	s.maybeRotate(t)
 	if s.log == nil {
 		return nil
 	}
-	buf = buf[:0]
-	buf = append(buf, formatTimestamp(t)...)
-	buf = append(buf, ' ')
-	buf = appendLevel(buf, level)
-	buf = append(buf, ' ')
-	buf = append(buf, msg...)
-	buf = append(buf, '\n')
-	if _, err := s.log.Write(buf); err != nil {
+	b := s.buf[:0]
+	b = appendTimestamp(b, t)
+	b = append(b, ' ')
+	b = appendLevel(b, level)
+	b = append(b, ' ')
+	b = append(b, msg...)
+	b = append(b, '\n')
+	if _, err := s.log.Write(b); err != nil {
 		s.log = nil
 		return err
 	}
@@ -211,23 +211,22 @@ func buildFilename(spec FileSpec, t time.Time) string {
 	return spec.Dir + "/" + string(date[:]) + spec.Ext
 }
 
-// formatTimestamp returns "YYYY-MM-DDTHH:MM:SS" (fixed 19 bytes).
-func formatTimestamp(t time.Time) string {
-	var buf [19]byte
+// appendTimestamp appends "YYYY-MM-DDTHH:MM:SS" (fixed 19 bytes) to buf.
+func appendTimestamp(buf []byte, t time.Time) []byte {
 	y, mon, d := t.Date()
 	h, min, sec := t.Clock()
-	put4(buf[:], y)
-	buf[4] = '-'
-	put2(buf[5:], int(mon))
-	buf[7] = '-'
-	put2(buf[8:], d)
-	buf[10] = 'T'
-	put2(buf[11:], h)
-	buf[13] = ':'
-	put2(buf[14:], min)
-	buf[16] = ':'
-	put2(buf[17:], sec)
-	return string(buf[:])
+	buf = append4(buf, y)
+	buf = append(buf, '-')
+	buf = append2(buf, int(mon))
+	buf = append(buf, '-')
+	buf = append2(buf, d)
+	buf = append(buf, 'T')
+	buf = append2(buf, h)
+	buf = append(buf, ':')
+	buf = append2(buf, min)
+	buf = append(buf, ':')
+	buf = append2(buf, sec)
+	return buf
 }
 
 func put2(b []byte, n int) {
@@ -240,6 +239,19 @@ func put4(b []byte, n int) {
 	b[1] = byte('0' + (n/100)%10)
 	b[2] = byte('0' + (n/10)%10)
 	b[3] = byte('0' + n%10)
+}
+
+func append2(buf []byte, n int) []byte {
+	return append(buf, byte('0'+n/10), byte('0'+n%10))
+}
+
+func append4(buf []byte, n int) []byte {
+	return append(buf,
+		byte('0'+n/1000),
+		byte('0'+(n/100)%10),
+		byte('0'+(n/10)%10),
+		byte('0'+n%10),
+	)
 }
 
 func appendLevel(buf []byte, level log.Level) []byte {

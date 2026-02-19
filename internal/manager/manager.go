@@ -13,11 +13,6 @@ import (
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
-// Size of the shared scratch buffer used by recorders for formatting.
-// 512 bytes comfortably fits any single CSV row or JSON payload
-// without heap allocation.
-const recorderBufSize = 512
-
 // system is the interface the manager needs from the hardware layer.
 // It is satisfied by *hal.System and by test mocks.
 type system interface {
@@ -26,20 +21,18 @@ type system interface {
 	Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.WakeReason, error)
 }
 
-func nop() {}
-
 type Manager struct {
 	sys        system
 	cfg        config.Config
 	sensors    []sensor.Device
 	recorders  []sensor.Recorder
 	logger     *log.Logger
-	buf        [recorderBufSize]byte
 	wakeTime   time.Time
 	ledEnabled bool
 	ledOn      func()
 	ledOff     func()
 	petWDT     func()
+	buf        [64]byte // scratch buffer for formatting text.
 }
 
 func New(sys system, cfg config.Config, devices []sensor.Device, logger *log.Logger) *Manager {
@@ -48,8 +41,8 @@ func New(sys system, cfg config.Config, devices []sensor.Device, logger *log.Log
 		cfg:     cfg,
 		sensors: devices,
 		logger:  logger,
-		ledOn:   nop,
-		ledOff:  nop,
+		ledOn:   func() {}, // default no-op functions
+		ledOff:  func() {},
 	}
 }
 
@@ -185,7 +178,7 @@ func (m *Manager) doSample() {
 		// Fan out structured measurements to all recorders.
 		// Each recorder formats as appropriate (text for serial, CSV for SD, etc).
 		for _, r := range m.recorders {
-			r.Record(m.buf[:0], m.wakeTime, s.Name(), ms)
+			r.Record(m.wakeTime, s.Name(), ms)
 		}
 	}
 }

@@ -27,7 +27,7 @@ const (
 type Rail struct {
 	pin       machine.Pin
 	activeLow bool
-	wakeFor hal.WakeReason // bitmask: rail activates when wakeFor & reason != 0
+	wakeFor   hal.WakeReason // bitmask: rail activates when wakeFor & reason != 0
 }
 
 // NewRail creates a Rail. activeLow inverts the pin logic (Low = on).

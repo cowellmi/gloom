@@ -117,7 +117,7 @@ func (m *MCU) Standby() {
 
 	arm.SCB.SCR.SetBits(arm.SCB_SCR_SLEEPDEEP)
 	arm.Asm("dsb 0xf") // ensure all memory accesses complete
-	arm.Asm("wfi")      // halt until wake interrupt
+	arm.Asm("wfi")     // halt until wake interrupt
 
 	// --- execution resumes here after wake ---
 

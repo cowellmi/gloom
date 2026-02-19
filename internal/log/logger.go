@@ -25,10 +25,11 @@ const (
 )
 
 // Sink receives log entries for output. Implementations decide their
-// own serialization format. Flush forces any buffered data to be
-// written (called before sleep).
+// own serialization format and manage their own scratch buffers
+// internally. Flush forces any buffered data to be written (called
+// before sleep).
 type Sink interface {
-	WriteLog(buf []byte, t time.Time, level Level, msg string) error
+	WriteLog(t time.Time, level Level, msg string) error
 	Flush() error
 }
 
@@ -38,14 +39,10 @@ type target struct {
 	minLevel Level
 }
 
-// Size of the scratch buffer used by the Logger for formatting.
-const logBufSize = 256
-
 // Logger fans out log entries to sinks filtered by per-sink level.
 type Logger struct {
 	targets []target
 	t       time.Time
-	buf     [logBufSize]byte
 }
 
 // New creates a Logger with no sinks and the current time. Call AddSink
@@ -70,7 +67,7 @@ func (l *Logger) SetTime(t time.Time) {
 func (l *Logger) Log(level Level, msg string) {
 	for i := range l.targets {
 		if level >= l.targets[i].minLevel {
-			if err := l.targets[i].sink.WriteLog(l.buf[:0], l.t, level, msg); err != nil {
+			if err := l.targets[i].sink.WriteLog(l.t, level, msg); err != nil {
 				// Route to debug (UART) instead of logging through
 				// ourselves to avoid a recursive log loop.
 				debug.Log("sink error: " + err.Error())
