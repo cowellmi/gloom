@@ -18,22 +18,16 @@ I recommend using a USB serial adapter to read UART when working with a system t
 
 #### How to connect serial monitor?
 
-Replace with your device:
+Define the port to the usb serial adapter in your `.envrc` file. For example on macOS using the Adafruit FTDI Serial TTL-232 USB Cable:
 
 ```
-just monitor /dev/DEVICE_NAME
-```
-
-You can also define the device in your `.envrc` file:
-
-```
-export GLOOMPORT=/dev/ttyACM0
+export GLOOM_SERIAL_PORT=/dev/cu.usbserial-AI04YQAD
 ```
 
 And run: 
 
 ```
-just monitor
+make monitor
 ```
 
-Output is automatically written to `gloom.log`.
+Output is automatically written to `debug.log`.

@@ -8,12 +8,12 @@ import (
 
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
+	"github.com/cowellmi/gloom/internal/drivers/ds3231"
+	"github.com/cowellmi/gloom/internal/drivers/pcf8523"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/power"
-	"github.com/cowellmi/gloom/internal/drivers/ds3231"
-	"github.com/cowellmi/gloom/internal/drivers/pcf8523"
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sink/file"
@@ -176,7 +176,7 @@ func main() {
 		}
 
 		// Debug UART was configured at startup by initMCU.
-		uartSink = serial.NewSink(debugWriter())
+		uartSink = serial.NewSink(debug.W)
 		usbSink = serial.NewSink(machine.Serial)
 
 		logger.AddSink(uartSink, log.LevelDebug)
