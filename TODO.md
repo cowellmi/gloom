@@ -4,21 +4,6 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 ## Medium
 
-### make DBG | sleep: next wake: sample 17s heartbeat 3s
-
-[18:45:55] INF | fake: foo: 1828861717 bars
-[18:45:55] DBG | mem: heap_alloc=15kb heap_sys=23kb
-[18:45:55] DBG | sleep: next wake sample=17s heartbeat=3s
-[18:45:57] DBG | heartbeat
-[18:45:57] DBG | mem: heap_alloc=15kb heap_sys=23kb
-[18:45:57] DBG | sleep: next wake sample=14s heartbeat=3s
-[18:46:02] DBG | heartbeat
-[18:46:02] DBG | mem: heap_alloc=15kb heap_sys=23kb
-[18:46:02] DBG | sleep: next wake sample=11s heartbeat=3s
-[18:46:07] DBG | heartbeat
-[18:46:07] DBG | mem: heap_alloc=15kb heap_sys=23kb
-[18:46:07] DBG | sleep: next wake sample=8s heartbeat=3s
-
 ### Config boolean values not documented for non-programmers
 
 In `internal/config/config.go`, boolean fields like `serial` and `enable_led` only accept the exact string `"true"` to enable. Any other value (including `"yes"`, `"1"`, `"TRUE"`) silently means false. For a framework targeting non-programmers, either document the accepted values clearly in a sample config file, or accept common truthy variants (`"true"`, `"yes"`, `"1"`, case-insensitive).

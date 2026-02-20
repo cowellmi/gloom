@@ -180,6 +180,59 @@ func TestReadTime_WithoutRTC(t *testing.T) {
 	}
 }
 
+func TestNextWake_FreshDeadlines(t *testing.T) {
+	rtc := &mockRTC{times: []time.Time{T}, pin: 12}
+	sys := NewSystem(&mockMCU{}, rtc, nil)
+
+	s, h := sys.NextWake(10*time.Second, 3*time.Second)
+	if s != 10*time.Second {
+		t.Errorf("sample = %v, want 10s", s)
+	}
+	if h != 3*time.Second {
+		t.Errorf("heartbeat = %v, want 3s", h)
+	}
+}
+
+func TestNextWake_Disabled(t *testing.T) {
+	rtc := &mockRTC{times: []time.Time{T}, pin: 12}
+	sys := NewSystem(&mockMCU{}, rtc, nil)
+
+	s, h := sys.NextWake(0, 0)
+	if s != 0 {
+		t.Errorf("sample = %v, want 0", s)
+	}
+	if h != 0 {
+		t.Errorf("heartbeat = %v, want 0", h)
+	}
+}
+
+func TestNextWake_PartialRemaining(t *testing.T) {
+	rtc := &mockRTC{
+		times: []time.Time{
+			T,                      // Sleep: read time before sleep
+			T.Add(4 * time.Second), // Sleep: read time after wake
+			T.Add(4 * time.Second), // NextWake: read time
+		},
+		pin: 12,
+	}
+	sys := NewSystem(&mockMCU{}, rtc, nil)
+
+	reason, _ := sys.Sleep(10*time.Second, 3*time.Second)
+	if reason != WakeHeartbeat {
+		t.Fatalf("reason = %d, want WakeHeartbeat", reason)
+	}
+
+	s, h := sys.NextWake(10*time.Second, 3*time.Second)
+	// nextSample was set to T+10s, now is T+4s → 6s remaining.
+	if s != 6*time.Second {
+		t.Errorf("sample remaining = %v, want 6s", s)
+	}
+	// nextHeartbeat was cleared after firing → full interval.
+	if h != 3*time.Second {
+		t.Errorf("heartbeat remaining = %v, want 3s", h)
+	}
+}
+
 func TestSleep_SampleWake(t *testing.T) {
 	rtc := &mockRTC{
 		times: []time.Time{T, T.Add(11 * time.Second)},

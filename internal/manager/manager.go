@@ -19,6 +19,7 @@ type system interface {
 	Identifier() string
 	ReadTime() (time.Time, error)
 	Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.WakeReason, error)
+	NextWake(sampleInterval, heartbeatInterval time.Duration) (sample, heartbeat time.Duration)
 }
 
 type Manager struct {
@@ -116,15 +117,21 @@ func (m *Manager) step() {
 }
 
 func (m *Manager) doSleep() hal.WakeReason {
-	sampleInterval := m.cfg.SampleInterval.String()
+	sRemaining, hRemaining := m.sys.NextWake(m.cfg.SampleInterval, m.cfg.HeartbeatInterval)
+	b := m.buf[:0]
+	b = append(b, "sleep: next wake: sample="...)
 	if m.cfg.SampleInterval <= 0 {
-		sampleInterval = "disabled"
+		b = append(b, "disabled"...)
+	} else {
+		b = append(b, sRemaining.Truncate(time.Second).String()...)
 	}
-	heartbeatInterval := m.cfg.HeartbeatInterval.String()
+	b = append(b, " heartbeat="...)
 	if m.cfg.HeartbeatInterval <= 0 {
-		heartbeatInterval = "disabled"
+		b = append(b, "disabled"...)
+	} else {
+		b = append(b, hRemaining.Truncate(time.Second).String()...)
 	}
-	m.logger.Debug("sleep: sample=" + sampleInterval + " heartbeat=" + heartbeatInterval)
+	m.logger.Debug(string(b))
 
 	m.pet()
 

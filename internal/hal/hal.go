@@ -86,6 +86,36 @@ func (s *System) ReadTime() (time.Time, error) {
 	return time.Now(), nil
 }
 
+// NextWake returns the time remaining until each scheduled wake
+// deadline. For a deadline that hasn't been set yet (first call, or
+// just after the deadline fired and was cleared), the full interval
+// is returned since Sleep will set it to now+interval. A disabled
+// interval (<=0) always returns 0.
+func (s *System) NextWake(sampleInterval, heartbeatInterval time.Duration) (sample, heartbeat time.Duration) {
+	now, err := s.ReadTime()
+	if err != nil {
+		now = time.Now()
+	}
+
+	if sampleInterval > 0 {
+		if !s.nextSample.IsZero() {
+			sample = max(s.nextSample.Sub(now), 0)
+		} else {
+			sample = sampleInterval
+		}
+	}
+
+	if heartbeatInterval > 0 {
+		if !s.nextHeartbeat.IsZero() {
+			heartbeat = max(s.nextHeartbeat.Sub(now), 0)
+		} else {
+			heartbeat = heartbeatInterval
+		}
+	}
+
+	return sample, heartbeat
+}
+
 // Sleep executes a single sleep/wake cycle. It tracks sample and
 // heartbeat deadlines across calls, sleeps until the earliest
 // deadline, and returns the reason the system woke.
@@ -124,9 +154,7 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 		if s.rails != nil {
 			adj -= s.rails.Delay()
 		}
-		if adj < 0 {
-			adj = 0
-		}
+		adj = max(adj, 0)
 		s.nextSample = now.Add(adj)
 	}
 	if heartbeatInterval > 0 && s.nextHeartbeat.IsZero() {

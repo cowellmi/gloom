@@ -67,6 +67,10 @@ func (m *mockSystem) Sleep(s, h time.Duration) (hal.WakeReason, error) {
 	return m.sleepFn(s, h)
 }
 
+func (m *mockSystem) NextWake(s, h time.Duration) (time.Duration, time.Duration) {
+	return s, h
+}
+
 type mockSensor struct {
 	name          string
 	initErr       error
