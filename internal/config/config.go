@@ -23,6 +23,11 @@ type Config struct {
 	// RTC interrupt/alarm output. Used by the auto-prober to pass
 	// to the RTC driver. Default is D12 (Hypnos standard wiring).
 	RTCWakePin uint8
+
+	// LedPin is the GPIO pin number for the status LED. Board
+	// default is the on-board LED; override for an externally wired
+	// indicator (e.g. mounted on an enclosure).
+	LedPin uint8
 }
 
 // DefaultINI is the default configuration file content, written to the
@@ -58,6 +63,10 @@ sensors = fake
 # RTC alarm/interrupt pin number. Board-specific default is applied
 # automatically; override here if your wiring differs.
 # rtc_wake_pin = 19
+
+# Status LED pin number. Defaults to the on-board LED. Override to
+# use an externally wired indicator (e.g. mounted on an enclosure).
+# led_pin = 13
 `
 
 // Default returns a Config with debug-friendly defaults. The fake
@@ -65,10 +74,10 @@ sensors = fake
 // produces visible output on serial. When config is loaded from
 // Blues Notecard or SD card, the sensors list is overridden.
 //
-// Board-specific defaults (pin numbers for SDCSPins, RTCWakePin) are
-// not set here because they depend on machine.Pin values that are
-// only available under TinyGo. Board files (e.g. main_feather_m0.go)
-// apply those via boardDefaults() before any external config is loaded.
+// Board-specific defaults (pin numbers for SDCSPins, RTCWakePin,
+// LedPin) are not set here because they depend on machine.Pin values
+// that are only available under TinyGo. Board files apply those via
+// initBoard() before any external config is loaded.
 func Default() Config {
 	return Config{
 		SampleInterval:    5 * time.Second,
@@ -150,6 +159,14 @@ func Parse(data []byte, cfg *Config) error {
 				errs = append(errs, err)
 			} else {
 				cfg.RTCWakePin = pin
+			}
+
+		case "led_pin":
+			pin, err := parsePin(key, value)
+			if err != nil {
+				errs = append(errs, err)
+			} else {
+				cfg.LedPin = pin
 			}
 
 		default:

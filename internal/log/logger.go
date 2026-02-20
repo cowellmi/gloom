@@ -2,9 +2,9 @@
 // filtering. The Logger fans out log entries to registered Sinks,
 // skipping any sink whose minimum level exceeds the entry's level.
 //
-// Timestamps are set explicitly via SetTime rather than read from a
-// clock internally -- the caller (typically the manager) caches the
-// RTC time once per wake cycle and pushes it into the Logger.
+// The initial timestamp is provided at construction. The caller
+// (typically the manager) caches the RTC time once per wake cycle
+// and pushes updates via SetTime.
 package log
 
 import (
@@ -64,10 +64,11 @@ type Logger struct {
 	t       time.Time
 }
 
-// New creates a Logger with no sinks and the current time. Call AddSink
-// to register output destinations.
-func NewLogger() *Logger {
-	return &Logger{t: time.Now()}
+// NewLogger creates a Logger with no sinks. now seeds the initial
+// timestamp; the caller should pass the RTC time (or time.Now() as a
+// fallback). Call AddSink to register output destinations.
+func NewLogger(now time.Time) *Logger {
+	return &Logger{t: now}
 }
 
 // AddSink registers a Sink that will receive log entries at or above

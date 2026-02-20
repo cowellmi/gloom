@@ -33,7 +33,7 @@ func TestLog_SinkErrorRoutedToDebug(t *testing.T) {
 	defer func() { debug.W = old }()
 
 	sink := &mockSink{err: errors.New("sd card full")}
-	l := NewLogger()
+	l := NewLogger(time.Time{})
 	l.AddSink(sink, LevelDebug)
 
 	l.Info("hello")
@@ -51,7 +51,7 @@ func TestLog_NoDebugOutputOnSuccess(t *testing.T) {
 	defer func() { debug.W = old }()
 
 	sink := &mockSink{}
-	l := NewLogger()
+	l := NewLogger(time.Time{})
 	l.AddSink(sink, LevelDebug)
 
 	l.Info("hello")
@@ -63,7 +63,7 @@ func TestLog_NoDebugOutputOnSuccess(t *testing.T) {
 
 func TestLog_LevelFiltering(t *testing.T) {
 	sink := &mockSink{}
-	l := NewLogger()
+	l := NewLogger(time.Time{})
 	l.AddSink(sink, LevelWarn)
 
 	l.Debug("skip")

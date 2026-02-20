@@ -2,10 +2,6 @@
 // FAT filesystem. It wraps the TinyGo sdcard and fatfs drivers,
 // presenting file-level operations suitable for config loading, data
 // logging, and log output.
-//
-// NOTE: tinyfs/fatfs depends on CGo (ChaN FatFs). If the upstream
-// TinyGo issue #3460 is still open, FAT support may not build for
-// all targets. Check https://github.com/tinygo-org/tinygo/issues/3460.
 package sdcard
 
 import (
@@ -15,6 +11,7 @@ import (
 	"os"
 	"strconv"
 
+	"tinygo.org/x/drivers"
 	"tinygo.org/x/drivers/sdcard"
 	"tinygo.org/x/tinyfs/fatfs"
 )
@@ -38,12 +35,16 @@ type Card struct {
 	fs  *fatfs.FATFS
 }
 
-// New initialises the SD card on the given SPI bus and chip-select
+// NewCard initialises the SD card on the given SPI bus and chip-select
 // pin, then mounts the FAT filesystem. The SPI bus is configured
 // internally by the sdcard driver; the caller should not pre-configure
-// it.
-func NewCard(spi *machine.SPI, sck, sdo, sdi, cs machine.Pin) (*Card, error) {
-	dev := sdcard.New(spi, sck, sdo, sdi, cs)
+// it. spi must be a *machine.SPI; the drivers.SPI interface is used
+// so callers don't need to import the machine package.
+func NewCard(spi drivers.SPI, sck, sdo, sdi, cs uint8) (*Card, error) {
+	dev := sdcard.New(
+		spi.(*machine.SPI),
+		machine.Pin(sck), machine.Pin(sdo), machine.Pin(sdi), machine.Pin(cs),
+	)
 	if err := dev.Configure(); err != nil {
 		return nil, errors.New("sdcard: " + err.Error())
 	}

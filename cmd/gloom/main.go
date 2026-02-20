@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"machine"
 	"strconv"
 	"time"
 
@@ -22,25 +21,26 @@ import (
 )
 
 func main() {
-	// Keep track of non-fatal init issues for deferred logging.
 	var initErrs []error
 	var initWarns []error
 
-	// Initialise MCU: debug UART, watchdog, chip-specific setup.
-	// Defined in the build-tagged board file (e.g. main_feather_m0.go).
-	proc := initMCU()
-
 	// Start with debug-friendly defaults (fake sensor, serial on).
-	// Board-specific defaults set pin candidates only.
 	cfg := config.Default()
-	boardDefaults(&cfg)
+
+	// Initialise board: debug UART, USB-CDC, MCU, pin defaults.
+	// Defined in the build-tagged board file (e.g. main_feather_m0.go).
+	board := initBoard(&cfg)
+	board.MCU.ConfigureLED(cfg.LedPin)
+	board.MCU.EnableWatchdog()
+	debug.Log("loading defaults...")
 
 	// TODO: probe Blues Notecard on I2C 0x17.
 	// If found, read config from env vars: blues.readConfig(&cfg).
 	// This would override sensors (removing "fake"), intervals, etc.
 	// with the Blueshub env vars values.
 
-	proc.PetWatchdog()
+	board.MCU.PetWatchdog()
+	debug.Log("powering rails...")
 
 	// --- Power rails ---
 	//
@@ -53,33 +53,33 @@ func main() {
 		rails = power.NewController(r...)
 	}
 
-	proc.PetWatchdog()
+	board.MCU.PetWatchdog()
+	debug.Log("configuring I2C...")
 
-	// Recover the I2C bus before configuring the peripheral. If the
-	// MCU reset (watchdog, brownout) while a slave was mid-transaction,
-	// the slave may be holding SDA low. The bit-banged recovery clocks
-	// SCL to let it release.
-	proc.RecoverI2C(uint8(machine.SDA_PIN), uint8(machine.SCL_PIN))
-
-	if err := machine.I2C0.Configure(machine.I2CConfig{}); err != nil {
-		proc.DisableWatchdog()
-		fatal(err)
+	// Configure I2C with bus recovery. If the MCU reset (watchdog,
+	// brownout) while a slave was mid-transaction, the bit-banged
+	// recovery clocks SCL to let it release before configuring the
+	// peripheral.
+	if err := board.MCU.ConfigureI2C(board.SDA, board.SCL); err != nil {
+		board.MCU.DisableWatchdog()
+		fatal(err, board.MCU)
 	}
+
+	board.MCU.PetWatchdog()
+	debug.Log("probing rtc...")
 
 	// --- RTC probe ---
 	//
 	// Try DS3231 first (Hypnos).
 	var clock hal.RTC
-	ds, err := ds3231.Probe(machine.I2C0, cfg.RTCWakePin)
+	ds, err := ds3231.Probe(board.I2C, cfg.RTCWakePin)
 	if err != nil {
-		proc.PetWatchdog()
-
+		board.MCU.PetWatchdog()
 		initWarns = append(initWarns, err)
 		// Then try PCF8523 (Adalogger).
-		pcf, err := pcf8523.Probe(machine.I2C0, cfg.RTCWakePin)
+		pcf, err := pcf8523.Probe(board.I2C, cfg.RTCWakePin)
 		if err != nil {
 			initWarns = append(initWarns, err)
-			// No RTC — System will use time.Now() and idle sleep.
 		} else {
 			clock = pcf
 		}
@@ -87,7 +87,8 @@ func main() {
 		clock = ds
 	}
 
-	proc.PetWatchdog()
+	board.MCU.PetWatchdog()
+	debug.Log("probing sd...")
 
 	// --- SD card probe ---
 	//
@@ -101,15 +102,9 @@ func main() {
 	}
 	var cards []sdEntry
 	for _, cs := range cfg.SDCSPins {
-		proc.PetWatchdog()
+		board.MCU.PetWatchdog()
 		pin := strconv.Itoa(int(cs))
-		c, err := sdcard.NewCard(
-			machine.SPI0,
-			machine.SPI0_SCK_PIN,
-			machine.SPI0_SDO_PIN,
-			machine.SPI0_SDI_PIN,
-			machine.Pin(cs),
-		)
+		c, err := sdcard.NewCard(board.SPI.Bus, board.SPI.SCK, board.SPI.SDO, board.SPI.SDI, cs)
 		if err != nil {
 			initWarns = append(initWarns, errors.New("CS: "+pin+": "+err.Error()))
 			continue
@@ -123,7 +118,7 @@ func main() {
 		card = cards[0].card
 	}
 
-	proc.PetWatchdog()
+	board.MCU.PetWatchdog()
 
 	// --- Config loading ---
 	//
@@ -149,14 +144,15 @@ func main() {
 		}
 	}
 
-	proc.PetWatchdog()
+	// Reconfigure LED with the (possibly overridden) pin.
+	board.MCU.ConfigureLED(cfg.LedPin)
+
+	board.MCU.PetWatchdog()
 
 	// --- Build system ---
-	sys := hal.NewSystem(proc, clock, rails)
+	sys := hal.NewSystem(board.MCU, clock, rails, cfg.SampleInterval, cfg.HeartbeatInterval)
 
 	// --- Logger + serial sinks ---
-
-	logger := log.NewLogger()
 
 	// Read RTC time early so the logger and file sink agree on the
 	// date from the first write.
@@ -164,26 +160,18 @@ func main() {
 	if t, err := sys.ReadTime(); err == nil {
 		now = t
 	}
-	logger.SetTime(now)
+	logger := log.NewLogger(now)
 
 	var uartSink, usbSink *serial.Sink
 	if cfg.SerialEnabled {
-		// USB-CDC
-		if err := machine.Serial.Configure(machine.UARTConfig{
-			BaudRate: 115200,
-		}); err != nil {
-			initErrs = append(initErrs, err)
-		}
-
-		// Debug UART was configured at startup by initMCU.
-		uartSink = serial.NewSink(debug.W)
-		usbSink = serial.NewSink(machine.Serial)
+		uartSink = serial.NewSink(board.UART)
+		usbSink = serial.NewSink(board.USBCDC)
 
 		logger.AddSink(uartSink, log.LevelDebug)
 		logger.AddSink(usbSink, log.LevelDebug)
 	}
 
-	proc.PetWatchdog()
+	board.MCU.PetWatchdog()
 
 	// --- File sink (only if SD card available) ---
 
@@ -214,7 +202,7 @@ func main() {
 		}
 	}
 
-	proc.PetWatchdog()
+	board.MCU.PetWatchdog()
 
 	// --- Resolve sensors ---
 
@@ -228,15 +216,6 @@ func main() {
 		devices = append(devices, newDevice())
 	}
 
-	// --- LED ---
-
-	var ledOn, ledOff func()
-	if cfg.LedEnabled {
-		machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
-		ledOn = func() { machine.LED.High() }
-		ledOff = func() { machine.LED.Low() }
-	}
-
 	// --- Report init warnings and errors ---
 
 	for _, w := range initWarns {
@@ -248,7 +227,7 @@ func main() {
 
 	// --- Boot banner ---
 
-	logger.Debug("mcu: " + proc.Identifier())
+	logger.Debug("mcu: " + board.MCU.Identifier())
 
 	if clock != nil {
 		logger.Debug("rtc: " + clock.Identifier())
@@ -266,13 +245,15 @@ func main() {
 		logger.Debug("sd: none")
 	}
 
-	proc.PetWatchdog()
+	board.MCU.PetWatchdog()
 
 	// --- Manager ---
 
 	man := manager.New(sys, cfg, devices, logger)
-	man.EnableLED(ledOn, ledOff)
-	man.EnableWatchdog(proc.PetWatchdog)
+	if cfg.LedEnabled {
+		man.EnableLED(board.MCU.LedOn, board.MCU.LedOff)
+	}
+	man.EnableWatchdog(board.MCU.PetWatchdog)
 
 	if cfg.SerialEnabled {
 		man.AddRecorder(uartSink)
@@ -289,13 +270,12 @@ func main() {
 // fatal blinks the LED forever to signal a hard failure when no
 // serial monitor is connected. The caller must disable the watchdog
 // before calling fatal.
-func fatal(err error) {
+func fatal(err error, mcu hal.MCU) {
 	debug.Log("FATAL: " + err.Error())
-	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	for {
-		machine.LED.High()
+		mcu.LedOn()
 		wait.For(250 * time.Millisecond)
-		machine.LED.Low()
+		mcu.LedOff()
 		wait.For(250 * time.Millisecond)
 	}
 }

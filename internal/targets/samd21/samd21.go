@@ -32,6 +32,8 @@ const (
 // MCU holds SAMD21-specific state for deep-sleep management.
 type MCU struct {
 	standbyReady bool
+	ledPin       machine.Pin
+	ledReady     bool
 }
 
 // New returns an MCU ready for use.
@@ -52,17 +54,13 @@ const i2cBitDelay = 5 * time.Microsecond
 
 func (m *MCU) Identifier() string { return Name }
 
-// RecoverI2C bit-bangs a bus recovery sequence before the I2C
-// peripheral is configured. If a slave (e.g. DS3231) was mid-
-// transaction when the MCU reset, it may be holding SDA low waiting
-// for clocks. This toggles SCL 9 times to let the slave finish its
-// byte and release SDA, then generates a STOP condition. Equivalent
-// to Linux's i2c_recover_bus().
-//
-// Pins are left as GPIO inputs afterward; the caller is expected to
-// call machine.I2C0.Configure() next, which reconfigures them for
-// the SERCOM peripheral.
-func (m *MCU) RecoverI2C(sda, scl uint8) {
+// ConfigureI2C performs a bit-banged bus recovery sequence, then
+// configures the I2C peripheral for normal operation. If a slave
+// (e.g. DS3231) was mid-transaction when the MCU reset, it may be
+// holding SDA low waiting for clocks. The recovery toggles SCL 9
+// times to let the slave finish its byte and release SDA, then
+// generates a STOP condition. Equivalent to Linux's i2c_recover_bus().
+func (m *MCU) ConfigureI2C(sda, scl uint8) error {
 	sdaPin := machine.Pin(sda)
 	sclPin := machine.Pin(scl)
 
@@ -72,37 +70,36 @@ func (m *MCU) RecoverI2C(sda, scl uint8) {
 	sclPin.High()
 	wait.For(i2cBitDelay)
 
-	// If SDA is already high the bus is idle — nothing to recover.
-	if sdaPin.Get() {
-		sclPin.Configure(machine.PinConfig{Mode: machine.PinInput})
-		return
-	}
+	// Only run recovery if SDA is being held low.
+	if !sdaPin.Get() {
+		// Clock SCL up to 9 times. On each rising edge the slave may
+		// release SDA if it has finished its current bit.
+		for i := 0; i < i2cRecoverClocks; i++ {
+			sclPin.Low()
+			wait.For(i2cBitDelay)
+			sclPin.High()
+			wait.For(i2cBitDelay)
 
-	// Clock SCL up to 9 times. On each rising edge the slave may
-	// release SDA if it has finished its current bit.
-	for i := 0; i < i2cRecoverClocks; i++ {
-		sclPin.Low()
+			if sdaPin.Get() {
+				break
+			}
+		}
+
+		// Generate a STOP condition: SDA low → high while SCL is high.
+		sdaPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+		sdaPin.Low()
 		wait.For(i2cBitDelay)
 		sclPin.High()
 		wait.For(i2cBitDelay)
-
-		if sdaPin.Get() {
-			break
-		}
+		sdaPin.High()
+		wait.For(i2cBitDelay)
 	}
-
-	// Generate a STOP condition: SDA low → high while SCL is high.
-	sdaPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	sdaPin.Low()
-	wait.For(i2cBitDelay)
-	sclPin.High()
-	wait.For(i2cBitDelay)
-	sdaPin.High()
-	wait.For(i2cBitDelay)
 
 	// Leave pins as inputs for the I2C peripheral to reconfigure.
 	sdaPin.Configure(machine.PinConfig{Mode: machine.PinInput})
 	sclPin.Configure(machine.PinConfig{Mode: machine.PinInput})
+
+	return machine.I2C0.Configure(machine.I2CConfig{})
 }
 
 // ArmWake configures pin as a deep-sleep wake source. It:
@@ -230,6 +227,26 @@ func (m *MCU) PetWatchdog() {
 func (m *MCU) DisableWatchdog() {
 	sam.WDT.CTRL.ClearBits(sam.WDT_CTRL_ENABLE)
 	syncWDT()
+}
+
+// --- LED ---
+
+func (m *MCU) ConfigureLED(pin uint8) {
+	m.ledPin = machine.Pin(pin)
+	m.ledPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	m.ledReady = true
+}
+
+func (m *MCU) LedOn() {
+	if m.ledReady {
+		m.ledPin.High()
+	}
+}
+
+func (m *MCU) LedOff() {
+	if m.ledReady {
+		m.ledPin.Low()
+	}
 }
 
 // --- clock configuration ---

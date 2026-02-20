@@ -18,8 +18,8 @@ import (
 type system interface {
 	Identifier() string
 	ReadTime() (time.Time, error)
-	Sleep(sampleInterval, heartbeatInterval time.Duration) (hal.WakeReason, error)
-	NextWake(sampleInterval, heartbeatInterval time.Duration) (sample, heartbeat time.Duration)
+	Sleep() (hal.WakeReason, error)
+	NextWake() (sample, heartbeat time.Duration)
 }
 
 type Manager struct {
@@ -60,13 +60,6 @@ func (m *Manager) EnableWatchdog(pet func()) {
 	m.petWDT = pet
 }
 
-// pet resets the watchdog countdown if a callback has been registered.
-func (m *Manager) pet() {
-	if m.petWDT != nil {
-		m.petWDT()
-	}
-}
-
 // EnableLED sets callbacks the manager uses to pulse the LED during
 // heartbeat wakes. Both callbacks must be non-nil.
 func (m *Manager) EnableLED(on, off func()) {
@@ -78,19 +71,9 @@ func (m *Manager) EnableLED(on, off func()) {
 	m.ledOff = off
 }
 
+// Run enters the main loop. The loop body lives in step() so
+// tests can execute a single iteration without blocking forever.
 func (m *Manager) Run() {
-	m.pet()
-	if m.ledEnabled {
-		m.pulseLED()
-		m.pet()
-	}
-
-	if t, err := m.sys.ReadTime(); err == nil {
-		m.logger.SetTime(t)
-	}
-
-	m.pet()
-
 	for {
 		m.step()
 	}
@@ -108,34 +91,21 @@ func (m *Manager) step() {
 		m.doHeartbeat()
 	case hal.WakeExternal:
 		m.logger.Debug("external wake")
+	default:
+		m.logger.Debug("unexpected wake reason")
 	}
 
 	m.logMem()
-
-	// Force GC to collect per-cycle allocations.
 	runtime.GC()
 }
 
 func (m *Manager) doSleep() hal.WakeReason {
-	sRemaining, hRemaining := m.sys.NextWake(m.cfg.SampleInterval, m.cfg.HeartbeatInterval)
-	b := m.buf[:0]
-	b = append(b, "sleep: next wake: sample="...)
-	if m.cfg.SampleInterval <= 0 {
-		b = append(b, "disabled"...)
-	} else {
-		b = append(b, sRemaining.Truncate(time.Second).String()...)
-	}
-	b = append(b, " heartbeat="...)
-	if m.cfg.HeartbeatInterval <= 0 {
-		b = append(b, "disabled"...)
-	} else {
-		b = append(b, hRemaining.Truncate(time.Second).String()...)
-	}
-	m.logger.Debug(string(b))
+	nextSample, nextHeartbeat := m.sys.NextWake()
+	m.logNextWake(nextSample, nextHeartbeat)
 
 	m.pet()
 
-	// Flush all outputs before powering down peripherals and sleeping.
+	// Flush all outputs before going to sleep.
 	if err := m.flush(); err != nil {
 		m.logger.Error("flush: " + err.Error())
 	}
@@ -143,7 +113,7 @@ func (m *Manager) doSleep() hal.WakeReason {
 	m.pet()
 
 	// Put system to sleep. Execution halts here until wake from sleep.
-	reason, err := m.sys.Sleep(m.cfg.SampleInterval, m.cfg.HeartbeatInterval)
+	reason, err := m.sys.Sleep()
 	if err != nil {
 		m.logger.Error("sleep: " + err.Error())
 	}
@@ -198,6 +168,13 @@ func (m *Manager) doHeartbeat() {
 	// TODO: transmit keep-alive message
 }
 
+// pet resets the watchdog countdown if a callback has been registered.
+func (m *Manager) pet() {
+	if m.petWDT != nil {
+		m.petWDT()
+	}
+}
+
 // Pulse LED on/off, on/off
 func (m *Manager) pulseLED() {
 	m.ledOn()
@@ -207,6 +184,42 @@ func (m *Manager) pulseLED() {
 	m.ledOn()
 	wait.For(50 * time.Millisecond)
 	m.ledOff()
+}
+
+func (m *Manager) logNextWake(nextSample, nextHeartbeat time.Duration) {
+	b := m.buf[:0]
+	b = append(b, "sleep: next wake: sample="...)
+	if m.cfg.SampleInterval <= 0 {
+		b = append(b, "disabled"...)
+	} else {
+		b = appendDuration(b, nextSample)
+	}
+	b = append(b, " heartbeat="...)
+	if m.cfg.HeartbeatInterval <= 0 {
+		b = append(b, "disabled"...)
+	} else {
+		b = appendDuration(b, nextHeartbeat)
+	}
+	m.logger.Debug(string(b))
+}
+
+// appendDuration appends a human-readable duration to b using the
+// largest whole unit that fits: days, hours, minutes, or seconds.
+func appendDuration(b []byte, d time.Duration) []byte {
+	switch {
+	case d < time.Minute:
+		b = strconv.AppendInt(b, int64(d/time.Second), 10)
+		return append(b, 's')
+	case d < time.Hour:
+		b = strconv.AppendInt(b, int64(d/time.Minute), 10)
+		return append(b, 'm')
+	case d < 24*time.Hour:
+		b = strconv.AppendInt(b, int64(d/time.Hour), 10)
+		return append(b, 'h')
+	default:
+		b = strconv.AppendInt(b, int64(d/(24*time.Hour)), 10)
+		return append(b, 'd')
+	}
 }
 
 func (m *Manager) logMem() {

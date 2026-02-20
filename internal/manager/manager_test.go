@@ -53,7 +53,7 @@ func (m *mockOutput) hasLog(substr string) bool {
 
 type mockSystem struct {
 	name    string
-	sleepFn func(sample, heartbeat time.Duration) (hal.WakeReason, error)
+	sleepFn func() (hal.WakeReason, error)
 	timeFn  func() (time.Time, error)
 }
 
@@ -63,12 +63,12 @@ func (m *mockSystem) ReadTime() (time.Time, error) {
 	return m.timeFn()
 }
 
-func (m *mockSystem) Sleep(s, h time.Duration) (hal.WakeReason, error) {
-	return m.sleepFn(s, h)
+func (m *mockSystem) Sleep() (hal.WakeReason, error) {
+	return m.sleepFn()
 }
 
-func (m *mockSystem) NextWake(s, h time.Duration) (time.Duration, time.Duration) {
-	return s, h
+func (m *mockSystem) NextWake() (time.Duration, time.Duration) {
+	return 0, 0
 }
 
 type mockSensor struct {
@@ -98,11 +98,11 @@ func fixedTime() (time.Time, error) {
 	return time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC), nil
 }
 
-func sampleWake(_, _ time.Duration) (hal.WakeReason, error) {
+func sampleWake() (hal.WakeReason, error) {
 	return hal.WakeSample, nil
 }
 
-func heartbeatWake(_, _ time.Duration) (hal.WakeReason, error) {
+func heartbeatWake() (hal.WakeReason, error) {
 	return hal.WakeHeartbeat, nil
 }
 
@@ -113,7 +113,7 @@ func newTestManager(sys *mockSystem, sens []sensor.Device) (*Manager, *mockOutpu
 	}
 	mo := &mockOutput{name: "test"}
 
-	logger := log.NewLogger()
+	logger := log.NewLogger(time.Time{})
 	logger.AddSink(mo, log.LevelDebug)
 
 	man := New(sys, cfg, sens, logger)
@@ -271,7 +271,7 @@ func TestStep_ReadTimeError(t *testing.T) {
 func TestStep_SleepError(t *testing.T) {
 	sys := &mockSystem{
 		name: "mock",
-		sleepFn: func(_, _ time.Duration) (hal.WakeReason, error) {
+		sleepFn: func() (hal.WakeReason, error) {
 			return hal.WakeSample, errors.New("standby failed")
 		},
 		timeFn: fixedTime,

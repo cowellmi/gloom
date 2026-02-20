@@ -2,9 +2,9 @@
 //
 // It hammers DS3231 ReadTime in a tight loop without petting the
 // watchdog. The ~8s WDT timeout fires mid-I2C-transaction, resetting
-// the MCU. On the next boot, RecoverI2C must unstick the bus so the
-// DS3231 probes cleanly. The test halts with PASS once recovery from
-// a stuck bus is confirmed.
+// the MCU. On the next boot, ConfigureI2C must unstick the bus so
+// the DS3231 probes cleanly. The test halts with PASS once recovery
+// from a stuck bus is confirmed.
 //
 // Flash and monitor:
 //
@@ -61,22 +61,7 @@ func main() {
 		debug.Log("SDA: HIGH (idle)")
 	}
 
-	proc.RecoverI2C(sda, scl)
-	debug.Log("recover: done")
-
-	// Verify SDA released.
-	sdaPin.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
-	wait.For(10 * time.Microsecond)
-	released := sdaPin.Get()
-	sdaPin.Configure(machine.PinConfig{Mode: machine.PinInput})
-
-	if released {
-		debug.Log("SDA: HIGH (ok)")
-	} else {
-		debug.Log("SDA: LOW (STILL STUCK)")
-	}
-
-	if err := machine.I2C0.Configure(machine.I2CConfig{}); err != nil {
+	if err := proc.ConfigureI2C(sda, scl); err != nil {
 		debug.Log("I2C failed, WDT will retry: " + err.Error())
 		select {}
 	}
@@ -104,7 +89,7 @@ func main() {
 
 	// Tight ReadTime loop without petting the watchdog. The ~8s
 	// WDT timeout fires mid-I2C-transaction, resetting the MCU.
-	// The next boot tests whether RecoverI2C unsticks the bus.
+	// The next boot tests whether ConfigureI2C unsticks the bus.
 	// Do not press the reset button — external resets power-cycle
 	// the DS3231 and clear the stuck bus before we can observe it.
 	debug.Log("")

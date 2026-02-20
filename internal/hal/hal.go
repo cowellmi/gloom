@@ -52,14 +52,24 @@ type System struct {
 
 	wakePins []uint8
 
-	nextSample    time.Time
-	nextHeartbeat time.Time
+	sampleInterval    time.Duration
+	heartbeatInterval time.Duration
+	nextSample        time.Time
+	nextHeartbeat     time.Time
 }
 
 // NewSystem creates a System. mcu is required. rtc and rails may be
 // nil. If an RTC is provided its wake pin is registered automatically.
-func NewSystem(mcu MCU, rtc RTC, rails Rails) *System {
-	s := &System{mcu: mcu, rtc: rtc, rails: rails}
+// sampleInterval and heartbeatInterval configure the sleep/wake
+// cadence; pass 0 to disable either.
+func NewSystem(mcu MCU, rtc RTC, rails Rails, sampleInterval, heartbeatInterval time.Duration) *System {
+	s := &System{
+		mcu:               mcu,
+		rtc:               rtc,
+		rails:             rails,
+		sampleInterval:    sampleInterval,
+		heartbeatInterval: heartbeatInterval,
+	}
 	if rtc != nil {
 		s.wakePins = append(s.wakePins, rtc.WakePin())
 	}
@@ -91,25 +101,25 @@ func (s *System) ReadTime() (time.Time, error) {
 // just after the deadline fired and was cleared), the full interval
 // is returned since Sleep will set it to now+interval. A disabled
 // interval (<=0) always returns 0.
-func (s *System) NextWake(sampleInterval, heartbeatInterval time.Duration) (sample, heartbeat time.Duration) {
+func (s *System) NextWake() (sample, heartbeat time.Duration) {
 	now, err := s.ReadTime()
 	if err != nil {
 		now = time.Now()
 	}
 
-	if sampleInterval > 0 {
+	if s.sampleInterval > 0 {
 		if !s.nextSample.IsZero() {
 			sample = max(s.nextSample.Sub(now), 0)
 		} else {
-			sample = sampleInterval
+			sample = s.sampleInterval
 		}
 	}
 
-	if heartbeatInterval > 0 {
+	if s.heartbeatInterval > 0 {
 		if !s.nextHeartbeat.IsZero() {
 			heartbeat = max(s.nextHeartbeat.Sub(now), 0)
 		} else {
-			heartbeat = heartbeatInterval
+			heartbeat = s.heartbeatInterval
 		}
 	}
 
@@ -132,7 +142,7 @@ func (s *System) NextWake(sampleInterval, heartbeatInterval time.Duration) (samp
 //   - After the wake reason is determined, reason-specific rails are
 //     enabled (e.g. WakeSample rails for sensor power). This keeps
 //     sensor rails off during heartbeat-only wakes, saving power.
-func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeReason, error) {
+func (s *System) Sleep() (WakeReason, error) {
 	var sleepErrs []error
 
 	s.mcu.PetWatchdog()
@@ -147,8 +157,8 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 	s.mcu.PetWatchdog()
 
 	// --- Update deadlines ---
-	if sampleInterval > 0 && s.nextSample.IsZero() {
-		adj := sampleInterval
+	if s.sampleInterval > 0 && s.nextSample.IsZero() {
+		adj := s.sampleInterval
 		// Subtract sensor power-on delay so sensors are ready by
 		// the nominal sample time.
 		if s.rails != nil {
@@ -157,8 +167,8 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 		adj = max(adj, 0)
 		s.nextSample = now.Add(adj)
 	}
-	if heartbeatInterval > 0 && s.nextHeartbeat.IsZero() {
-		s.nextHeartbeat = now.Add(heartbeatInterval)
+	if s.heartbeatInterval > 0 && s.nextHeartbeat.IsZero() {
+		s.nextHeartbeat = now.Add(s.heartbeatInterval)
 	}
 
 	target := earliest(s.nextSample, s.nextHeartbeat)
@@ -227,10 +237,10 @@ func (s *System) Sleep(sampleInterval, heartbeatInterval time.Duration) (WakeRea
 
 	// --- Resolve wake reason ---
 	var reason WakeReason
-	if sampleInterval > 0 && !s.nextSample.IsZero() && !now.Before(s.nextSample) {
+	if s.sampleInterval > 0 && !s.nextSample.IsZero() && !now.Before(s.nextSample) {
 		reason = WakeSample
 		s.nextSample = time.Time{}
-	} else if heartbeatInterval > 0 && !s.nextHeartbeat.IsZero() && !now.Before(s.nextHeartbeat) {
+	} else if s.heartbeatInterval > 0 && !s.nextHeartbeat.IsZero() && !now.Before(s.nextHeartbeat) {
 		reason = WakeHeartbeat
 		s.nextHeartbeat = time.Time{}
 	} else {
