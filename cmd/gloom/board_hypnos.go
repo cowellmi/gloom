@@ -16,7 +16,7 @@ import (
 //     wakes to save power.
 func boardPower() []power.Rail {
 	return []power.Rail{
-		power.NewRail(uint8(machine.D5), true, hal.WakeAlways),
-		power.NewRail(uint8(machine.D6), false, hal.WakeSample),
+		power.NewRail(machine.D5, true, hal.WakeAlways),
+		power.NewRail(machine.D6, false, hal.WakeSample),
 	}
 }

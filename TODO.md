@@ -8,6 +8,12 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 In `internal/config/config.go`, boolean fields like `serial` and `enable_led` only accept the exact string `"true"` to enable. Any other value (including `"yes"`, `"1"`, `"TRUE"`) silently means false. For a framework targeting non-programmers, either document the accepted values clearly in a sample config file, or accept common truthy variants (`"true"`, `"yes"`, `"1"`, case-insensitive).
 
+We also need to handle comments at end of line like:
+```
+foo=bar # hello world
+```
+Currently the value of foo will be "bar # hello world", but it should be "bar".
+
 ---
 
 ## Low

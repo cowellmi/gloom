@@ -179,6 +179,40 @@ func TestStep_HeartbeatWake(t *testing.T) {
 	}
 }
 
+func TestStep_SimultaneousWake(t *testing.T) {
+	dev := &mockSensor{
+		name: "test-sensor",
+		measurements: []sensor.Measurement{
+			{Label: "temp", Value: "22", Unit: "C"},
+		},
+	}
+
+	sys := &mockSystem{
+		name: "mock",
+		sleepFn: func() (hal.WakeReason, error) {
+			return hal.WakeSample | hal.WakeHeartbeat, nil
+		},
+		timeFn: fixedTime,
+	}
+
+	man, mo := newTestManager(sys, []sensor.Device{dev})
+	man.EnableLED(func() {}, func() {})
+	man.step()
+
+	if !dev.initCalled {
+		t.Error("sensor.Init() was not called on simultaneous wake")
+	}
+	if !dev.measureCalled {
+		t.Error("sensor.Measure() was not called on simultaneous wake")
+	}
+	if len(mo.measurements) != 1 {
+		t.Errorf("recorder got %d measurements, want 1", len(mo.measurements))
+	}
+	if !mo.hasLog("heartbeat") {
+		t.Errorf("expected heartbeat in logs on simultaneous wake, got: %v", mo.logEntries)
+	}
+}
+
 func TestStep_SensorInitError(t *testing.T) {
 	dev := &mockSensor{
 		name:    "bad-sensor",

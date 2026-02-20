@@ -238,20 +238,22 @@ func (s *System) Sleep() (WakeReason, error) {
 	// --- Resolve wake reason ---
 	var reason WakeReason
 	if s.sampleInterval > 0 && !s.nextSample.IsZero() && !now.Before(s.nextSample) {
-		reason = WakeSample
+		reason |= WakeSample
 		s.nextSample = time.Time{}
-	} else if s.heartbeatInterval > 0 && !s.nextHeartbeat.IsZero() && !now.Before(s.nextHeartbeat) {
-		reason = WakeHeartbeat
+	}
+	if s.heartbeatInterval > 0 && !s.nextHeartbeat.IsZero() && !now.Before(s.nextHeartbeat) {
+		reason |= WakeHeartbeat
 		s.nextHeartbeat = time.Time{}
-	} else {
+	}
+	if reason == 0 {
 		reason = WakeExternal
 	}
 
 	// --- Power on reason-specific rails ---
-	// Only wait for rail stabilisation on sample wakes where sensors
-	// need power. Heartbeat wakes use only the core rails already
-	// restored above and don't need the delay.
-	if s.rails != nil && reason == WakeSample {
+	// Only wait for rail stabilisation when the sample bit is set,
+	// since that's when sensors need power. Heartbeat-only wakes
+	// use only the core rails already restored above.
+	if s.rails != nil && reason&WakeSample != 0 {
 		s.rails.PowerOn(reason)
 		wait.For(s.rails.Delay())
 		s.mcu.PetWatchdog()

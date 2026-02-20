@@ -31,6 +31,7 @@ func main() {
 	// Defined in the build-tagged board file (e.g. main_feather_m0.go).
 	board := initBoard(&cfg)
 	board.MCU.ConfigureLED(cfg.LedPin)
+	board.MCU.LedOn() // Signals start of init sequence.
 	board.MCU.EnableWatchdog()
 	debug.Log("loading defaults...")
 
@@ -214,7 +215,10 @@ func main() {
 			continue
 		}
 		devices = append(devices, newDevice())
+		board.MCU.PetWatchdog()
 	}
+
+	board.MCU.LedOff() // Signals end of init sequence.
 
 	// --- Report init warnings and errors ---
 

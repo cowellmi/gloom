@@ -322,6 +322,40 @@ func TestSleep_HeartbeatBeforeSample(t *testing.T) {
 	}
 }
 
+func TestSleep_SimultaneousWake(t *testing.T) {
+	rtc := &mockRTC{
+		times: []time.Time{T, T.Add(11 * time.Second)},
+		pin:   12,
+	}
+	rails := &mockRails{}
+	sys := NewSystem(&mockMCU{}, rtc, rails, 10*time.Second, 10*time.Second)
+
+	reason, err := sys.Sleep()
+	if err != nil {
+		t.Fatalf("Sleep() error: %v", err)
+	}
+	if reason != WakeSample|WakeHeartbeat {
+		t.Errorf("reason = %d, want WakeSample|WakeHeartbeat (%d)", reason, WakeSample|WakeHeartbeat)
+	}
+	// Both deadlines should be cleared.
+	if !sys.nextSample.IsZero() {
+		t.Error("nextSample should be cleared after firing")
+	}
+	if !sys.nextHeartbeat.IsZero() {
+		t.Error("nextHeartbeat should be cleared after firing")
+	}
+	// Sample bit is set, so reason-specific rails should fire.
+	if len(rails.powerOnCalls) != 2 {
+		t.Fatalf("PowerOn called %d times, want 2; got %v", len(rails.powerOnCalls), rails.powerOnCalls)
+	}
+	if rails.powerOnCalls[0] != WakeAlways {
+		t.Errorf("first PowerOn = %d, want WakeAlways", rails.powerOnCalls[0])
+	}
+	if rails.powerOnCalls[1] != WakeSample|WakeHeartbeat {
+		t.Errorf("second PowerOn = %d, want WakeSample|WakeHeartbeat (%d)", rails.powerOnCalls[1], WakeSample|WakeHeartbeat)
+	}
+}
+
 func TestSleep_ExternalWake(t *testing.T) {
 	rtc := &mockRTC{
 		times: []time.Time{T, T.Add(time.Second)},

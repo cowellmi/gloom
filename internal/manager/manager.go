@@ -84,15 +84,14 @@ func (m *Manager) Run() {
 func (m *Manager) step() {
 	reason := m.doSleep()
 
-	switch reason {
-	case hal.WakeSample:
+	if reason&hal.WakeSample != 0 {
 		m.doSample()
-	case hal.WakeHeartbeat:
+	}
+	if reason&hal.WakeHeartbeat != 0 {
 		m.doHeartbeat()
-	case hal.WakeExternal:
+	}
+	if reason == hal.WakeExternal {
 		m.logger.Debug("external wake")
-	default:
-		m.logger.Debug("unexpected wake reason")
 	}
 
 	m.logMem()
