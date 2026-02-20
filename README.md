@@ -9,7 +9,7 @@ A sleepy IoT firmware for low-power sensor sampling, written in [TinyGo](https:/
 This project uses [Nix](https://nixos.org/) flakes for toolchain management and a `.env` file for project configuration.
 
 ```
-cp .env.example .env     # configure your board, port, etc.
+cp .env.example .env
 ```
 
 Edit `.env` to set `GLOOM_PORT` and other variables for your setup. The Makefile loads `.env` directly, so `make build`, `make flash`, etc. work out of the box.
