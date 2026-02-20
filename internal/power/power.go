@@ -6,21 +6,8 @@ package power
 
 import (
 	"machine"
-	"time"
 
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/wait"
-)
-
-const (
-	// StabiliseDelay is how long to wait after enabling rails for
-	// voltages to stabilise before talking to peripherals.
-	StabiliseDelay = 2 * time.Second
-
-	// powerCycleDelay is how long to hold rails off during the
-	// initial power cycle so SD card capacitors discharge and SPI
-	// state machines reset.
-	powerCycleDelay = 250 * time.Millisecond
 )
 
 // Rail describes a single MOSFET-switched power rail.
@@ -62,21 +49,12 @@ type Controller struct {
 // compile-time check
 var _ hal.Rails = (*Controller)(nil)
 
-// NewController creates a power Controller for the given rails. It
-// configures each pin as an output and performs an initial power cycle
-// to reset peripherals (SD card SPI state, etc.).
 func NewController(rails ...Rail) *Controller {
 	m := &Controller{rails: rails}
 
 	for _, r := range m.rails {
 		r.pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	}
-
-	// Force a clean power cycle so peripherals reset cleanly.
-	m.PowerOff()
-	wait.For(powerCycleDelay)
-	m.PowerOn(hal.WakeAlways)
-	wait.For(StabiliseDelay)
 
 	return m
 }
@@ -96,10 +74,4 @@ func (m *Controller) PowerOff() {
 	for _, r := range m.rails {
 		r.off()
 	}
-}
-
-// Delay returns how long to wait after PowerOn for voltages to
-// stabilise before talking to peripherals.
-func (m *Controller) Delay() time.Duration {
-	return StabiliseDelay
 }

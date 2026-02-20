@@ -1,7 +1,5 @@
 package hal
 
-import "time"
-
 // Rails abstracts board-level power rail control. Each rail is
 // tagged with a WakeReason bitmask that determines when it activates:
 //
@@ -24,8 +22,4 @@ type Rails interface {
 
 	// PowerOff disables all power rails. Called before entering sleep.
 	PowerOff()
-
-	// Delay returns how long to wait after PowerOn for voltages to
-	// stabilise before talking to peripherals.
-	Delay() time.Duration
 }

@@ -158,14 +158,7 @@ func (s *System) Sleep() (WakeReason, error) {
 
 	// --- Update deadlines ---
 	if s.sampleInterval > 0 && s.nextSample.IsZero() {
-		adj := s.sampleInterval
-		// Subtract sensor power-on delay so sensors are ready by
-		// the nominal sample time.
-		if s.rails != nil {
-			adj -= s.rails.Delay()
-		}
-		adj = max(adj, 0)
-		s.nextSample = now.Add(adj)
+		s.nextSample = now.Add(s.sampleInterval)
 	}
 	if s.heartbeatInterval > 0 && s.nextHeartbeat.IsZero() {
 		s.nextHeartbeat = now.Add(s.heartbeatInterval)
@@ -255,7 +248,6 @@ func (s *System) Sleep() (WakeReason, error) {
 	// use only the core rails already restored above.
 	if s.rails != nil && reason&WakeSample != 0 {
 		s.rails.PowerOn(reason)
-		wait.For(s.rails.Delay())
 		s.mcu.PetWatchdog()
 	}
 
