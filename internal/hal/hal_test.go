@@ -230,9 +230,9 @@ func TestNextWake_PartialRemaining(t *testing.T) {
 	if s != 6*time.Second {
 		t.Errorf("sample remaining = %v, want 6s", s)
 	}
-	// nextHeartbeat was cleared after firing → full interval.
-	if h != 3*time.Second {
-		t.Errorf("heartbeat remaining = %v, want 3s", h)
+	// nextHeartbeat advanced from T+3s to T+6s, now is T+4s → 2s remaining.
+	if h != 2*time.Second {
+		t.Errorf("heartbeat remaining = %v, want 2s", h)
 	}
 }
 
@@ -337,12 +337,13 @@ func TestSleep_SimultaneousWake(t *testing.T) {
 	if reason != WakeSample|WakeHeartbeat {
 		t.Errorf("reason = %d, want WakeSample|WakeHeartbeat (%d)", reason, WakeSample|WakeHeartbeat)
 	}
-	// Both deadlines should be cleared.
-	if !sys.nextSample.IsZero() {
-		t.Error("nextSample should be cleared after firing")
+	// Both deadlines should be advanced to the next interval.
+	wantNext := T.Add(20 * time.Second)
+	if !sys.nextSample.Equal(wantNext) {
+		t.Errorf("nextSample = %v, want %v", sys.nextSample, wantNext)
 	}
-	if !sys.nextHeartbeat.IsZero() {
-		t.Error("nextHeartbeat should be cleared after firing")
+	if !sys.nextHeartbeat.Equal(wantNext) {
+		t.Errorf("nextHeartbeat = %v, want %v", sys.nextHeartbeat, wantNext)
 	}
 	// Sample bit is set, so reason-specific rails should fire.
 	if len(rails.powerOnCalls) != 2 {
@@ -377,7 +378,7 @@ func TestSleep_ExternalWake(t *testing.T) {
 	}
 }
 
-func TestSleep_RailDelaySubtracted(t *testing.T) {
+func TestSleep_RailDelayNotSubtracted(t *testing.T) {
 	rtc := &mockRTC{
 		times: []time.Time{T, T.Add(10 * time.Second)},
 		pin:   12,
@@ -392,11 +393,10 @@ func TestSleep_RailDelaySubtracted(t *testing.T) {
 	if reason != WakeSample {
 		t.Fatalf("reason = %d, want WakeSample", reason)
 	}
-	// Alarm target should be T + (10s - 1ms), not T + 10s.
 	if len(rtc.setWakes) != 1 {
 		t.Fatalf("SetWake called %d times, want 1", len(rtc.setWakes))
 	}
-	want := T.Add(10*time.Second - time.Millisecond)
+	want := T.Add(10 * time.Second)
 	if !rtc.setWakes[0].Equal(want) {
 		t.Errorf("SetWake target = %v, want %v", rtc.setWakes[0], want)
 	}
@@ -461,8 +461,8 @@ func TestSleep_DeadlineResets(t *testing.T) {
 		t.Fatalf("first Sleep: reason = %d, want WakeSample", reason)
 	}
 
-	// After firing, nextSample was cleared. Second call sets a fresh
-	// deadline from the new "now" (T+11s) → target T+21s.
+	// After firing, nextSample advanced to T+20s (grid-anchored).
+	// Second call uses that deadline → target T+20s.
 	reason, _ = sys.Sleep()
 	if reason != WakeSample {
 		t.Fatalf("second Sleep: reason = %d, want WakeSample", reason)
@@ -471,7 +471,7 @@ func TestSleep_DeadlineResets(t *testing.T) {
 	if len(rtc.setWakes) != 2 {
 		t.Fatalf("SetWake called %d times, want 2", len(rtc.setWakes))
 	}
-	want := T.Add(21 * time.Second)
+	want := T.Add(20 * time.Second)
 	if !rtc.setWakes[1].Equal(want) {
 		t.Errorf("second SetWake target = %v, want %v", rtc.setWakes[1], want)
 	}

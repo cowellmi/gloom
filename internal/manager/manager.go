@@ -16,7 +16,6 @@ import (
 // system is the interface the manager needs from the hardware layer.
 // It is satisfied by *hal.System and by test mocks.
 type system interface {
-	Identifier() string
 	ReadTime() (time.Time, error)
 	Sleep() (hal.WakeReason, error)
 	NextWake() (sample, heartbeat time.Duration)

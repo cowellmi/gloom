@@ -83,10 +83,6 @@ func (s *System) AddWakePin(pin uint8) {
 	s.wakePins = append(s.wakePins, pin)
 }
 
-func (s *System) Identifier() string {
-	return s.mcu.Identifier()
-}
-
 // ReadTime returns the current time from the RTC, or time.Now() if
 // no RTC is attached.
 func (s *System) ReadTime() (time.Time, error) {
@@ -97,10 +93,10 @@ func (s *System) ReadTime() (time.Time, error) {
 }
 
 // NextWake returns the time remaining until each scheduled wake
-// deadline. For a deadline that hasn't been set yet (first call, or
-// just after the deadline fired and was cleared), the full interval
-// is returned since Sleep will set it to now+interval. A disabled
-// interval (<=0) always returns 0.
+// deadline. For a deadline that hasn't been set yet (first call,
+// before Sleep has run), the full interval is returned since Sleep
+// will set it to now+interval. A disabled interval (<=0) always
+// returns 0.
 func (s *System) NextWake() (sample, heartbeat time.Duration) {
 	now, err := s.ReadTime()
 	if err != nil {
@@ -232,11 +228,15 @@ func (s *System) Sleep() (WakeReason, error) {
 	var reason WakeReason
 	if s.sampleInterval > 0 && !s.nextSample.IsZero() && !now.Before(s.nextSample) {
 		reason |= WakeSample
-		s.nextSample = time.Time{}
+		for !now.Before(s.nextSample) {
+			s.nextSample = s.nextSample.Add(s.sampleInterval)
+		}
 	}
 	if s.heartbeatInterval > 0 && !s.nextHeartbeat.IsZero() && !now.Before(s.nextHeartbeat) {
 		reason |= WakeHeartbeat
-		s.nextHeartbeat = time.Time{}
+		for !now.Before(s.nextHeartbeat) {
+			s.nextHeartbeat = s.nextHeartbeat.Add(s.heartbeatInterval)
+		}
 	}
 	if reason == 0 {
 		reason = WakeExternal
@@ -320,18 +320,19 @@ func (s *System) deepSleep(target time.Time) error {
 func (s *System) idleSleep(d time.Duration) {
 	const tick = 4 * time.Second // well within ~8s watchdog timeout
 
+	// No deadline. Sleep continuously while petting dog until an
+	// external interrupt occurs.
 	if d <= 0 {
-		wait.For(tick)
-		return
+		for {
+			s.mcu.PetWatchdog()
+			wait.For(tick)
+		}
 	}
 
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
 		s.mcu.PetWatchdog()
-		remaining := time.Until(deadline)
-		if remaining > tick {
-			remaining = tick
-		}
+		remaining := min(time.Until(deadline), tick)
 		wait.For(remaining)
 	}
 }

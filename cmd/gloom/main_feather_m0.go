@@ -6,7 +6,6 @@ import (
 	"machine"
 
 	"github.com/cowellmi/gloom/internal/config"
-	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/targets/samd21"
 )
 
@@ -16,13 +15,12 @@ import (
 func initBoard(cfg *config.Config) Board {
 	var board Board
 
-	// Debug UART on SERCOM0.
+	// UART serial.
 	uart0 := machine.UART0
-	uart0.Configure(machine.UARTConfig{
+	_ = uart0.Configure(machine.UARTConfig{
 		TX: machine.UART0_TX_PIN,
 		RX: machine.UART0_RX_PIN,
 	})
-	debug.W = uart0
 	board.UART = uart0
 
 	// USB-CDC serial.
@@ -43,7 +41,7 @@ func initBoard(cfg *config.Config) Board {
 	board.SPI.SDO = uint8(machine.SPI0_SDO_PIN)
 	board.SPI.SDI = uint8(machine.SPI0_SDI_PIN)
 
-	// Board-specific config defaults (overridable by config.ini).
+	// Board-specific config defaults.
 	cfg.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
 	cfg.RTCWakePin = uint8(machine.D12)
 	cfg.LedPin = uint8(machine.LED)

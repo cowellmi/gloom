@@ -57,8 +57,6 @@ type mockSystem struct {
 	timeFn  func() (time.Time, error)
 }
 
-func (m *mockSystem) Identifier() string { return m.name }
-
 func (m *mockSystem) ReadTime() (time.Time, error) {
 	return m.timeFn()
 }

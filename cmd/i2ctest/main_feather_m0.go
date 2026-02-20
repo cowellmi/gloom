@@ -4,25 +4,24 @@ package main
 
 import (
 	"device/sam"
+	"io"
 	"machine"
 	"strconv"
 
-	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/targets/samd21"
 )
 
-func initMCU() hal.MCU {
+func initMCU() (hal.MCU, io.Writer) {
 	uart0 := machine.UART0
 	uart0.Configure(machine.UARTConfig{
 		TX: machine.UART0_TX_PIN,
 		RX: machine.UART0_RX_PIN,
 	})
-	debug.W = uart0
 
 	proc := samd21.New()
 	proc.EnableWatchdog()
-	return proc
+	return proc, uart0
 }
 
 func resetCause() string {

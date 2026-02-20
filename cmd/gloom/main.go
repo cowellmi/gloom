@@ -33,6 +33,9 @@ func main() {
 	board.MCU.ConfigureLED(cfg.LedPin)
 	board.MCU.LedOn() // Signals start of init sequence.
 	board.MCU.EnableWatchdog()
+
+	// Setup debug logger
+	debug.W = board.UART
 	debug.Log("loading defaults...")
 
 	// TODO: probe Blues Notecard on I2C 0x17.

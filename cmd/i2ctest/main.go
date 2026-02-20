@@ -34,7 +34,8 @@ func main() {
 	machine.D5.Low() // active-low = ON
 	wait.For(2 * time.Second)
 
-	proc := initMCU()
+	proc, uart := initMCU()
+	debug.W = uart
 
 	debug.Log("")
 	debug.Log("=== I2C RECOVERY TEST ===")
@@ -90,8 +91,6 @@ func main() {
 	// Tight ReadTime loop without petting the watchdog. The ~8s
 	// WDT timeout fires mid-I2C-transaction, resetting the MCU.
 	// The next boot tests whether ConfigureI2C unsticks the bus.
-	// Do not press the reset button — external resets power-cycle
-	// the DS3231 and clear the stuck bus before we can observe it.
 	debug.Log("")
 	debug.Log("Pending watchog reset...")
 	proc.PetWatchdog()
