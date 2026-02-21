@@ -26,6 +26,15 @@ type LogSinkEntry struct {
 	Level log.Level
 }
 
+// RailConfig describes a MOSFET-switched power rail. Board files set
+// defaults; the [rails] INI section can override or add rails.
+type RailConfig struct {
+	Name      string
+	Pin       uint8
+	ActiveLow bool
+	Always    bool // true = on every wake; false = on-demand (sensors)
+}
+
 // Device holds hardware, logging, and data output configuration.
 // These settings are not per-group — they describe the physical
 // board and how all output is routed.
@@ -37,17 +46,20 @@ type Device struct {
 	RTCWakePin uint8
 	UARTTxPin  uint8
 	UARTRxPin  uint8
+	Rails      []RailConfig
 }
 
 // Group defines a scheduled task with its own sensors and optional
 // payload delivery. A group fires on a timer (Interval), an external
-// interrupt (ExternalIntPin), or both.
+// interrupt (ExternalIntPin), or both. Rails lists on-demand rail
+// names this group requires when it has sensors.
 type Group struct {
 	Name           string
 	Interval       time.Duration
 	ExternalIntPin uint8
 	PulseLED       bool
 	Sensors        []string
+	Rails          []string
 	Host           string
 	Payload        Payload
 }
@@ -112,9 +124,10 @@ func Parse(data []byte, cfg *Config) error {
 	var errs []error
 
 	var (
-		section    string
-		groups     []Group
-		groupIndex = make(map[string]int)
+		section      string
+		groups       []Group
+		groupIndex   = make(map[string]int)
+		railsCleared bool
 	)
 
 	for line := range strings.SplitSeq(string(data), "\n") {
@@ -128,7 +141,7 @@ func Parse(data []byte, cfg *Config) error {
 			if section == "" {
 				errs = append(errs, errors.New("empty section name"))
 			}
-			if section != "device" {
+			if section != "device" && section != "rails" {
 				if _, exists := groupIndex[section]; !exists {
 					groupIndex[section] = len(groups)
 					groups = append(groups, Group{Name: section})
@@ -156,6 +169,17 @@ func Parse(data []byte, cfg *Config) error {
 		case "device":
 			if err := parseDeviceKey(&cfg.Device, key, value); err != nil {
 				errs = append(errs, err)
+			}
+		case "rails":
+			if !railsCleared {
+				cfg.Device.Rails = nil
+				railsCleared = true
+			}
+			rc, err := parseRailValue(key, value)
+			if err != nil {
+				errs = append(errs, err)
+			} else {
+				cfg.Device.Rails = append(cfg.Device.Rails, rc)
 			}
 		default:
 			idx := groupIndex[section]
@@ -240,6 +264,8 @@ func parseGroupKey(g *Group, key, value string) error {
 		g.PulseLED = parseBool(value)
 	case "sensors":
 		g.Sensors = parseStringList(value)
+	case "rails":
+		g.Rails = parseStringList(value)
 	case "host":
 		g.Host = value
 	case "payload":
@@ -261,6 +287,18 @@ func validateGroup(g *Group, dev *Device) error {
 	}
 	if len(g.Sensors) > 0 && len(dev.DataSinks) == 0 {
 		errs = append(errs, errors.New("["+g.Name+"] sensors require at least one data_sink in [device]"))
+	}
+	for _, rn := range g.Rails {
+		found := false
+		for _, rc := range dev.Rails {
+			if rc.Name == rn {
+				found = true
+				break
+			}
+		}
+		if !found {
+			errs = append(errs, errors.New("["+g.Name+"] unknown rail: "+rn))
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -363,6 +401,49 @@ func parsePinList(key, value string) ([]uint8, error) {
 		pins = append(pins, pin)
 	}
 	return pins, nil
+}
+
+// parseRailValue parses a rail definition: "pin, polarity[, always]".
+// The key becomes the rail name. Example: "5v = 6, high" or
+// "3v3 = 5, low, always".
+func parseRailValue(name, value string) (RailConfig, error) {
+	parts := strings.Split(value, ",")
+	if len(parts) < 2 || len(parts) > 3 {
+		return RailConfig{}, errors.New("[rails] " + name + ": expected pin, polarity[, always]")
+	}
+
+	pinStr := strings.TrimSpace(parts[0])
+	pin, err := strconv.ParseUint(pinStr, 10, 8)
+	if err != nil {
+		return RailConfig{}, errors.New("[rails] " + name + ": invalid pin number: " + pinStr)
+	}
+
+	polarity := strings.TrimSpace(parts[1])
+	var activeLow bool
+	switch polarity {
+	case "low":
+		activeLow = true
+	case "high":
+		activeLow = false
+	default:
+		return RailConfig{}, errors.New("[rails] " + name + ": polarity must be low or high: " + polarity)
+	}
+
+	always := false
+	if len(parts) == 3 {
+		flag := strings.TrimSpace(parts[2])
+		if flag != "always" {
+			return RailConfig{}, errors.New("[rails] " + name + ": unknown flag: " + flag)
+		}
+		always = true
+	}
+
+	return RailConfig{
+		Name:      name,
+		Pin:       uint8(pin),
+		ActiveLow: activeLow,
+		Always:    always,
+	}, nil
 }
 
 func parsePin(key, value string) (uint8, error) {

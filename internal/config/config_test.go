@@ -535,6 +535,148 @@ func TestParse_PayloadVariants(t *testing.T) {
 	}
 }
 
+// --- Rails parsing ---
+
+func TestParse_RailsSection(t *testing.T) {
+	input := []byte(`
+[rails]
+3v3 = 5, low, always
+5v = 6, high
+`)
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.Device.Rails) != 2 {
+		t.Fatalf("Rails = %d, want 2", len(cfg.Device.Rails))
+	}
+
+	r0 := cfg.Device.Rails[0]
+	if r0.Name != "3v3" || r0.Pin != 5 || !r0.ActiveLow || !r0.Always {
+		t.Errorf("rail 0 = %+v, want {3v3 5 low always}", r0)
+	}
+
+	r1 := cfg.Device.Rails[1]
+	if r1.Name != "5v" || r1.Pin != 6 || r1.ActiveLow || r1.Always {
+		t.Errorf("rail 1 = %+v, want {5v 6 high on-demand}", r1)
+	}
+}
+
+func TestParse_RailsBadPin(t *testing.T) {
+	input := []byte("[rails]\nbad = abc, high\n")
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("expected error for bad pin")
+	}
+	if !strings.Contains(err.Error(), "invalid pin number") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestParse_RailsBadPolarity(t *testing.T) {
+	input := []byte("[rails]\ntest = 6, up\n")
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("expected error for bad polarity")
+	}
+	if !strings.Contains(err.Error(), "polarity must be low or high") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestParse_RailsBadFlag(t *testing.T) {
+	input := []byte("[rails]\ntest = 6, high, sometimes\n")
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("expected error for bad flag")
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestParse_RailsTooFewParts(t *testing.T) {
+	input := []byte("[rails]\ntest = 6\n")
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("expected error for too few parts")
+	}
+	if !strings.Contains(err.Error(), "expected pin, polarity") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestParse_GroupRails(t *testing.T) {
+	input := []byte(`
+[rails]
+3v3 = 5, low, always
+5v = 6, high
+
+[device]
+data_sinks = uart
+
+[weather]
+interval = 1m
+sensors = temperature
+rails = 5v
+`)
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.Groups[0].Rails) != 1 || cfg.Groups[0].Rails[0] != "5v" {
+		t.Errorf("group rails = %v, want [5v]", cfg.Groups[0].Rails)
+	}
+}
+
+func TestParse_GroupRailUnknown(t *testing.T) {
+	input := []byte(`
+[rails]
+5v = 6, high
+
+[device]
+data_sinks = uart
+
+[weather]
+interval = 1m
+sensors = temperature
+rails = 12v
+`)
+	cfg := Default()
+	err := Parse(input, &cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown rail reference")
+	}
+	if !strings.Contains(err.Error(), "unknown rail: 12v") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestParse_RailsNotAGroup(t *testing.T) {
+	input := []byte(`
+[rails]
+5v = 6, high
+
+[device]
+data_sinks = uart
+
+[weather]
+interval = 1m
+sensors = temperature
+`)
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.Groups) != 1 {
+		t.Errorf("Groups = %d, want 1 (rails should not be a group)", len(cfg.Groups))
+	}
+}
+
 // --- Full example ---
 
 func TestParse_FullExample(t *testing.T) {

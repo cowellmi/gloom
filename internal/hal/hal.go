@@ -15,18 +15,6 @@ import (
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
-// WakeReason is a bitmask used by power rails to decide which rails
-// to enable on wake. WakeAlways matches every reason and is used for
-// core infrastructure rails (RTC, SD card). WakeSensors activates
-// sensor power rails.
-type WakeReason uint8
-
-const (
-	WakeSensors  WakeReason = 1 << iota // sensor power rails
-	WakeExternal                        // non-timer wake source
-
-	WakeAlways = WakeSensors | WakeExternal
-)
 
 // minDeepSleep is the minimum time remaining before a target deadline
 // for deep sleep to be worthwhile. Below this threshold the overhead
@@ -142,12 +130,12 @@ func (s *System) NextWake() time.Duration {
 	return nearest
 }
 
-// EnableSensorRails powers on sensor-specific rails (those tagged
-// with WakeSensors). The manager calls this after determining that
-// at least one fired group has sensors. No-op if rails is nil.
+// EnableSensorRails powers on sensor-specific rails (on-demand rails).
+// The manager calls this after determining that at least one fired
+// group has sensors. No-op if rails is nil.
 func (s *System) EnableSensorRails() {
 	if s.rails != nil {
-		s.rails.PowerOn(WakeSensors)
+		s.rails.PowerOn(true)
 	}
 }
 
@@ -207,9 +195,9 @@ func (s *System) Sleep() ([]bool, error) {
 
 		s.mcu.PetWatchdog()
 
-		// Restore core rails so the RTC and SD card are reachable.
+		// Restore always-rails so the RTC and SD card are reachable.
 		if s.rails != nil {
-			s.rails.PowerOn(WakeAlways)
+			s.rails.PowerOn(false)
 		}
 
 		if s.rtc != nil {

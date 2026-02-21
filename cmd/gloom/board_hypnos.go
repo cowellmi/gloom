@@ -5,18 +5,17 @@ package main
 import (
 	"machine"
 
-	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/power"
+	"github.com/cowellmi/gloom/internal/config"
 )
 
-// boardPower returns the Hypnos FeatherWing power rails:
+// initRails sets the Hypnos FeatherWing power rail defaults:
 //   - D5: 3.3V core rail (active-low), always on after wake so the
 //     RTC and SD card are reachable.
 //   - D6: 5V sensor rail (active-high), only powered when at least
 //     one fired group has sensors.
-func boardPower() []power.Rail {
-	return []power.Rail{
-		power.NewRail(machine.D5, true, hal.WakeAlways),
-		power.NewRail(machine.D6, false, hal.WakeSensors),
+func initRails(cfg *config.Config) {
+	cfg.Device.Rails = []config.RailConfig{
+		{Name: "3v3", Pin: uint8(machine.D5), ActiveLow: true, Always: true},
+		{Name: "5v", Pin: uint8(machine.D6), ActiveLow: false, Always: false},
 	}
 }

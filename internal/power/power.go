@@ -1,7 +1,7 @@
 // Package power provides a generic hal.Rails implementation for
 // boards with MOSFET-switched power rails. Each rail is a GPIO pin
-// with a configurable polarity and a WakeReason bitmask that controls
-// when it activates.
+// with a configurable polarity and an always flag that determines
+// whether it powers on every wake or only when sensors are needed.
 package power
 
 import (
@@ -14,14 +14,16 @@ import (
 type Rail struct {
 	pin       machine.Pin
 	activeLow bool
-	wakeFor   hal.WakeReason // bitmask
+	always    bool // true = on every wake; false = on-demand (sensors)
 }
 
-// NewRail creates a Rail. activeLow inverts the pin logic (Low = on).
-// wakeFor is a WakeReason bitmask — use hal.WakeAlways for core rails
-// that must be on every wake, or hal.WakeSensors for sensor rails.
-func NewRail(pin machine.Pin, activeLow bool, wakeFor hal.WakeReason) Rail {
-	return Rail{pin: pin, activeLow: activeLow, wakeFor: wakeFor}
+// NewRail creates a Rail. pin is the GPIO number (converted to
+// machine.Pin internally). activeLow inverts the pin logic (Low = on).
+// always marks the rail as always-on after wake (core infrastructure
+// like RTC and SD card). Non-always rails are on-demand and only
+// enabled when fired groups need sensor power.
+func NewRail(pin uint8, activeLow bool, always bool) Rail {
+	return Rail{pin: machine.Pin(pin), activeLow: activeLow, always: always}
 }
 
 func (r Rail) on() {
@@ -59,11 +61,11 @@ func NewController(rails ...Rail) *Controller {
 	return m
 }
 
-// PowerOn enables all rails whose wakeOn mask overlaps with reason.
-// Rails that don't match are left unchanged.
-func (m *Controller) PowerOn(reason hal.WakeReason) {
+// PowerOn enables rails. When sensors is false, only always-rails are
+// enabled. When true, all rails (always + on-demand) are enabled.
+func (m *Controller) PowerOn(sensors bool) {
 	for _, r := range m.rails {
-		if r.wakeFor&reason != 0 {
+		if r.always || sensors {
 			r.on()
 		}
 	}

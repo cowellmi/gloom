@@ -2,10 +2,7 @@
 
 package main
 
-import "github.com/cowellmi/gloom/internal/power"
+import "github.com/cowellmi/gloom/internal/config"
 
-// boardPower returns nil when the Hypnos FeatherWing is not attached.
-// No MOSFET rails are toggled and no rail controller is created.
-func boardPower() []power.Rail {
-	return nil
-}
+// initRails is a no-op when the Hypnos FeatherWing is not attached.
+func initRails(_ *config.Config) {}
