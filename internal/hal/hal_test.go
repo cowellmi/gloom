@@ -13,6 +13,7 @@ type mockMCU struct {
 	calls       []string
 	armCalls    []uint8
 	disarmCalls []uint8
+	firedPins   map[uint8]bool
 }
 
 func (m *mockMCU) Identifier() string              { return "mock-mcu" }
@@ -34,6 +35,10 @@ func (m *mockMCU) ArmWake(pin uint8) error {
 func (m *mockMCU) DisarmWake(pin uint8) {
 	m.calls = append(m.calls, "DisarmWake")
 	m.disarmCalls = append(m.disarmCalls, pin)
+}
+
+func (m *mockMCU) PinFired(pin uint8) bool {
+	return m.firedPins[pin]
 }
 
 type mockRTC struct {
@@ -115,11 +120,14 @@ func TestEarliestDeadline(t *testing.T) {
 	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{10 * time.Second, 5 * time.Second})
 
 	// Force deadlines to be set.
-	sys.nextTimes[0] = T.Add(10 * time.Second)
-	sys.nextTimes[1] = T.Add(5 * time.Second)
+	sys.deadlines[0] = T.Add(10 * time.Second)
+	sys.deadlines[1] = T.Add(5 * time.Second)
 
-	got := sys.earliestDeadline()
+	got, hasDeadlines := sys.earliestDeadline()
 	want := T.Add(5 * time.Second)
+	if !hasDeadlines {
+		t.Error("earliestDeadline() hasDeadlines = false, want true")
+	}
 	if !got.Equal(want) {
 		t.Errorf("earliestDeadline() = %v, want %v", got, want)
 	}
@@ -300,11 +308,11 @@ func TestSleep_SimultaneousFire(t *testing.T) {
 
 	// Both deadlines should advance.
 	wantNext := T.Add(20 * time.Second)
-	if !sys.nextTimes[0].Equal(wantNext) {
-		t.Errorf("nextTimes[0] = %v, want %v", sys.nextTimes[0], wantNext)
+	if !sys.deadlines[0].Equal(wantNext) {
+		t.Errorf("deadlines[0] = %v, want %v", sys.deadlines[0], wantNext)
 	}
-	if !sys.nextTimes[1].Equal(wantNext) {
-		t.Errorf("nextTimes[1] = %v, want %v", sys.nextTimes[1], wantNext)
+	if !sys.deadlines[1].Equal(wantNext) {
+		t.Errorf("deadlines[1] = %v, want %v", sys.deadlines[1], wantNext)
 	}
 }
 
@@ -314,8 +322,9 @@ func TestSleep_ExternalWake(t *testing.T) {
 		pin:   12,
 	}
 	rails := &mockRails{}
+	mcu := &mockMCU{firedPins: map[uint8]bool{7: true}}
 	// No interval-based deadlines, one external pin on slot 0.
-	sys := NewSystem(&mockMCU{}, rtc, rails, []time.Duration{0})
+	sys := NewSystem(mcu, rtc, rails, []time.Duration{0})
 	sys.RegisterExternalPin(7, 0)
 
 	fired, err := sys.Sleep()
@@ -337,7 +346,8 @@ func TestSleep_ExternalWakeMultipleSlots(t *testing.T) {
 		times: []time.Time{T, T.Add(time.Second)},
 		pin:   12,
 	}
-	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{0, 0, 0})
+	mcu := &mockMCU{firedPins: map[uint8]bool{7: true, 8: true}}
+	sys := NewSystem(mcu, rtc, nil, []time.Duration{0, 0, 0})
 	sys.RegisterExternalPin(7, 0)
 	sys.RegisterExternalPin(8, 2)
 
@@ -350,12 +360,32 @@ func TestSleep_ExternalWakeMultipleSlots(t *testing.T) {
 	}
 }
 
-func TestSleep_DeadlineOverridesExternal(t *testing.T) {
+func TestSleep_ExternalWakeSelectivePin(t *testing.T) {
+	rtc := &mockRTC{
+		times: []time.Time{T, T.Add(time.Second)},
+		pin:   12,
+	}
+	// Only pin 7 fired; pin 8 did not.
+	mcu := &mockMCU{firedPins: map[uint8]bool{7: true}}
+	sys := NewSystem(mcu, rtc, nil, []time.Duration{0, 0, 0})
+	sys.RegisterExternalPin(7, 0)
+	sys.RegisterExternalPin(8, 2)
+
+	fired, err := sys.Sleep()
+	if err != nil {
+		t.Fatalf("Sleep() error: %v", err)
+	}
+	if !fired[0] || fired[1] || fired[2] {
+		t.Errorf("fired = %v, want [true false false]", fired)
+	}
+}
+
+func TestSleep_DeadlineWithoutExternalPin(t *testing.T) {
 	rtc := &mockRTC{
 		times: []time.Time{T, T.Add(11 * time.Second)},
 		pin:   12,
 	}
-	// Slot 0: timer-based, Slot 1: external only.
+	// Slot 0: timer-based, Slot 1: external only. Pin 7 did not fire.
 	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{10 * time.Second, 0})
 	sys.RegisterExternalPin(7, 1)
 
@@ -363,12 +393,33 @@ func TestSleep_DeadlineOverridesExternal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sleep() error: %v", err)
 	}
-	// Timer fired → external slots should NOT fire.
 	if !fired[0] {
 		t.Error("slot 0 (timer) should have fired")
 	}
 	if fired[1] {
-		t.Error("slot 1 (external) should not fire when timer woke")
+		t.Error("slot 1 (external) should not fire when pin didn't trigger")
+	}
+}
+
+func TestSleep_DeadlineAndExternalSimultaneous(t *testing.T) {
+	rtc := &mockRTC{
+		times: []time.Time{T, T.Add(11 * time.Second)},
+		pin:   12,
+	}
+	// Both deadline and external pin fire during the same cycle.
+	mcu := &mockMCU{firedPins: map[uint8]bool{7: true}}
+	sys := NewSystem(mcu, rtc, nil, []time.Duration{10 * time.Second, 0})
+	sys.RegisterExternalPin(7, 1)
+
+	fired, err := sys.Sleep()
+	if err != nil {
+		t.Fatalf("Sleep() error: %v", err)
+	}
+	if !fired[0] {
+		t.Error("slot 0 (timer) should have fired")
+	}
+	if !fired[1] {
+		t.Error("slot 1 (external) should fire when pin triggered")
 	}
 }
 

@@ -92,27 +92,28 @@ Packages marked *target-agnostic* contain no hardware imports and are testable w
 
 ## Build & Test
 
+The project uses a nix flake to provide the TinyGo toolchain. All build commands that require TinyGo must be run through `nix develop`:
+
 ```sh
+# Build firmware (TinyGo via nix)
+nix develop --command make
+
 # Run pure-Go unit tests (no hardware required)
-just test
+nix develop --command make test
 
 # Vet pure-Go packages
-just vet
-
-# Build firmware binary for feather-m0 (requires tinygo)
-just build
+nix develop --command make vet
 
 # Flash firmware (requires bossac)
-just flash
-
-# Build for a different board (same MCU family)
-just -f cmd/gloom/justfile build board=feather-m0-express
+nix develop --command make flash
 
 # Open serial monitor (requires tio)
-just monitor
+nix develop --command make monitor
 ```
 
-`test_pkgs` in the root justfile lists pure-Go packages testable with `go test`. Hardware-dependent packages (`drivers/ds3231`, `power/`, `targets/samd21`) are only buildable with TinyGo and have no host-side tests.
+Do **not** use `go build` or `tinygo build` directly — the nix flake ensures the correct TinyGo version and toolchain are available.
+
+`TEST_PKGS` in the Makefile lists pure-Go packages testable with `go test`. Hardware-dependent packages (`drivers/ds3231`, `power/`, `targets/samd21`) are only buildable with TinyGo and have no host-side tests.
 
 ## Coding Conventions
 

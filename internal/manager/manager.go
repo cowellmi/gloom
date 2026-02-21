@@ -13,7 +13,7 @@ import (
 )
 
 // system is the interface the manager needs from the hardware layer.
-// It is satisfied by *hal.System and by test mocks.
+// It is satisfied by hal.System and by test mocks.
 type system interface {
 	ReadTime() (time.Time, error)
 	Sleep() ([]bool, error)
@@ -264,7 +264,7 @@ func (m *Manager) pulseLED() {
 
 func (m *Manager) logNextWake(d time.Duration) {
 	b := m.buf[:0]
-	b = append(b, "sleep: next wake in"...)
+	b = append(b, "sleep: next wake in "...)
 	if d <= 0 {
 		b = append(b, "external"...)
 	} else {

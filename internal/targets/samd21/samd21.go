@@ -32,6 +32,7 @@ const (
 // MCU holds SAMD21-specific state for deep-sleep management.
 type MCU struct {
 	standbyReady bool
+	wakeFlags    uint32
 	ledPin       machine.Pin
 	ledReady     bool
 }
@@ -143,6 +144,13 @@ func (m *MCU) DisarmWake(pin uint8) {
 	sam.EIC.WAKEUP.ClearBits(1 << extIntChannel(p))
 }
 
+// PinFired reports whether pin's EIC channel had its interrupt flag
+// set when the MCU last woke from Standby.
+func (m *MCU) PinFired(pin uint8) bool {
+	ch := extIntChannel(machine.Pin(pin))
+	return m.wakeFlags&(1<<ch) != 0
+}
+
 // prepareStandby performs one-time clock reconfiguration so that
 // external interrupts can wake the processor from standby sleep.
 //
@@ -177,6 +185,7 @@ func (m *MCU) prepareStandby() {
 //
 // After wake, SysTick and USB are restored.
 func (m *MCU) Standby() {
+	m.wakeFlags = 0
 	detachUSB()
 	arm.SYST.SYST_CSR.ClearBits(arm.SYST_CSR_TICKINT)
 
@@ -185,6 +194,9 @@ func (m *MCU) Standby() {
 	arm.Asm("wfi")     // halt until wake interrupt
 
 	// --- execution resumes here after wake ---
+
+	// Snapshot interrupt flags before anything clears them.
+	m.wakeFlags = sam.EIC.INTFLAG.Get()
 
 	// Clear SLEEPDEEP so runtime WFI (scheduler idle) enters normal
 	// idle sleep, not standby.

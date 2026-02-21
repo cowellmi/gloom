@@ -20,6 +20,9 @@ import (
 	driver "tinygo.org/x/drivers/pcf8523"
 )
 
+// Name is the human-readable identifier for this RTC.
+const Name = "PCF8523"
+
 // Register addresses not exposed by the upstream driver.
 const (
 	regControl2  = 0x01
@@ -180,7 +183,7 @@ func (r *RTC) configure() error {
 	return r.clearTimerFlag()
 }
 
-func (r *RTC) Identifier() string { return "PCF8523" }
+func (r *RTC) Identifier() string { return Name }
 
 // ReadTime returns the current date and time from the PCF8523.
 func (r *RTC) ReadTime() (time.Time, error) {

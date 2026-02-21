@@ -9,6 +9,7 @@ package hal
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/cowellmi/gloom/internal/wait"
@@ -56,7 +57,7 @@ type System struct {
 	wakePins []uint8
 
 	intervals []time.Duration
-	nextTimes []time.Time
+	deadlines []time.Time
 	fired     []bool
 
 	extPins []extPin
@@ -73,7 +74,7 @@ func NewSystem(mcu MCU, rtc RTC, rails Rails, intervals []time.Duration) *System
 		rtc:       rtc,
 		rails:     rails,
 		intervals: make([]time.Duration, n),
-		nextTimes: make([]time.Time, n),
+		deadlines: make([]time.Time, n),
 		fired:     make([]bool, n),
 	}
 	copy(s.intervals, intervals)
@@ -91,11 +92,10 @@ func (s *System) RegisterExternalPin(pin uint8, slot int) {
 	s.extPins = append(s.extPins, extPin{pin: pin, slot: slot})
 
 	// Add to wake pin set if not already present.
-	for _, p := range s.wakePins {
-		if p == pin {
-			return
-		}
+	if slices.Contains(s.wakePins, pin) {
+		return
 	}
+
 	s.wakePins = append(s.wakePins, pin)
 }
 
@@ -124,15 +124,15 @@ func (s *System) NextWake() time.Duration {
 	}
 
 	var nearest time.Duration
-	for i, iv := range s.intervals {
-		if iv <= 0 {
+	for i, d := range s.intervals {
+		if d <= 0 {
 			continue
 		}
 		var remaining time.Duration
-		if !s.nextTimes[i].IsZero() {
-			remaining = max(s.nextTimes[i].Sub(now), 0)
+		if !s.deadlines[i].IsZero() {
+			remaining = max(s.deadlines[i].Sub(now), 0)
 		} else {
-			remaining = iv
+			remaining = d
 		}
 		if nearest == 0 || remaining < nearest {
 			nearest = remaining
@@ -176,31 +176,28 @@ func (s *System) Sleep() ([]bool, error) {
 	s.mcu.PetWatchdog()
 
 	// Initialize any unset deadlines.
-	for i, iv := range s.intervals {
-		if iv > 0 && s.nextTimes[i].IsZero() {
-			s.nextTimes[i] = now.Add(iv)
+	for i, d := range s.intervals {
+		if d > 0 && s.deadlines[i].IsZero() {
+			s.deadlines[i] = now.Add(d)
 		}
 	}
 
-	target := s.earliestDeadline()
-	noDeadlines := target.IsZero()
+	target, hasDeadlines := s.earliestDeadline()
 
-	if now.Before(target) || noDeadlines {
+	if now.Before(target) || !hasDeadlines {
 		s.mcu.PetWatchdog()
 
-		remaining := target.Sub(now)
-		if noDeadlines {
-			remaining = 0
+		var remaining time.Duration
+		if hasDeadlines {
+			remaining = target.Sub(now)
 		}
 
-		canDeepSleep := len(s.wakePins) > 0
-		if canDeepSleep && s.rtc != nil && !noDeadlines {
-			canDeepSleep = remaining > minDeepSleep
-		}
-
-		if canDeepSleep {
-			err := s.deepSleep(target)
-			if err != nil {
+		// Deep sleep requires wake pins and either no deadlines to
+		// miss, or an RTC with enough time remaining to justify the
+		// overhead to enter standby mode (based on minDeepSleep).
+		if len(s.wakePins) > 0 && (!hasDeadlines ||
+			(s.rtc != nil && remaining > minDeepSleep)) {
+			if err := s.deepSleep(target); err != nil {
 				sleepErrs = append(sleepErrs, err)
 				s.idleSleep(remaining)
 			}
@@ -230,24 +227,22 @@ func (s *System) Sleep() ([]bool, error) {
 		s.mcu.PetWatchdog()
 	}
 
-	// Resolve which slots fired.
-	anyFired := false
-	for i, iv := range s.intervals {
-		if iv > 0 && !s.nextTimes[i].IsZero() && !now.Before(s.nextTimes[i]) {
+	// Resolve which deadline slots fired.
+	for i, d := range s.intervals {
+		if d > 0 && !s.deadlines[i].IsZero() && !now.Before(s.deadlines[i]) {
 			s.fired[i] = true
-			anyFired = true
-			for !now.Before(s.nextTimes[i]) {
-				s.nextTimes[i] = s.nextTimes[i].Add(iv)
+			for !now.Before(s.deadlines[i]) {
+				s.deadlines[i] = s.deadlines[i].Add(d)
 			}
 		}
 	}
 
-	// External wake: no deadline fired, mark all external-pin slots.
-	if !anyFired {
-		for _, ep := range s.extPins {
-			if ep.slot < len(s.fired) {
-				s.fired[ep.slot] = true
-			}
+	// Mark slots whose external interrupt pin fired. Checked
+	// independently of deadlines since both can trigger during
+	// the same sleep cycle.
+	for _, ep := range s.extPins {
+		if ep.slot < len(s.fired) && s.mcu.PinFired(ep.pin) {
+			s.fired[ep.slot] = true
 		}
 	}
 
@@ -295,7 +290,7 @@ func (s *System) deepSleep(target time.Time) error {
 }
 
 // idleSleep busy-waits in short intervals, petting the watchdog
-// between each, until d elapses.
+// between each, until d elapses. The tick duration is such that
 func (s *System) idleSleep(d time.Duration) {
 	const tick = 4 * time.Second
 
@@ -314,15 +309,15 @@ func (s *System) idleSleep(d time.Duration) {
 	}
 }
 
-// earliestDeadline returns the earliest non-zero nextTimes entry.
-// Returns zero if no deadlines are active.
-func (s *System) earliestDeadline() time.Time {
+// earliestDeadline returns the earliest non-zero deadlines entry and
+// whether any deadlines exist at all.
+func (s *System) earliestDeadline() (time.Time, bool) {
 	var best time.Time
-	for i, iv := range s.intervals {
-		if iv <= 0 {
+	for i, d := range s.intervals {
+		if d <= 0 {
 			continue
 		}
-		t := s.nextTimes[i]
+		t := s.deadlines[i]
 		if t.IsZero() {
 			continue
 		}
@@ -330,5 +325,5 @@ func (s *System) earliestDeadline() time.Time {
 			best = t
 		}
 	}
-	return best
+	return best, !best.IsZero()
 }

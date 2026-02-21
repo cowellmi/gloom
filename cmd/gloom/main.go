@@ -276,6 +276,15 @@ func main() {
 	for i, g := range cfg.Groups {
 		intervals[i] = g.Interval
 	}
+	if clock == nil {
+		for _, d := range intervals {
+			if d > 0 {
+				logger.Warn("timed groups configured without an RTC; deep sleep disabled! Using idle sleep.")
+				break
+			}
+		}
+	}
+
 	sys := hal.NewSystem(board.MCU, clock, rails, intervals)
 
 	for i, g := range cfg.Groups {

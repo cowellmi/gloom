@@ -5,9 +5,24 @@ package hal
 // targets/<chip>/ (e.g. targets/samd21). Pin numbers use uint8 to
 // avoid importing the machine package.
 type MCU interface {
+	// Identifier returns a human-readable name for the MCU
+	// (e.g. "ATSAMD21"), used in boot banners and diagnostics.
 	Identifier() string
+
+	// EnableWatchdog starts the hardware watchdog timer. Once
+	// enabled, PetWatchdog must be called periodically or the
+	// MCU will reset. Must be disabled before Standby to avoid
+	// resets during intentional deep sleep.
 	EnableWatchdog()
+
+	// DisableWatchdog stops the hardware watchdog timer. Called
+	// before Standby so the watchdog doesn't fire while the CPU
+	// is halted.
 	DisableWatchdog()
+
+	// PetWatchdog resets the watchdog countdown, preventing a
+	// reset. Must be called at regular intervals while the
+	// watchdog is enabled.
 	PetWatchdog()
 
 	// ArmWake configures pin as a wake source: sets it as input
@@ -20,6 +35,12 @@ type MCU interface {
 	// interrupt registration and the EIC wakeup bit. Safe to call
 	// even if the pin was not previously armed.
 	DisarmWake(pin uint8)
+
+	// PinFired reports whether pin's interrupt flag was set when
+	// the MCU last woke from Standby. The flag is captured before
+	// DisarmWake clears it, so callers may check at any point
+	// after Standby returns.
+	PinFired(pin uint8) bool
 
 	// ConfigureI2C performs a bit-banged bus recovery sequence on
 	// the given SDA/SCL pins to release a stuck slave, then
