@@ -28,7 +28,7 @@ type LogSinkEntry struct {
 
 // RailConfig describes a MOSFET-switched power rail. Board files
 // populate these via initRails(); they are not configurable via INI.
-type   struct {
+type RailConfig struct {
 	Name      string
 	Pin       uint8
 	ActiveLow bool
@@ -39,15 +39,15 @@ type   struct {
 // Pin fields are set by board files at compile time; only sink
 // settings are user-configurable via the [device] INI section.
 type Device struct {
-	LogSinks     []LogSinkEntry
-	DataSinks    []string
-	LedPin       uint8
-	SDCSPins     []uint8
-	RTCWakePin   uint8
-	UARTTxPin    uint8
-	UARTRxPin    uint8
-	Rails        []RailConfig
-	SensorDelay  time.Duration
+	LogSinks    []LogSinkEntry
+	DataSinks   []string
+	LedPin      uint8
+	SDCSPins    []uint8
+	RTCWakePin  uint8
+	UARTTxPin   uint8
+	UARTRxPin   uint8
+	Rails       []RailConfig
+	SensorDelay time.Duration
 }
 
 // Group defines a scheduled task with its own sensors and optional
