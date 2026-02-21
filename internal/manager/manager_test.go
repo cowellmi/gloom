@@ -478,7 +478,7 @@ func TestStep_NoLEDOnExternalWake(t *testing.T) {
 	}
 }
 
-func TestStep_EnableSensorRailsCalledWhenNeeded(t *testing.T) {
+func TestStep_PowerOnSensorRailsCalledWhenNeeded(t *testing.T) {
 	dev := &mockSensor{name: "temp", measurements: []sensor.Measurement{{Label: "t", Value: "1", Unit: "C"}}}
 
 	sys := &mockSystem{

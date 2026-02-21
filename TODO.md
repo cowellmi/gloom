@@ -2,9 +2,11 @@
 
 Items are ordered by severity: critical (data loss / field failure) first, then high (correctness / memory), medium (conventions / maintainability), low (polish), and finally features.
 
-## TOP
+## Medium
 
-- Hypnos rails not powering off during System.idleSleep
+### Rails not powered off during idleSleep fallback
+
+`hal.System.idleSleep()` busy-waits without calling `rails.PowerOff()`. When the system falls back to idle sleep (no wake pins, or remaining time below `minDeepSleep`), rails stay powered the entire time. For short idle waits this is fine, but for the indefinite case (external-interrupt-only config without deep sleep) it wastes power. Consider cutting on-demand rails during long idle waits, keeping always-rails up for RTC/SD.
 
 ## Low
 
@@ -16,11 +18,9 @@ After a watchdog reset, the SD card can be stuck mid-SPI-command. `power.NewCont
 
 Data files are written as bare CSV (`timestamp,device,label,value,unit`) but there's no header row. Adding a header on file creation would make the CSVs self-documenting for researchers working with the data offline.
 
----
-
 ### Research config-defined UART
 
-Investigate whether UART pin assignments can be made configurable at runtime (e.g. via INI or Notecard env vars) rather than compile-time board files. On the SAMD21, UART0 is bound to SERCOM0 with fixed PAD muxing, so arbitrary pin reassignment isn't possible without changing the SERCOM. Explore whether TinyGo exposes enough SERCOM flexibility to support this, and whether other targets (nRF52, RP2040) have more runtime flexibility. Currently all UART pins are set in `cmd/gloom/main_feather_m0.go` at compile time.
+Investigate whether UART pin assignments can be made configurable at runtime (e.g. via INI or Notecard env vars) rather than compile-time board files. On the SAMD21, UART0 is bound to SERCOM0 with fixed PAD muxing, so arbitrary pin reassignment isn't possible without changing the SERCOM. Explore whether TinyGo exposes enough SERCOM flexibility to support this, and whether other targets (nRF52, RP2040) have more runtime flexibility. Currently all UART pins are set in `cmd/gloom/main_feather-m0.go` at compile time.
 
 ## Features
 

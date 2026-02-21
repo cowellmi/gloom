@@ -22,7 +22,6 @@ func TestMarshal_RoundTrip(t *testing.T) {
 				Name:     "weather",
 				Interval: time.Minute,
 				Sensors:  []string{"temperature", "humidity"},
-				Rails:    []string{"5v"},
 				PulseLED: true,
 			},
 			{
@@ -73,9 +72,6 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	if len(w.Sensors) != 2 {
 		t.Errorf("weather sensors = %v", w.Sensors)
 	}
-	if len(w.Rails) != 1 || w.Rails[0] != "5v" {
-		t.Errorf("weather rails = %v, want [5v]", w.Rails)
-	}
 	if !w.PulseLED {
 		t.Error("weather pulse_led = false, want true")
 	}
@@ -109,7 +105,7 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 
 	s := string(data)
 	for _, absent := range []string{
-		"sensors", "rails", "pulse_led", "host", "payload",
+		"sensors", "pulse_led", "host", "payload",
 		"external_int_pin",
 	} {
 		if strings.Contains(s, absent) {

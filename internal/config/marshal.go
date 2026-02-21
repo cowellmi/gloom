@@ -97,17 +97,6 @@ func appendGroup(buf []byte, g *Group) ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if len(g.Rails) > 0 {
-		buf = append(buf, "rails = "...)
-		for i, r := range g.Rails {
-			if i > 0 {
-				buf = append(buf, ", "...)
-			}
-			buf = append(buf, r...)
-		}
-		buf = append(buf, '\n')
-	}
-
 	if g.PulseLED {
 		buf = append(buf, "pulse_led = true\n"...)
 	}

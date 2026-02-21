@@ -28,7 +28,7 @@ type LogSinkEntry struct {
 
 // RailConfig describes a MOSFET-switched power rail. Board files
 // populate these via initRails(); they are not configurable via INI.
-type RailConfig struct {
+type   struct {
 	Name      string
 	Pin       uint8
 	ActiveLow bool
@@ -52,15 +52,13 @@ type Device struct {
 
 // Group defines a scheduled task with its own sensors and optional
 // payload delivery. A group fires on a timer (Interval), an external
-// interrupt (ExternalIntPin), or both. Rails lists on-demand rail
-// names this group requires when it has sensors.
+// interrupt (ExternalIntPin), or both.
 type Group struct {
 	Name           string
 	Interval       time.Duration
 	ExternalIntPin uint8
 	PulseLED       bool
 	Sensors        []string
-	Rails          []string
 	Host           string
 	Payload        Payload
 }
@@ -204,8 +202,6 @@ func parseGroupKey(g *Group, key, value string) error {
 		g.PulseLED = parseBool(value)
 	case "sensors":
 		g.Sensors = parseStringList(value)
-	case "rails":
-		g.Rails = parseStringList(value)
 	case "host":
 		g.Host = value
 	case "payload":
