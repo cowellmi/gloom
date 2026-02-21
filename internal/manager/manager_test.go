@@ -7,15 +7,12 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
-	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
 // --- mocks ---
 
-// mockOutput implements both log.Sink and sensor.Recorder so it can
-// be registered with the logger and manager in tests.
 type mockOutput struct {
 	name         string
 	measurements []sensor.Measurement
@@ -52,21 +49,26 @@ func (m *mockOutput) hasLog(substr string) bool {
 }
 
 type mockSystem struct {
-	name    string
-	sleepFn func() (hal.WakeReason, error)
-	timeFn  func() (time.Time, error)
+	sleepFn          func() ([]bool, error)
+	timeFn           func() (time.Time, error)
+	nextWakeDuration time.Duration
+	sensorRailsCalls int
 }
 
 func (m *mockSystem) ReadTime() (time.Time, error) {
 	return m.timeFn()
 }
 
-func (m *mockSystem) Sleep() (hal.WakeReason, error) {
+func (m *mockSystem) Sleep() ([]bool, error) {
 	return m.sleepFn()
 }
 
-func (m *mockSystem) NextWake() (time.Duration, time.Duration) {
-	return 0, 0
+func (m *mockSystem) NextWake() time.Duration {
+	return m.nextWakeDuration
+}
+
+func (m *mockSystem) EnableSensorRails() {
+	m.sensorRailsCalls++
 }
 
 type mockSensor struct {
@@ -96,46 +98,38 @@ func fixedTime() (time.Time, error) {
 	return time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC), nil
 }
 
-func sampleWake() (hal.WakeReason, error) {
-	return hal.WakeSample, nil
-}
-
-func heartbeatWake() (hal.WakeReason, error) {
-	return hal.WakeHeartbeat, nil
-}
-
-func newTestManager(sys *mockSystem, sens []sensor.Device) (*Manager, *mockOutput) {
-	cfg := config.Config{
-		SampleInterval:    time.Second,
-		HeartbeatInterval: 0,
-	}
+func newTestManager(sys *mockSystem, groups []Group, recorders []sensor.Recorder) (*Manager, *mockOutput) {
 	mo := &mockOutput{name: "test"}
 
 	logger := log.NewLogger(time.Time{})
 	logger.AddSink(mo, log.LevelDebug)
 
-	man := New(sys, cfg, sens, logger)
-	man.AddRecorder(mo)
+	man := New(sys, groups, recorders, logger)
 	return man, mo
 }
 
 // --- tests ---
 
-func TestStep_SampleWake(t *testing.T) {
+func TestStep_GroupWithSensorsFires(t *testing.T) {
 	dev := &mockSensor{
 		name: "test-sensor",
 		measurements: []sensor.Measurement{
 			{Label: "temp", Value: "22", Unit: "C"},
 		},
 	}
+	recorder := &mockOutput{name: "rec"}
 
 	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: sampleWake,
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
 		timeFn:  fixedTime,
 	}
 
-	man, mo := newTestManager(sys, []sensor.Device{dev})
+	groups := []Group{{
+		Name:    "weather",
+		Sensors: []sensor.Device{dev},
+	}}
+
+	man, _ := newTestManager(sys, groups, []sensor.Recorder{recorder})
 	man.step()
 
 	if !dev.initCalled {
@@ -144,70 +138,118 @@ func TestStep_SampleWake(t *testing.T) {
 	if !dev.measureCalled {
 		t.Error("sensor.Measure() was not called")
 	}
-
-	if len(mo.measurements) != 1 {
-		t.Fatalf("recorder got %d measurements, want 1", len(mo.measurements))
+	if len(recorder.measurements) != 1 {
+		t.Fatalf("recorder got %d measurements, want 1", len(recorder.measurements))
 	}
-	if mo.measurements[0].Label != "temp" {
-		t.Errorf("measurement label = %q, want %q", mo.measurements[0].Label, "temp")
+	if recorder.measurements[0].Label != "temp" {
+		t.Errorf("label = %q, want temp", recorder.measurements[0].Label)
 	}
-	if mo.measDevice != "test-sensor" {
-		t.Errorf("measurement device = %q, want %q", mo.measDevice, "test-sensor")
+	if recorder.measDevice != "test-sensor" {
+		t.Errorf("device = %q, want test-sensor", recorder.measDevice)
 	}
 }
 
-func TestStep_HeartbeatWake(t *testing.T) {
-	dev := &mockSensor{name: "test-sensor"}
-
+func TestStep_GroupWithHostFires(t *testing.T) {
 	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: heartbeatWake,
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
 		timeFn:  fixedTime,
 	}
 
-	man, mo := newTestManager(sys, []sensor.Device{dev})
+	groups := []Group{{
+		Name:    "heartbeat",
+		Host:    "http://localhost:4000",
+		Payload: config.PayloadFull,
+	}}
+
+	man, mo := newTestManager(sys, groups, nil)
 	man.step()
 
-	if dev.initCalled {
-		t.Error("sensor.Init() should not be called on heartbeat wake")
+	if !mo.hasLog("group: heartbeat") {
+		t.Errorf("expected group log, got: %v", mo.logEntries)
 	}
-
-	if !mo.hasLog("heartbeat") {
-		t.Errorf("expected heartbeat in logs, got: %v", mo.logEntries)
+	if !mo.hasLog("payload: http://localhost:4000") {
+		t.Errorf("expected payload log, got: %v", mo.logEntries)
 	}
 }
 
-func TestStep_SimultaneousWake(t *testing.T) {
-	dev := &mockSensor{
-		name: "test-sensor",
-		measurements: []sensor.Measurement{
-			{Label: "temp", Value: "22", Unit: "C"},
-		},
+func TestStep_MultipleGroups(t *testing.T) {
+	weatherSensor := &mockSensor{
+		name:         "temp",
+		measurements: []sensor.Measurement{{Label: "temp", Value: "22", Unit: "C"}},
 	}
+	rec := &mockOutput{name: "rec"}
 
 	sys := &mockSystem{
-		name: "mock",
-		sleepFn: func() (hal.WakeReason, error) {
-			return hal.WakeSample | hal.WakeHeartbeat, nil
-		},
-		timeFn: fixedTime,
+		sleepFn: func() ([]bool, error) { return []bool{true, true}, nil },
+		timeFn:  fixedTime,
 	}
 
-	man, mo := newTestManager(sys, []sensor.Device{dev})
-	man.EnableLED(func() {}, func() {})
+	groups := []Group{
+		{
+			Name:    "weather",
+			Sensors: []sensor.Device{weatherSensor},
+		},
+		{
+			Name:    "heartbeat",
+			Host:    "http://localhost",
+			Payload: config.PayloadMin,
+		},
+	}
+
+	man, mo := newTestManager(sys, groups, []sensor.Recorder{rec})
 	man.step()
 
-	if !dev.initCalled {
-		t.Error("sensor.Init() was not called on simultaneous wake")
+	if !weatherSensor.measureCalled {
+		t.Error("weather sensor should have been measured")
 	}
-	if !dev.measureCalled {
-		t.Error("sensor.Measure() was not called on simultaneous wake")
+	if !mo.hasLog("group: heartbeat") {
+		t.Error("heartbeat group should have been logged")
 	}
-	if len(mo.measurements) != 1 {
-		t.Errorf("recorder got %d measurements, want 1", len(mo.measurements))
+}
+
+func TestStep_OnlyFiredGroupsRun(t *testing.T) {
+	weatherSensor := &mockSensor{name: "temp"}
+
+	sys := &mockSystem{
+		sleepFn: func() ([]bool, error) { return []bool{false, true}, nil },
+		timeFn:  fixedTime,
 	}
-	if !mo.hasLog("heartbeat") {
-		t.Errorf("expected heartbeat in logs on simultaneous wake, got: %v", mo.logEntries)
+
+	groups := []Group{
+		{
+			Name:    "weather",
+			Sensors: []sensor.Device{weatherSensor},
+		},
+		{
+			Name:    "heartbeat",
+			Host:    "http://localhost",
+			Payload: config.PayloadFull,
+		},
+	}
+
+	man, mo := newTestManager(sys, groups, nil)
+	man.step()
+
+	if weatherSensor.initCalled {
+		t.Error("weather sensor should not have been called (not fired)")
+	}
+	if !mo.hasLog("group: heartbeat") {
+		t.Error("heartbeat group should have run")
+	}
+}
+
+func TestStep_ExternalWake(t *testing.T) {
+	sys := &mockSystem{
+		sleepFn: func() ([]bool, error) { return []bool{false}, nil },
+		timeFn:  fixedTime,
+	}
+
+	groups := []Group{{Name: "weather"}}
+	man, mo := newTestManager(sys, groups, nil)
+	man.step()
+
+	if !mo.hasLog("external wake") {
+		t.Errorf("expected external wake log, got: %v", mo.logEntries)
 	}
 }
 
@@ -218,12 +260,16 @@ func TestStep_SensorInitError(t *testing.T) {
 	}
 
 	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: sampleWake,
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
 		timeFn:  fixedTime,
 	}
 
-	man, mo := newTestManager(sys, []sensor.Device{dev})
+	groups := []Group{{
+		Name:    "weather",
+		Sensors: []sensor.Device{dev},
+	}}
+
+	man, mo := newTestManager(sys, groups, nil)
 	man.step()
 
 	if !dev.initCalled {
@@ -232,7 +278,6 @@ func TestStep_SensorInitError(t *testing.T) {
 	if dev.measureCalled {
 		t.Error("sensor.Measure() should not be called after init error")
 	}
-
 	if !mo.hasLog("failed to initialize") {
 		t.Errorf("expected init error in logs, got: %v", mo.logEntries)
 	}
@@ -245,34 +290,38 @@ func TestStep_SensorMeasureError(t *testing.T) {
 	}
 
 	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: sampleWake,
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
 		timeFn:  fixedTime,
 	}
 
-	man, mo := newTestManager(sys, []sensor.Device{dev})
+	groups := []Group{{
+		Name:    "weather",
+		Sensors: []sensor.Device{dev},
+	}}
+
+	man, mo := newTestManager(sys, groups, nil)
 	man.step()
 
 	if !dev.measureCalled {
 		t.Error("sensor.Measure() was not called")
 	}
-
 	if !mo.hasLog("failed to measure") {
 		t.Errorf("expected measure error in logs, got: %v", mo.logEntries)
 	}
 }
 
-func TestStep_LEDCallbacks(t *testing.T) {
+func TestStep_LEDOnPulseLEDGroup(t *testing.T) {
 	var ledOnCalled, ledOffCalled bool
 
 	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: heartbeatWake,
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
 		timeFn:  fixedTime,
 	}
 
-	man, _ := newTestManager(sys, nil)
-	man.EnableLED(func() { ledOnCalled = true }, func() { ledOffCalled = true })
+	groups := []Group{{Name: "sample", PulseLED: true, Host: "http://x"}}
+
+	man, _ := newTestManager(sys, groups, nil)
+	man.SetLED(func() { ledOnCalled = true }, func() { ledOffCalled = true })
 	man.step()
 
 	if !ledOnCalled {
@@ -283,16 +332,91 @@ func TestStep_LEDCallbacks(t *testing.T) {
 	}
 }
 
+func TestStep_NoLEDWhenPulseLEDFalse(t *testing.T) {
+	var ledOnCalled bool
+
+	sys := &mockSystem{
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
+		timeFn:  fixedTime,
+	}
+
+	groups := []Group{{Name: "hb", PulseLED: false, Host: "http://x"}}
+
+	man, _ := newTestManager(sys, groups, nil)
+	man.SetLED(func() { ledOnCalled = true }, func() {})
+	man.step()
+
+	if ledOnCalled {
+		t.Error("LED should not pulse when PulseLED is false")
+	}
+}
+
+func TestStep_NoLEDOnExternalWake(t *testing.T) {
+	var ledOnCalled bool
+
+	sys := &mockSystem{
+		sleepFn: func() ([]bool, error) { return []bool{false}, nil },
+		timeFn:  fixedTime,
+	}
+
+	groups := []Group{{Name: "weather", PulseLED: true}}
+
+	man, _ := newTestManager(sys, groups, nil)
+	man.SetLED(func() { ledOnCalled = true }, func() {})
+	man.step()
+
+	if ledOnCalled {
+		t.Error("LED should not pulse on external wake (no groups fired)")
+	}
+}
+
+func TestStep_EnableSensorRailsCalledWhenNeeded(t *testing.T) {
+	dev := &mockSensor{name: "temp", measurements: []sensor.Measurement{{Label: "t", Value: "1", Unit: "C"}}}
+
+	sys := &mockSystem{
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
+		timeFn:  fixedTime,
+	}
+
+	groups := []Group{{
+		Name:    "weather",
+		Sensors: []sensor.Device{dev},
+	}}
+
+	man, _ := newTestManager(sys, groups, nil)
+	man.step()
+
+	if sys.sensorRailsCalls != 1 {
+		t.Errorf("EnableSensorRails called %d times, want 1", sys.sensorRailsCalls)
+	}
+}
+
+func TestStep_NoSensorRailsForHostOnly(t *testing.T) {
+	sys := &mockSystem{
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
+		timeFn:  fixedTime,
+	}
+
+	groups := []Group{{Name: "hb", Host: "http://x", Payload: config.PayloadFull}}
+
+	man, _ := newTestManager(sys, groups, nil)
+	man.step()
+
+	if sys.sensorRailsCalls != 0 {
+		t.Errorf("EnableSensorRails called %d times, want 0 (no sensors)", sys.sensorRailsCalls)
+	}
+}
+
 func TestStep_ReadTimeError(t *testing.T) {
 	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: sampleWake,
+		sleepFn: func() ([]bool, error) { return []bool{false}, nil },
 		timeFn: func() (time.Time, error) {
 			return time.Time{}, errors.New("rtc dead")
 		},
 	}
 
-	man, mo := newTestManager(sys, nil)
+	groups := []Group{{Name: "x", Host: "http://x"}}
+	man, mo := newTestManager(sys, groups, nil)
 	man.step()
 
 	if !mo.hasLog("rtc:") {
@@ -302,14 +426,14 @@ func TestStep_ReadTimeError(t *testing.T) {
 
 func TestStep_SleepError(t *testing.T) {
 	sys := &mockSystem{
-		name: "mock",
-		sleepFn: func() (hal.WakeReason, error) {
-			return hal.WakeSample, errors.New("standby failed")
+		sleepFn: func() ([]bool, error) {
+			return []bool{false}, errors.New("standby failed")
 		},
 		timeFn: fixedTime,
 	}
 
-	man, mo := newTestManager(sys, nil)
+	groups := []Group{{Name: "x", Host: "http://x"}}
+	man, mo := newTestManager(sys, groups, nil)
 	man.step()
 
 	if !mo.hasLog("sleep: standby failed") {
@@ -317,16 +441,24 @@ func TestStep_SleepError(t *testing.T) {
 	}
 }
 
-func TestStep_NilCallbacks(t *testing.T) {
+func TestStep_FlushBeforeSleep(t *testing.T) {
 	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: sampleWake,
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
 		timeFn:  fixedTime,
 	}
 
-	// All callbacks nil -- should not panic.
-	man, _ := newTestManager(sys, nil)
+	rec := &mockOutput{name: "rec"}
+	groups := []Group{{Name: "x", Host: "http://x"}}
+
+	man, mo := newTestManager(sys, groups, []sensor.Recorder{rec})
 	man.step()
+
+	if !mo.flushCalled {
+		t.Error("logger sink Flush() was not called before sleep")
+	}
+	if !rec.flushCalled {
+		t.Error("recorder Flush() was not called before sleep")
+	}
 }
 
 func TestStep_MultipleMeasurements(t *testing.T) {
@@ -337,35 +469,36 @@ func TestStep_MultipleMeasurements(t *testing.T) {
 			{Label: "rh", Value: "55", Unit: "%"},
 		},
 	}
+	rec := &mockOutput{name: "rec"}
 
 	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: sampleWake,
+		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
 		timeFn:  fixedTime,
 	}
 
-	man, mo := newTestManager(sys, []sensor.Device{dev})
+	groups := []Group{{
+		Name:    "weather",
+		Sensors: []sensor.Device{dev},
+	}}
+
+	man, _ := newTestManager(sys, groups, []sensor.Recorder{rec})
 	man.step()
 
-	if len(mo.measurements) != 2 {
-		t.Fatalf("recorder got %d measurements, want 2", len(mo.measurements))
+	if len(rec.measurements) != 2 {
+		t.Fatalf("recorder got %d measurements, want 2", len(rec.measurements))
 	}
-	if mo.measurements[1].Label != "rh" {
-		t.Errorf("measurement[1].Label = %q, want %q", mo.measurements[1].Label, "rh")
+	if rec.measurements[1].Label != "rh" {
+		t.Errorf("measurement[1].Label = %q, want rh", rec.measurements[1].Label)
 	}
 }
 
-func TestStep_FlushBeforeSleep(t *testing.T) {
+func TestStep_NilCallbacks(t *testing.T) {
 	sys := &mockSystem{
-		name:    "mock",
-		sleepFn: sampleWake,
+		sleepFn: func() ([]bool, error) { return []bool{false}, nil },
 		timeFn:  fixedTime,
 	}
 
-	man, mo := newTestManager(sys, nil)
-	man.step()
-
-	if !mo.flushCalled {
-		t.Error("Flush() was not called before sleep")
-	}
+	groups := []Group{{Name: "x", Host: "http://x"}}
+	man, _ := newTestManager(sys, groups, nil)
+	man.step() // should not panic
 }

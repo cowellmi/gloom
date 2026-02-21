@@ -5,13 +5,13 @@ package hal
 //
 //   - WakeAlways rails (core): powered on every wake so the RTC and
 //     SD card are accessible. Brought up immediately after wake.
-//   - WakeSample rails: only powered on when sampling sensors.
-//   - WakeHeartbeat rails: only powered on for heartbeat transmit.
+//   - WakeSensors rails: only powered on when at least one fired
+//     group has sensors. The manager calls EnableSensorRails() after
+//     resolving fired groups.
 //
-// PowerOn is called twice per wake: once with WakeAlways to bring up
-// core infrastructure, and again with the actual wake reason to bring
-// up reason-specific rails. A rail activates when its tag ANDs with
-// the reason.
+// PowerOn is called with WakeAlways after every wake to bring up core
+// infrastructure. A second call with WakeSensors enables sensor rails
+// when needed. A rail activates when its tag ANDs with the reason.
 //
 // Boards without rail control simply omit Rails from the System
 // (pass nil to NewSystem).

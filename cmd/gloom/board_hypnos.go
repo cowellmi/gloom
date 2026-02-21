@@ -12,11 +12,11 @@ import (
 // boardPower returns the Hypnos FeatherWing power rails:
 //   - D5: 3.3V core rail (active-low), always on after wake so the
 //     RTC and SD card are reachable.
-//   - D6: 5V sensor rail (active-high), only powered during sample
-//     wakes to save power.
+//   - D6: 5V sensor rail (active-high), only powered when at least
+//     one fired group has sensors.
 func boardPower() []power.Rail {
 	return []power.Rail{
 		power.NewRail(machine.D5, true, hal.WakeAlways),
-		power.NewRail(machine.D6, false, hal.WakeSample),
+		power.NewRail(machine.D6, false, hal.WakeSensors),
 	}
 }

@@ -5,29 +5,57 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cowellmi/gloom/internal/log"
 )
 
-type Config struct {
-	SampleInterval    time.Duration
-	HeartbeatInterval time.Duration
-	SerialEnabled     bool
-	LedEnabled        bool
-	Sensors           []string // raw IDs, resolved by caller
+// Payload identifies a predefined health-check payload profile.
+type Payload uint8
 
-	// SDCSPins lists chip-select pin numbers (as uint8) to probe
-	// for an SD card, in priority order. Defaults cover Hypnos v3.3
-	// (D11) and v3.2 (D10).
-	SDCSPins []uint8
+const (
+	PayloadNone Payload = iota
+	PayloadMin
+	PayloadFull
+)
 
-	// RTCWakePin is the GPIO pin number (as uint8) connected to the
-	// RTC interrupt/alarm output. Used by the auto-prober to pass
-	// to the RTC driver. Default is D12 (Hypnos standard wiring).
+// LogSinkEntry pairs a sink name with its minimum log level.
+// Parsed from the "name:level" syntax (e.g. "uart:debug").
+// When no level is specified, LevelDebug is assumed.
+type LogSinkEntry struct {
+	Name  string
+	Level log.Level
+}
+
+// Device holds hardware, logging, and data output configuration.
+// These settings are not per-group — they describe the physical
+// board and how all output is routed.
+type Device struct {
+	LogSinks   []LogSinkEntry
+	DataSinks  []string
+	LedPin     uint8
+	SDCSPins   []uint8
 	RTCWakePin uint8
+	UARTTxPin  uint8
+	UARTRxPin  uint8
+}
 
-	// LedPin is the GPIO pin number for the status LED. Board
-	// default is the on-board LED; override for an externally wired
-	// indicator (e.g. mounted on an enclosure).
-	LedPin uint8
+// Group defines a scheduled task with its own sensors and optional
+// payload delivery. A group fires on a timer (Interval), an external
+// interrupt (ExternalIntPin), or both.
+type Group struct {
+	Name           string
+	Interval       time.Duration
+	ExternalIntPin uint8
+	PulseLED       bool
+	Sensors        []string
+	Host           string
+	Payload        Payload
+}
+
+// Config holds the complete parsed configuration.
+type Config struct {
+	Device Device
+	Groups []Group
 }
 
 // DefaultINI is the default configuration file content, written to the
@@ -35,70 +63,77 @@ type Config struct {
 // template to edit.
 const DefaultINI = `# Gloom configuration
 #
-# Lines starting with '#' are comments. Blank lines are ignored.
-# All keys are optional; missing keys use built-in defaults.
+# [device] configures hardware and output routing.
+# Any other [name] defines a group.
+# See example.config.ini for the full spec.
+#
+# Intervals use Go duration syntax: 5s, 3m, 1h
+# Log sinks use name:level syntax: uart:debug, sd:error
+# Valid log levels: debug, info, warn, error
 
-# How often to wake and sample sensors. 0 = disabled.
-# Accepts Go duration strings: "30s", "5m", "1h", etc.
-sample_interval = 5s
+[device]
+# log_sinks = uart:debug, usb:debug
+# data_sinks = uart, usb
 
-# How often to send a heartbeat (keep-alive). 0 = disabled.
-heartbeat_interval = 0
-
-# Enable serial output (USB-CDC and UART).
-serial = true
-
-# Enable on-board LED blink on wake.
-enable_led = true
-
-# Comma-separated sensor IDs to sample each cycle.
-# Must match IDs registered in the target's sensor registry.
+[sample]
+interval = 5s
 sensors = fake
-
-# Comma-separated SD card chip-select pin numbers to probe (in order).
-# Board-specific defaults are applied automatically; override here if
-# your wiring differs.
-# sd_cs_pins = 16,18
-
-# RTC alarm/interrupt pin number. Board-specific default is applied
-# automatically; override here if your wiring differs.
-# rtc_wake_pin = 19
-
-# Status LED pin number. Defaults to the on-board LED. Override to
-# use an externally wired indicator (e.g. mounted on an enclosure).
-# led_pin = 13
+pulse_led = true
 `
 
-// Default returns a Config with debug-friendly defaults. The fake
-// sensor is included so a bare board with no config source still
-// produces visible output on serial. When config is loaded from
-// Blues Notecard or SD card, the sensors list is overridden.
-//
-// Board-specific defaults (pin numbers for SDCSPins, RTCWakePin,
-// LedPin) are not set here because they depend on machine.Pin values
-// that are only available under TinyGo. Board files apply those via
-// initBoard() before any external config is loaded.
+// Default returns a Config with debug-friendly defaults. Board-specific
+// pin defaults (SDCSPins, RTCWakePin, LedPin, UART pins) are not set
+// here — board files apply those via initBoard() before any external
+// config is loaded.
 func Default() Config {
 	return Config{
-		SampleInterval:    5 * time.Second,
-		HeartbeatInterval: 0,
-		SerialEnabled:     true,
-		LedEnabled:        true,
-		Sensors:           []string{"fake"},
+		Device: Device{
+			LogSinks: []LogSinkEntry{
+				{Name: "uart", Level: log.LevelDebug},
+				{Name: "usb", Level: log.LevelDebug},
+			},
+			DataSinks: []string{"uart", "usb"},
+		},
+		Groups: []Group{
+			{
+				Name:     "sample",
+				Interval: 5 * time.Second,
+				Sensors:  []string{"fake"},
+				PulseLED: true,
+			},
+		},
 	}
 }
 
-// Parse reads a key=value config from data into cfg. Lines starting
-// with '#' and blank lines are ignored. All parse errors are collected
-// and returned together via errors.Join so the caller can report every
-// problem at once (useful on headless devices where re-flashing is expensive).
+// Parse reads an INI-format config from data into cfg. Sections map to
+// [device] or named groups. All parse errors are collected and returned
+// together via errors.Join so the caller can report every problem at once.
 func Parse(data []byte, cfg *Config) error {
 	var errs []error
 
-	lines := strings.SplitSeq(string(data), "\n")
-	for line := range lines {
+	var (
+		section    string
+		groups     []Group
+		groupIndex = make(map[string]int)
+	)
+
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			if section == "" {
+				errs = append(errs, errors.New("empty section name"))
+			}
+			if section != "device" {
+				if _, exists := groupIndex[section]; !exists {
+					groupIndex[section] = len(groups)
+					groups = append(groups, Group{Name: section})
+				}
+			}
 			continue
 		}
 
@@ -110,75 +145,199 @@ func Parse(data []byte, cfg *Config) error {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 
-		switch key {
-		case "sample_interval":
-			d, err := parseDuration(key, value)
-			if err != nil {
+		// Strip inline comments.
+		if i := strings.IndexByte(value, '#'); i >= 0 {
+			value = strings.TrimSpace(value[:i])
+		}
+
+		switch section {
+		case "":
+			errs = append(errs, errors.New("key outside of section: "+key))
+		case "device":
+			if err := parseDeviceKey(&cfg.Device, key, value); err != nil {
 				errs = append(errs, err)
-			} else {
-				cfg.SampleInterval = d
 			}
-
-		case "heartbeat_interval":
-			d, err := parseDuration(key, value)
-			if err != nil {
-				errs = append(errs, err)
-			} else {
-				cfg.HeartbeatInterval = d
-			}
-
-		case "serial":
-			cfg.SerialEnabled = value == "true"
-
-		case "enable_led":
-			cfg.LedEnabled = value == "true"
-
-		case "sensors":
-			// Reset before appending so re-parsing doesn't accumulate duplicates.
-			cfg.Sensors = cfg.Sensors[:0]
-			ids := strings.Split(value, ",")
-			for _, id := range ids {
-				id = strings.TrimSpace(id)
-				if id == "" {
-					continue
-				}
-				cfg.Sensors = append(cfg.Sensors, id)
-			}
-
-		case "sd_cs_pins":
-			pins, err := parsePinList(key, value)
-			if err != nil {
-				errs = append(errs, err)
-			} else {
-				cfg.SDCSPins = pins
-			}
-
-		case "rtc_wake_pin":
-			pin, err := parsePin(key, value)
-			if err != nil {
-				errs = append(errs, err)
-			} else {
-				cfg.RTCWakePin = pin
-			}
-
-		case "led_pin":
-			pin, err := parsePin(key, value)
-			if err != nil {
-				errs = append(errs, err)
-			} else {
-				cfg.LedPin = pin
-			}
-
 		default:
-			errs = append(errs, errors.New("unknown config key: "+key))
+			idx := groupIndex[section]
+			if err := parseGroupKey(&groups[idx], key, value); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	cfg.Groups = groups
+
+	for i := range cfg.Groups {
+		if err := validateGroup(&cfg.Groups[i], &cfg.Device); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
 	return errors.Join(errs...)
 }
 
-// parseDuration parses a duration string and rejects negative values.
-// Zero is permitted for fields where it means "disabled."
+func parseDeviceKey(dev *Device, key, value string) error {
+	switch key {
+	case "log_sinks":
+		sinks, err := parseLogSinks(value)
+		if err != nil {
+			return err
+		}
+		dev.LogSinks = sinks
+	case "data_sinks":
+		dev.DataSinks = parseStringList(value)
+	case "led_pin":
+		pin, err := parsePin(key, value)
+		if err != nil {
+			return err
+		}
+		dev.LedPin = pin
+	case "sd_cs_pins":
+		pins, err := parsePinList(key, value)
+		if err != nil {
+			return err
+		}
+		dev.SDCSPins = pins
+	case "rtc_wake_pin":
+		pin, err := parsePin(key, value)
+		if err != nil {
+			return err
+		}
+		dev.RTCWakePin = pin
+	case "uart_tx_pin":
+		pin, err := parsePin(key, value)
+		if err != nil {
+			return err
+		}
+		dev.UARTTxPin = pin
+	case "uart_rx_pin":
+		pin, err := parsePin(key, value)
+		if err != nil {
+			return err
+		}
+		dev.UARTRxPin = pin
+	default:
+		return errors.New("[device] unknown key: " + key)
+	}
+	return nil
+}
+
+func parseGroupKey(g *Group, key, value string) error {
+	switch key {
+	case "interval":
+		d, err := parseDuration(key, value)
+		if err != nil {
+			return err
+		}
+		g.Interval = d
+	case "external_int_pin":
+		pin, err := parsePin(key, value)
+		if err != nil {
+			return err
+		}
+		g.ExternalIntPin = pin
+	case "pulse_led":
+		g.PulseLED = parseBool(value)
+	case "sensors":
+		g.Sensors = parseStringList(value)
+	case "host":
+		g.Host = value
+	case "payload":
+		p, err := parsePayload(value)
+		if err != nil {
+			return err
+		}
+		g.Payload = p
+	default:
+		return errors.New("[" + g.Name + "] unknown key: " + key)
+	}
+	return nil
+}
+
+func validateGroup(g *Group, dev *Device) error {
+	var errs []error
+	if g.Interval <= 0 && g.ExternalIntPin == 0 {
+		errs = append(errs, errors.New("["+g.Name+"] must have interval or external_int_pin"))
+	}
+	if len(g.Sensors) > 0 && len(dev.DataSinks) == 0 {
+		errs = append(errs, errors.New("["+g.Name+"] sensors require at least one data_sink in [device]"))
+	}
+	return errors.Join(errs...)
+}
+
+// --- parse helpers ---
+
+func parseLogSinks(value string) ([]LogSinkEntry, error) {
+	var sinks []LogSinkEntry
+	for _, p := range strings.Split(value, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		name, levelStr, hasLevel := strings.Cut(p, ":")
+		name = strings.TrimSpace(name)
+		level := log.LevelDebug
+		if hasLevel {
+			var err error
+			level, err = parseLevel(strings.TrimSpace(levelStr))
+			if err != nil {
+				return nil, err
+			}
+		}
+		sinks = append(sinks, LogSinkEntry{Name: name, Level: level})
+	}
+	return sinks, nil
+}
+
+func parseLevel(s string) (log.Level, error) {
+	switch s {
+	case "debug":
+		return log.LevelDebug, nil
+	case "info":
+		return log.LevelInfo, nil
+	case "warn":
+		return log.LevelWarn, nil
+	case "error":
+		return log.LevelError, nil
+	default:
+		return 0, errors.New("unknown log level: " + s)
+	}
+}
+
+func parsePayload(value string) (Payload, error) {
+	switch value {
+	case "none", "":
+		return PayloadNone, nil
+	case "min":
+		return PayloadMin, nil
+	case "full":
+		return PayloadFull, nil
+	default:
+		return PayloadNone, errors.New("unknown payload: " + value)
+	}
+}
+
+func parseStringList(value string) []string {
+	var result []string
+	for _, p := range strings.Split(value, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		result = append(result, p)
+	}
+	return result
+}
+
+func parseBool(value string) bool {
+	switch strings.ToLower(value) {
+	case "true", "yes", "1":
+		return true
+	default:
+		return false
+	}
+}
+
 func parseDuration(key, value string) (time.Duration, error) {
 	d, err := time.ParseDuration(value)
 	if err != nil {
@@ -190,11 +349,9 @@ func parseDuration(key, value string) (time.Duration, error) {
 	return d, nil
 }
 
-// parsePinList parses a comma-separated list of numeric pin numbers.
 func parsePinList(key, value string) ([]uint8, error) {
 	var pins []uint8
-	parts := strings.Split(value, ",")
-	for _, p := range parts {
+	for _, p := range strings.Split(value, ",") {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
@@ -208,7 +365,6 @@ func parsePinList(key, value string) ([]uint8, error) {
 	return pins, nil
 }
 
-// parsePin parses a single numeric pin number (0–255).
 func parsePin(key, value string) (uint8, error) {
 	n, err := strconv.ParseUint(value, 10, 8)
 	if err != nil {

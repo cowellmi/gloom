@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
-	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/wait"
@@ -17,111 +16,128 @@ import (
 // It is satisfied by *hal.System and by test mocks.
 type system interface {
 	ReadTime() (time.Time, error)
-	Sleep() (hal.WakeReason, error)
-	NextWake() (sample, heartbeat time.Duration)
+	Sleep() ([]bool, error)
+	NextWake() time.Duration
+	EnableSensorRails()
+}
+
+// Group is a resolved runtime group with sensors already wired up.
+// Built by the caller (main.go) from config.Group.
+type Group struct {
+	Name     string
+	PulseLED bool
+	Sensors  []sensor.Device
+	Host     string
+	Payload  config.Payload
 }
 
 type Manager struct {
-	sys        system
-	cfg        config.Config
-	sensors    []sensor.Device
-	recorders  []sensor.Recorder
-	logger     *log.Logger
-	wakeTime   time.Time
-	ledEnabled bool
-	ledOn      func()
-	ledOff     func()
-	petWDT     func()
-	buf        [64]byte // scratch buffer for formatting text.
+	sys       system
+	groups    []Group
+	recorders []sensor.Recorder
+	logger    *log.Logger
+	wakeTime  time.Time
+	ledOn     func()
+	ledOff    func()
+	petWDT    func()
+	buf       [64]byte
 }
 
-func New(sys system, cfg config.Config, devices []sensor.Device, logger *log.Logger) *Manager {
+func New(sys system, groups []Group, recorders []sensor.Recorder, logger *log.Logger) *Manager {
 	return &Manager{
-		sys:     sys,
-		cfg:     cfg,
-		sensors: devices,
-		logger:  logger,
-		ledOn:   func() {}, // default no-op functions
-		ledOff:  func() {},
+		sys:       sys,
+		groups:    groups,
+		recorders: recorders,
+		logger:    logger,
+		ledOn:     func() {},
+		ledOff:    func() {},
 	}
 }
 
-// AddRecorder registers a recorder for measurement output. Recorders
-// are called in registration order on each sample cycle.
-func (m *Manager) AddRecorder(r sensor.Recorder) {
-	m.recorders = append(m.recorders, r)
-}
-
 // EnableWatchdog sets a callback the manager calls to pet the hardware
-// watchdog at strategic points (before flush, after log bursts, etc.)
-// to prevent resets during long SD card operations.
+// watchdog at strategic points.
 func (m *Manager) EnableWatchdog(pet func()) {
 	m.petWDT = pet
 }
 
-// EnableLED sets callbacks the manager uses to pulse the LED during
-// heartbeat wakes. Both callbacks must be non-nil.
-func (m *Manager) EnableLED(on, off func()) {
+// SetLED sets callbacks the manager uses to pulse the LED for groups
+// that have pulse_led enabled. Both callbacks must be non-nil.
+func (m *Manager) SetLED(on, off func()) {
 	if on == nil || off == nil {
 		return
 	}
-	m.ledEnabled = true
 	m.ledOn = on
 	m.ledOff = off
 }
 
-// Run enters the main loop. The loop body lives in step() so
-// tests can execute a single iteration without blocking forever.
+// Run enters the main loop.
 func (m *Manager) Run() {
 	for {
 		m.step()
 	}
 }
 
-// step executes a single sleep/wake cycle: sleep, then sample
-// and/or heartbeat depending on the wake reason.
+// step executes a single sleep/wake cycle.
 func (m *Manager) step() {
-	reason := m.doSleep()
+	fired := m.doSleep()
 
-	if reason&hal.WakeSample != 0 {
-		m.doSample()
+	needsSensors := false
+	anyFired := false
+	wantLED := false
+	for i, f := range fired {
+		if !f {
+			continue
+		}
+		anyFired = true
+		if m.groups[i].PulseLED {
+			wantLED = true
+		}
+		if len(m.groups[i].Sensors) > 0 {
+			needsSensors = true
+		}
 	}
-	if reason&hal.WakeHeartbeat != 0 {
-		m.doHeartbeat()
+	if needsSensors {
+		m.sys.EnableSensorRails()
 	}
-	if reason == hal.WakeExternal {
+
+	for i, f := range fired {
+		if !f {
+			continue
+		}
+		m.doGroup(&m.groups[i])
+	}
+
+	if !anyFired {
 		m.logger.Debug("external wake")
+	}
+
+	if wantLED {
+		m.pulseLED()
 	}
 
 	m.logMem()
 	runtime.GC()
 }
 
-func (m *Manager) doSleep() hal.WakeReason {
-	nextSample, nextHeartbeat := m.sys.NextWake()
-	m.logNextWake(nextSample, nextHeartbeat)
+func (m *Manager) doSleep() []bool {
+	nextWake := m.sys.NextWake()
+	m.logNextWake(nextWake)
 
 	m.pet()
 
-	// Flush all outputs before going to sleep.
 	if err := m.flush(); err != nil {
 		m.logger.Error("flush: " + err.Error())
 	}
 
 	m.pet()
 
-	// Put system to sleep. Execution halts here until wake from sleep.
-	reason, err := m.sys.Sleep()
+	fired, err := m.sys.Sleep()
 	if err != nil {
 		m.logger.Error("sleep: " + err.Error())
 	}
-	// Resume execution after wake from sleep.
 
-	// Update wake time and push it to the logger so all subsequent
-	// log entries in this cycle carry the correct timestamp.
 	t, rtcErr := m.sys.ReadTime()
 	if rtcErr != nil {
-		// Fallback to system clock.
 		t = time.Now()
 	}
 	m.wakeTime = t
@@ -131,12 +147,13 @@ func (m *Manager) doSleep() hal.WakeReason {
 		m.logger.Error("rtc: " + rtcErr.Error())
 	}
 
-	return reason
+	return fired
 }
 
-func (m *Manager) doSample() {
-	m.logger.Debug("sample")
-	for _, s := range m.sensors {
+func (m *Manager) doGroup(g *Group) {
+	m.logger.Debug("group: " + g.Name)
+
+	for _, s := range g.Sensors {
 		m.pet()
 
 		if err := s.Init(); err != nil {
@@ -150,30 +167,23 @@ func (m *Manager) doSample() {
 			continue
 		}
 
-		// Fan out structured measurements to all recorders.
-		// Each recorder formats as appropriate (text for serial, CSV for SD, etc).
 		for _, r := range m.recorders {
 			r.Record(m.wakeTime, s.Name(), ms)
 		}
 	}
-}
 
-func (m *Manager) doHeartbeat() {
-	m.logger.Debug("heartbeat")
-	if m.ledEnabled {
-		m.pulseLED()
+	if g.Host != "" {
+		// TODO: POST payload to g.Host based on g.Payload
+		m.logger.Debug("payload: " + g.Host)
 	}
-	// TODO: transmit keep-alive message
 }
 
-// pet resets the watchdog countdown if a callback has been registered.
 func (m *Manager) pet() {
 	if m.petWDT != nil {
 		m.petWDT()
 	}
 }
 
-// Pulse LED on/off, on/off
 func (m *Manager) pulseLED() {
 	m.ledOn()
 	wait.For(50 * time.Millisecond)
@@ -184,38 +194,34 @@ func (m *Manager) pulseLED() {
 	m.ledOff()
 }
 
-func (m *Manager) logNextWake(nextSample, nextHeartbeat time.Duration) {
+func (m *Manager) logNextWake(d time.Duration) {
 	b := m.buf[:0]
-	b = append(b, "sleep: next wake: sample="...)
-	if m.cfg.SampleInterval <= 0 {
-		b = append(b, "disabled"...)
+	b = append(b, "sleep: next wake="...)
+	if d <= 0 {
+		b = append(b, "external"...)
 	} else {
-		b = appendDuration(b, nextSample)
-	}
-	b = append(b, " heartbeat="...)
-	if m.cfg.HeartbeatInterval <= 0 {
-		b = append(b, "disabled"...)
-	} else {
-		b = appendDuration(b, nextHeartbeat)
+		b = appendDuration(b, d)
 	}
 	m.logger.Debug(string(b))
 }
 
-// appendDuration appends a human-readable duration to b using the
-// largest whole unit that fits: days, hours, minutes, or seconds.
 func appendDuration(b []byte, d time.Duration) []byte {
 	switch {
 	case d < time.Minute:
-		b = strconv.AppendInt(b, int64(d/time.Second), 10)
+		secs := (d + time.Second/2) / time.Second
+		b = strconv.AppendInt(b, int64(secs), 10)
 		return append(b, 's')
 	case d < time.Hour:
-		b = strconv.AppendInt(b, int64(d/time.Minute), 10)
+		mins := (d + time.Minute/2) / time.Minute
+		b = strconv.AppendInt(b, int64(mins), 10)
 		return append(b, 'm')
 	case d < 24*time.Hour:
-		b = strconv.AppendInt(b, int64(d/time.Hour), 10)
+		hrs := (d + time.Hour/2) / time.Hour
+		b = strconv.AppendInt(b, int64(hrs), 10)
 		return append(b, 'h')
 	default:
-		b = strconv.AppendInt(b, int64(d/(24*time.Hour)), 10)
+		days := (d + 12*time.Hour) / (24 * time.Hour)
+		b = strconv.AppendInt(b, int64(days), 10)
 		return append(b, 'd')
 	}
 }
@@ -232,18 +238,13 @@ func (m *Manager) logMem() {
 	m.logger.Debug(string(b))
 }
 
-// flush flushes the logger sinks and all recorders. Called before
-// sleep so buffered data (SD writes, network payloads) is committed
-// before the MCU enters standby.
 func (m *Manager) flush() error {
 	var errs []error
-	err := m.logger.Flush()
-	if err != nil {
+	if err := m.logger.Flush(); err != nil {
 		errs = append(errs, err)
 	}
 	for _, r := range m.recorders {
-		err := r.Flush()
-		if err != nil {
+		if err := r.Flush(); err != nil {
 			errs = append(errs, err)
 		}
 	}

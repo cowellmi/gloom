@@ -2,20 +2,6 @@
 
 Items are ordered by severity: critical (data loss / field failure) first, then high (correctness / memory), medium (conventions / maintainability), low (polish), and finally features.
 
-## Medium
-
-### Config boolean values not documented for non-programmers
-
-In `internal/config/config.go`, boolean fields like `serial` and `enable_led` only accept the exact string `"true"` to enable. Any other value (including `"yes"`, `"1"`, `"TRUE"`) silently means false. For a framework targeting non-programmers, either document the accepted values clearly in a sample config file, or accept common truthy variants (`"true"`, `"yes"`, `"1"`, case-insensitive).
-
-We also need to handle comments at end of line like:
-```
-foo=bar # hello world
-```
-Currently the value of foo will be "bar # hello world", but it should be "bar".
-
----
-
 ## Low
 
 ### SD card probe may fail after watchdog reset on Hypnos
@@ -29,24 +15,6 @@ Data files are written as bare CSV (`timestamp,device,label,value,unit`) but the
 ---
 
 ## Features
-
-### Configurable external wake pins
-
-`hal.System` supports multiple wake pins via `AddWakePin(pin)`, but there's no way to configure them from `config.ini` yet. Add a `wake_pins` config key that accepts a comma-separated list of GPIO pin numbers. These pins are armed as falling-edge wake sources alongside the RTC alarm pin before each standby entry.
-
-Primary use case: a tipping-bucket rain gauge with a reed switch that pulls a GPIO low on each tip. The device sleeps between sample intervals but wakes immediately on a tip event to record it with a precise timestamp. Other examples include pushbuttons for manual wake and sensor threshold interrupt lines.
-
-Config example:
-```
-# GPIO pins that wake the device from deep sleep (comma-separated).
-# Example: pin 7 connected to a tipping-bucket rain gauge reed switch.
-wake_pins = 7
-```
-
-Implementation:
-- Add `WakePins []uint8` to `config.Config` and parse `wake_pins` using the existing `parsePinList` helper.
-- In `cmd/gloom/main.go`, after building the `hal.System`, call `sys.AddWakePin(pin)` for each configured pin.
-- The `WakeReason` will resolve as `WakeExternal` for non-RTC wake sources. Callers can handle this in the manager's `step()` if tip-counting or event logging is needed.
 
 ### File retention / pruning for SD card logs and sensor data
 

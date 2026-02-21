@@ -14,19 +14,17 @@ import (
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
-// WakeReason is a bitmask identifying why the system woke. Power
-// rails use WakeReason to decide which rails to enable: a rail tagged
-// with WakeSample only powers on when the wake reason includes
-// WakeSample. WakeAlways matches every reason and is used for core
-// infrastructure rails (RTC, SD card).
+// WakeReason is a bitmask used by power rails to decide which rails
+// to enable on wake. WakeAlways matches every reason and is used for
+// core infrastructure rails (RTC, SD card). WakeSensors activates
+// sensor power rails.
 type WakeReason uint8
 
 const (
-	WakeSample    WakeReason = 1 << iota // 0b001
-	WakeHeartbeat                        // 0b010
-	WakeExternal                         // 0b100
+	WakeSensors  WakeReason = 1 << iota // sensor power rails
+	WakeExternal                        // non-timer wake source
 
-	WakeAlways = WakeSample | WakeHeartbeat | WakeExternal // 0b111
+	WakeAlways = WakeSensors | WakeExternal
 )
 
 // minDeepSleep is the minimum time remaining before a target deadline
@@ -35,16 +33,21 @@ const (
 // sleep is cheaper anyway.
 const minDeepSleep = 2 * time.Second
 
+// extPin associates an external interrupt pin with a group slot.
+type extPin struct {
+	pin  uint8
+	slot int
+}
+
 // System composes optional hardware components into a unified
-// sleep/wake platform. The processor is always required (if the MCU
-// isn't running, the firmware isn't running). RTC and Rails are
-// optional — pass nil for graceful degradation:
+// sleep/wake platform. The processor is always required. RTC and
+// Rails are optional — pass nil for graceful degradation:
 //   - nil RTC: use time.Now(), no alarm-based wake
 //   - nil Rails: no rail control
 //
-// Deep sleep requires at least one wake pin. When an RTC is provided
-// its interrupt pin is added automatically. Additional pins (buttons,
-// sensor threshold lines) can be registered via AddWakePin.
+// System tracks N deadline slots (one per config group). Each slot
+// has an interval and a rolling next-fire time. External interrupt
+// pins can be associated with specific slots via RegisterExternalPin.
 type System struct {
 	mcu   MCU
 	rtc   RTC
@@ -52,33 +55,53 @@ type System struct {
 
 	wakePins []uint8
 
-	sampleInterval    time.Duration
-	heartbeatInterval time.Duration
-	nextSample        time.Time
-	nextHeartbeat     time.Time
+	intervals []time.Duration
+	nextTimes []time.Time
+	fired     []bool
+
+	extPins []extPin
 }
 
 // NewSystem creates a System. mcu is required. rtc and rails may be
-// nil. If an RTC is provided its wake pin is registered automatically.
-// sampleInterval and heartbeatInterval configure the sleep/wake
-// cadence; pass 0 to disable either.
-func NewSystem(mcu MCU, rtc RTC, rails Rails, sampleInterval, heartbeatInterval time.Duration) *System {
+// nil. intervals has one entry per group slot — 0 means no timer for
+// that slot. If an RTC is provided its wake pin is registered
+// automatically.
+func NewSystem(mcu MCU, rtc RTC, rails Rails, intervals []time.Duration) *System {
+	n := len(intervals)
 	s := &System{
-		mcu:               mcu,
-		rtc:               rtc,
-		rails:             rails,
-		sampleInterval:    sampleInterval,
-		heartbeatInterval: heartbeatInterval,
+		mcu:       mcu,
+		rtc:       rtc,
+		rails:     rails,
+		intervals: make([]time.Duration, n),
+		nextTimes: make([]time.Time, n),
+		fired:     make([]bool, n),
 	}
+	copy(s.intervals, intervals)
 	if rtc != nil {
 		s.wakePins = append(s.wakePins, rtc.WakePin())
 	}
 	return s
 }
 
+// RegisterExternalPin associates a GPIO interrupt pin with a group
+// slot. When the system wakes from an external interrupt (no deadline
+// fired), all slots with registered external pins are marked as fired.
+// The pin is also added to the set of deep-sleep wake sources.
+func (s *System) RegisterExternalPin(pin uint8, slot int) {
+	s.extPins = append(s.extPins, extPin{pin: pin, slot: slot})
+
+	// Add to wake pin set if not already present.
+	for _, p := range s.wakePins {
+		if p == pin {
+			return
+		}
+	}
+	s.wakePins = append(s.wakePins, pin)
+}
+
 // AddWakePin registers an additional GPIO pin as a deep-sleep wake
-// source (e.g. a tipping-bucket interrupt or pushbutton). The pin
-// will be armed alongside the RTC pin before each standby entry.
+// source that is not associated with any group slot. On external
+// wake these pins contribute to the wake but don't fire any group.
 func (s *System) AddWakePin(pin uint8) {
 	s.wakePins = append(s.wakePins, pin)
 }
@@ -92,58 +115,58 @@ func (s *System) ReadTime() (time.Time, error) {
 	return time.Now(), nil
 }
 
-// NextWake returns the time remaining until each scheduled wake
-// deadline. For a deadline that hasn't been set yet (first call,
-// before Sleep has run), the full interval is returned since Sleep
-// will set it to now+interval. A disabled interval (<=0) always
-// returns 0.
-func (s *System) NextWake() (sample, heartbeat time.Duration) {
+// NextWake returns the duration until the nearest deadline fires.
+// Returns 0 if no deadlines are active.
+func (s *System) NextWake() time.Duration {
 	now, err := s.ReadTime()
 	if err != nil {
 		now = time.Now()
 	}
 
-	if s.sampleInterval > 0 {
-		if !s.nextSample.IsZero() {
-			sample = max(s.nextSample.Sub(now), 0)
+	var nearest time.Duration
+	for i, iv := range s.intervals {
+		if iv <= 0 {
+			continue
+		}
+		var remaining time.Duration
+		if !s.nextTimes[i].IsZero() {
+			remaining = max(s.nextTimes[i].Sub(now), 0)
 		} else {
-			sample = s.sampleInterval
+			remaining = iv
+		}
+		if nearest == 0 || remaining < nearest {
+			nearest = remaining
 		}
 	}
 
-	if s.heartbeatInterval > 0 {
-		if !s.nextHeartbeat.IsZero() {
-			heartbeat = max(s.nextHeartbeat.Sub(now), 0)
-		} else {
-			heartbeat = s.heartbeatInterval
-		}
-	}
-
-	return sample, heartbeat
+	return nearest
 }
 
-// Sleep executes a single sleep/wake cycle. It tracks sample and
-// heartbeat deadlines across calls, sleeps until the earliest
-// deadline, and returns the reason the system woke.
+// EnableSensorRails powers on sensor-specific rails (those tagged
+// with WakeSensors). The manager calls this after determining that
+// at least one fired group has sensors. No-op if rails is nil.
+func (s *System) EnableSensorRails() {
+	if s.rails != nil {
+		s.rails.PowerOn(WakeSensors)
+	}
+}
+
+// Sleep executes a single sleep/wake cycle. It tracks per-slot
+// deadlines across calls, sleeps until the earliest fires, and
+// returns which slots fired.
 //
-// The sleep strategy depends on available wake sources:
-//   - With wake pins: arm all pins, set RTC alarm (if RTC present),
-//     MCU standby (deep sleep)
-//   - Without wake pins: busy-wait using internal clock (no deep sleep)
-//
-// Power rail behaviour when Rails is attached:
-//   - All rails are cut before sleep.
-//   - On wake, core rails (WakeAlways) are restored first so the RTC
-//     and SD card are accessible.
-//   - After the wake reason is determined, reason-specific rails are
-//     enabled (e.g. WakeSample rails for sensor power). This keeps
-//     sensor rails off during heartbeat-only wakes, saving power.
-func (s *System) Sleep() (WakeReason, error) {
+// The returned slice is owned by System and reused across calls.
+// The caller must not retain a reference across Sleep invocations.
+func (s *System) Sleep() ([]bool, error) {
 	var sleepErrs []error
+
+	// Reset fired state.
+	for i := range s.fired {
+		s.fired[i] = false
+	}
 
 	s.mcu.PetWatchdog()
 
-	// --- Read current time ---
 	now, err := s.ReadTime()
 	if err != nil {
 		sleepErrs = append(sleepErrs, err)
@@ -152,31 +175,19 @@ func (s *System) Sleep() (WakeReason, error) {
 
 	s.mcu.PetWatchdog()
 
-	// --- Update deadlines ---
-	if s.sampleInterval > 0 && s.nextSample.IsZero() {
-		s.nextSample = now.Add(s.sampleInterval)
-	}
-	if s.heartbeatInterval > 0 && s.nextHeartbeat.IsZero() {
-		s.nextHeartbeat = now.Add(s.heartbeatInterval)
+	// Initialize any unset deadlines.
+	for i, iv := range s.intervals {
+		if iv > 0 && s.nextTimes[i].IsZero() {
+			s.nextTimes[i] = now.Add(iv)
+		}
 	}
 
-	target := earliest(s.nextSample, s.nextHeartbeat)
-
-	// If target is zero, that means neither the sample interval nor
-	// the heartbeat interval is set. This is a valid state: it means
-	// that the user is expecting some external interrupt (like a sensor)
-	// to wake the device.
+	target := s.earliestDeadline()
 	noDeadlines := target.IsZero()
 
-	// --- Sleep until target ---
 	if now.Before(target) || noDeadlines {
 		s.mcu.PetWatchdog()
 
-		// Deep sleep requires at least one wake pin. When the RTC
-		// is providing a timed alarm, we also need enough margin so
-		// the alarm doesn't fire during setup (before Standby),
-		// which would leave the INT pin LOW with no falling edge
-		// to wake the CPU.
 		remaining := target.Sub(now)
 		if noDeadlines {
 			remaining = 0
@@ -191,7 +202,6 @@ func (s *System) Sleep() (WakeReason, error) {
 			err := s.deepSleep(target)
 			if err != nil {
 				sleepErrs = append(sleepErrs, err)
-				// Deep sleep failed — fall back to idle wait.
 				s.idleSleep(remaining)
 			}
 		} else {
@@ -200,21 +210,17 @@ func (s *System) Sleep() (WakeReason, error) {
 
 		s.mcu.PetWatchdog()
 
-		// Restore core rails (WakeAlways) so the RTC and SD card
-		// are reachable. Reason-specific rails stay off until we
-		// know which wake reason fired.
+		// Restore core rails so the RTC and SD card are reachable.
 		if s.rails != nil {
 			s.rails.PowerOn(WakeAlways)
 		}
 
-		// Clear the RTC alarm so the interrupt pin releases.
 		if s.rtc != nil {
 			_ = s.rtc.ClearWake() // best-effort
 		}
 
 		s.mcu.PetWatchdog()
 
-		// Re-read time after wake.
 		now, err = s.ReadTime()
 		if err != nil {
 			sleepErrs = append(sleepErrs, err)
@@ -224,41 +230,33 @@ func (s *System) Sleep() (WakeReason, error) {
 		s.mcu.PetWatchdog()
 	}
 
-	// --- Resolve wake reason ---
-	var reason WakeReason
-	if s.sampleInterval > 0 && !s.nextSample.IsZero() && !now.Before(s.nextSample) {
-		reason |= WakeSample
-		for !now.Before(s.nextSample) {
-			s.nextSample = s.nextSample.Add(s.sampleInterval)
+	// Resolve which slots fired.
+	anyFired := false
+	for i, iv := range s.intervals {
+		if iv > 0 && !s.nextTimes[i].IsZero() && !now.Before(s.nextTimes[i]) {
+			s.fired[i] = true
+			anyFired = true
+			for !now.Before(s.nextTimes[i]) {
+				s.nextTimes[i] = s.nextTimes[i].Add(iv)
+			}
 		}
 	}
-	if s.heartbeatInterval > 0 && !s.nextHeartbeat.IsZero() && !now.Before(s.nextHeartbeat) {
-		reason |= WakeHeartbeat
-		for !now.Before(s.nextHeartbeat) {
-			s.nextHeartbeat = s.nextHeartbeat.Add(s.heartbeatInterval)
+
+	// External wake: no deadline fired, mark all external-pin slots.
+	if !anyFired {
+		for _, ep := range s.extPins {
+			if ep.slot < len(s.fired) {
+				s.fired[ep.slot] = true
+			}
 		}
 	}
-	if reason == 0 {
-		reason = WakeExternal
-	}
 
-	// --- Power on reason-specific rails ---
-	// Only wait for rail stabilisation when the sample bit is set,
-	// since that's when sensors need power. Heartbeat-only wakes
-	// use only the core rails already restored above.
-	if s.rails != nil && reason&WakeSample != 0 {
-		s.rails.PowerOn(reason)
-		s.mcu.PetWatchdog()
-	}
-
-	return reason, errors.Join(sleepErrs...)
+	return s.fired, errors.Join(sleepErrs...)
 }
 
 // deepSleep sets the RTC alarm (if present), arms all wake pins,
-// cuts power, and enters MCU standby. On wake it disarms the pins
-// and restores the watchdog.
+// cuts power, and enters MCU standby.
 func (s *System) deepSleep(target time.Time) error {
-	// Set RTC alarm if a timed deadline is active.
 	if s.rtc != nil && !target.IsZero() {
 		if err := s.rtc.ClearWake(); err != nil {
 			return err
@@ -270,15 +268,10 @@ func (s *System) deepSleep(target time.Time) error {
 
 	s.mcu.PetWatchdog()
 
-	// Cut power rails before arming wake interrupts so the
-	// DS3231 INT pin glitch during the 3.3V→battery transition
-	// is less likely to fire a spurious EIC interrupt.
 	if s.rails != nil {
 		s.rails.PowerOff()
 	}
 
-	// Arm all registered wake pins. If any fails, disarm the
-	// ones that succeeded and bail out.
 	for i, pin := range s.wakePins {
 		if err := s.mcu.ArmWake(pin); err != nil {
 			for j := 0; j <= i; j++ {
@@ -288,19 +281,9 @@ func (s *System) deepSleep(target time.Time) error {
 		}
 	}
 
-	// Disable the watchdog before standby. The WDT GCLK is
-	// configured without RUNSTDBY, but in practice the WDT
-	// still fires during standby (possibly due to stale GCLK0
-	// routing from TinyGo's runtime init). Disabling it
-	// explicitly prevents resets during intentional sleep.
 	s.mcu.DisableWatchdog()
-
-	// Enter deep sleep — execution halts until wake interrupt.
 	s.mcu.Standby()
 
-	// Disarm all wake pins now that we're awake. The ISRs are
-	// no-ops, so interrupt registrations and EIC WAKEUP bits are
-	// still set from ArmWake — clean them up here.
 	for _, pin := range s.wakePins {
 		s.mcu.DisarmWake(pin)
 	}
@@ -312,16 +295,10 @@ func (s *System) deepSleep(target time.Time) error {
 }
 
 // idleSleep busy-waits in short intervals, petting the watchdog
-// between each, until d elapses. Used when deep sleep is unavailable
-// or the remaining time is too short to justify it. Takes a duration
-// rather than an absolute time so the caller can translate from
-// RTC-sourced deadlines without clock-domain mismatch (the system
-// monotonic clock may differ from the RTC).
+// between each, until d elapses.
 func (s *System) idleSleep(d time.Duration) {
-	const tick = 4 * time.Second // well within ~8s watchdog timeout
+	const tick = 4 * time.Second
 
-	// No deadline. Sleep continuously while petting dog until an
-	// external interrupt occurs.
 	if d <= 0 {
 		for {
 			s.mcu.PetWatchdog()
@@ -337,18 +314,21 @@ func (s *System) idleSleep(d time.Duration) {
 	}
 }
 
-// earliest returns the earlier of two times. If either is zero
-// (unscheduled), the other is returned. If both are zero, zero is
-// returned.
-func earliest(a, b time.Time) time.Time {
-	if a.IsZero() {
-		return b
+// earliestDeadline returns the earliest non-zero nextTimes entry.
+// Returns zero if no deadlines are active.
+func (s *System) earliestDeadline() time.Time {
+	var best time.Time
+	for i, iv := range s.intervals {
+		if iv <= 0 {
+			continue
+		}
+		t := s.nextTimes[i]
+		if t.IsZero() {
+			continue
+		}
+		if best.IsZero() || t.Before(best) {
+			best = t
+		}
 	}
-	if b.IsZero() {
-		return a
-	}
-	if a.Before(b) {
-		return a
-	}
-	return b
+	return best
 }

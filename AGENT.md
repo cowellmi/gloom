@@ -9,13 +9,24 @@ Gloom is a portable, low-power IoT firmware written in TinyGo. It sleeps between
 Every hardware dependency hides behind an interface. Adding a new MCU, board, or sensor means writing a new implementation — never changing the core. The key seams are:
 
 - `hal.MCU` — chip-level sleep, wake-source config, watchdog. Currently: SAMD21. Could be: nRF52, ESP32, STM32, etc.
-- `hal.System` — composable struct that assembles optional RTC (`hal.RTC`), power rails (`hal.Rails`), and MCU (`hal.MCU`) into a unified sleep/wake platform. Nil components degrade gracefully.
+- `hal.System` — composable struct that assembles optional RTC (`hal.RTC`), power rails (`hal.Rails`), and MCU (`hal.MCU`) into a unified sleep/wake platform. Manages N deadline slots (one per config group) and external interrupt pins. Nil components degrade gracefully.
 - `hal.RTC` — real-time clock interface (read time, set/clear wake alarm). Currently: DS3231 (`internal/drivers/ds3231/ds3231.go`). Could be: PCF8523, etc.
-- `hal.Rails` — board-level power rail control. Currently: generic `power.Controller` (`internal/power/power.go`). Each rail carries a `WakeReason` bitmask (`WakeAlways` for core, `WakeSample` for sensors). Power rails are a compile-time board decision via build-tagged `boardPower()` functions (e.g. `board_hypnos.go`). Builds with `no_hypnos` tag skip rail control.
+- `hal.Rails` — board-level power rail control. Currently: generic `power.Controller` (`internal/power/power.go`). Each rail carries a `WakeReason` bitmask (`WakeAlways` for core, `WakeSensors` for sensor power). Power rails are a compile-time board decision via build-tagged `boardPower()` functions (e.g. `board_hypnos.go`). Builds with `no_hypnos` tag skip rail control.
 - `sensor.Device` — Init / Name / Measure. Each sensor lives in its own sub-package.
 - `sensor.Recorder` / `log.Sink` — output destinations (serial, SD file, MQTT, LoRa, etc.).
 
 The firmware entry point lives in `cmd/gloom/` with a single generic `main.go` that auto-probes hardware. Board-specific code (UART setup, MCU init, default pin config) is separated into build-tagged files (e.g. `main_feather_m0.go`). Shared logic in `internal/` stays target-agnostic.
+
+### Configuration Model
+
+Configuration uses an INI-style format with two section types:
+
+- **`[device]`** — hardware settings: log sinks (with per-sink log level), data sinks, LED, pin overrides. Not per-group. Data sinks are device-wide — all groups share the same set.
+- **`[group-name]`** — any other section defines a group. A group fires on a timer (`interval`), an external interrupt (`external_int_pin`), or both. Each group has its own sensors, host, and payload profile.
+
+Log sinks use `name:level` syntax (e.g. `uart:debug`, `sd:error`). Data sinks are plain names. See `example.config.ini` for the full spec.
+
+Payload profiles (`none`, `min`, `full`) define predefined health-check POST bodies for remote monitoring. Sensor measurements are NOT part of payloads — data flows to servers via data sinks (e.g. Blues Notecard).
 
 ### Current Hardware (Hypnos + Feather M0)
 
@@ -32,17 +43,19 @@ The firmware entry point lives in `cmd/gloom/` with a single generic `main.go` t
 1. Instantiate power rails via `boardPower()` (initial power cycle + stabilise delay).
 2. Configure I2C (after rails are up so peripherals don't pull bus low).
 3. Probe RTC, probe SD card using config CS pins.
-4. Load config from SD, build `hal.System`, resolve sensors, create logger + sinks + manager.
+4. Load config from SD, build sinks, resolve groups, build `hal.System` + manager.
 
 **Loop (each cycle):**
 1. Flush all sinks (serial, SD).
-2. Set DS3231 alarm for next sample/heartbeat time.
-3. Arm MCU wake pin, cut power rails, enter STANDBY.
-4. _...CPU halted until alarm fires on pin 12..._
-5. Clear alarm, restore power rails, wait for voltage stabilisation.
+2. Set DS3231 alarm for earliest group deadline.
+3. Arm MCU wake pins (RTC + any external interrupt pins), cut power rails, enter STANDBY.
+4. _...CPU halted until alarm or external interrupt fires..._
+5. Clear alarm, restore core power rails.
 6. Read RTC time, push to logger.
-7. Init each sensor, measure, fan out to recorders.
-8. GC, loop.
+7. Resolve which groups fired (deadline-based and/or external interrupt).
+8. If any fired group has sensors, enable sensor power rails.
+9. For each fired group: init sensors, measure, fan out to device-wide recorders; POST payload if configured.
+10. GC, loop.
 
 Without an RTC or power rails, `hal.System.Sleep()` degrades to idle busy-wait using `time.Now()`.
 
@@ -50,8 +63,8 @@ Without an RTC or power rails, `hal.System.Sleep()` degrades to idle busy-wait u
 
 ```
 cmd/gloom/
-  main.go              Generic boot: config-driven probe, sinks, manager
-  main_feather_m0.go   //go:build feather_m0 — initMCU(), boardDefaults(), UART0
+  main.go              Generic boot: config-driven probe, sinks, group resolution, manager
+  main_feather_m0.go   //go:build feather_m0 — initBoard(), UART0, pin defaults
   board_hypnos.go      //go:build feather_m0 && !no_hypnos — boardPower() returns Hypnos D5/D6 rails
   board_no_hypnos.go   //go:build feather_m0 && no_hypnos — boardPower() returns nil (no rail control)
   registry.go          Sensor registry (universal)
@@ -66,8 +79,8 @@ internal/
   debug/               Global debug logger backed by io.Writer (target-agnostic)
   targets/             Parent directory for chip-specific MCU implementations
   targets/samd21/      SAMD21 impl: standby, USB detach/reattach, GCLK config
-  manager/             Wake/sleep loop, sensor sampling, recorder fan-out (target-agnostic)
-  config/              key=value config parser + DefaultINI template (target-agnostic)
+  manager/             Wake/sleep loop, group execution, recorder fan-out (target-agnostic)
+  config/              INI section parser, Config/Device/Group types, DefaultINI (target-agnostic)
   log/                 Leveled logger with per-sink filtering (target-agnostic)
   sensor/              Device + Recorder interfaces (target-agnostic)
   sensor/fake/         Dummy sensor for debugging
@@ -140,14 +153,14 @@ _ = s.rtc.ClearWake()
 
 **The `hal` package is the source of truth for all hardware interfaces.** `hal.MCU`, `hal.RTC`, and `hal.Rails` define what hardware implementations must provide. Implementation packages (`targets/samd21`, `drivers/ds3231`, `power/`) satisfy these interfaces via Go structural typing — they do not import `hal` for the interface definition (except for shared types like `hal.WakeReason`). This keeps the dependency graph clean: `hal` depends on nothing, implementations depend on `hal` only for types, and the composition happens in `cmd/gloom/main.go`.
 
-- `hal.System` — composable struct that assembles optional `hal.RTC`, `hal.Rails`, and `hal.MCU` into a unified sleep/wake platform. Constructed with `hal.NewSystem(mcu, rtc, rails)`. RTC and Rails can be nil for graceful degradation (no RTC = no deep sleep, no Rails = no rail control).
+- `hal.System` — composable struct that assembles optional `hal.RTC`, `hal.Rails`, and `hal.MCU` into a unified sleep/wake platform. Constructed with `hal.NewSystem(mcu, rtc, rails, intervals)` where intervals is one duration per group (0 = no timer). RTC and Rails can be nil for graceful degradation. External interrupt pins are registered per group slot via `RegisterExternalPin(pin, slot)`. `Sleep()` returns `[]bool` indicating which group slots fired.
 - `hal.RTC` — real-time clock interface. Implementations live in `internal/drivers/<chip>/`. Currently: `ds3231.RTC`, `pcf8523.RTC`.
-- `hal.Rails` — power rail control interface. Implementation lives in `internal/power/`. `power.Controller` is a generic struct configured with GPIO rails and polarities.
+- `hal.Rails` — power rail control interface. Implementation lives in `internal/power/`. `power.Controller` is a generic struct configured with GPIO rails and polarities. Core rails (`WakeAlways`) restore after every wake; sensor rails (`WakeSensors`) activate only when fired groups have sensors (via `System.EnableSensorRails()`).
 - `hal.MCU` — chip-level interface for MCU operations (ArmWake, DisarmWake, Standby, EnableWatchdog, DisableWatchdog, PetWatchdog, Identifier). Defined in `hal/mcu.go`. SAMD21 is the only impl today. A new chip adds `targets/<chip>/`.
 - `sensor.Device` — Init / Name / Measure. Each sensor gets its own sub-package under `sensor/`. Registration lives in `cmd/gloom/registry.go`.
 - `sensor.Recorder` — receives measurement batches for output (serial text, CSV file, etc.). New output formats add a new `sink/<name>/` package.
 - `log.Sink` — receives log entries. Serial and file sinks implement both `Recorder` and `Sink`.
-- The manager (`internal/manager/`) knows nothing about specific hardware — it depends only on a local `system` interface (satisfied by `*hal.System`), `sensor.Device`, `sensor.Recorder`, and `log.Logger`.
+- The manager (`internal/manager/`) knows nothing about specific hardware — it depends only on a local `system` interface (satisfied by `*hal.System`), resolved `Group` structs (sensors only), shared device-wide recorders, and `log.Logger`. The manager's `step()` iterates fired groups and calls `doGroup()` for each.
 
 ### Adding a New Board
 
@@ -155,9 +168,7 @@ _ = s.rtc.ClearWake()
 2. If the board has a new RTC chip, create `internal/drivers/<chip>/<chip>.go` implementing `hal.RTC`.
 3. If the board has power rail control, add a build-tagged `board_<name>.go` in `cmd/gloom/` that provides `boardPower() []power.Rail`. The generic `power.Controller` handles any combination of GPIO rails with `WakeReason` bitmasks. Hypnos is the default for `feather_m0`; pass `-tags no_hypnos` to build without rail control.
 4. Add `cmd/gloom/main_<board>.go` with a `//go:build <board_tag>` constraint. It must provide:
-   - `initMCU() hal.MCU` — chip-specific init (UART, watchdog)
-   - `boardDefaults(cfg *config.Config)` — default pin numbers
-   - `debugWriter() *machine.UART` — for serial sinks
+   - `initBoard(cfg *config.Config) Board` — configure MCU, UART, USB-CDC, I2C, SPI, and apply board-specific pin defaults to `cfg.Device`.
 5. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
 6. Build with `tinygo build -target=<board> ./cmd/gloom/` — TinyGo's build tags select the right board file automatically.
 
@@ -188,7 +199,7 @@ These are specific to the current target and live in `drivers/ds3231/`, `power/`
 
 ### Debugging
 
-The `internal/debug` package provides a global `debug.Log` backed by an `io.Writer`. The board-specific init file (e.g. `main_feather_m0.go`) wires `debug.W = UART0` early in `initMCU()`, so messages appear on the hardware UART serial monitor.
+The `internal/debug` package provides a global `debug.Log` backed by an `io.Writer`. The board-specific init file (e.g. `main_feather_m0.go`) wires `debug.W = UART0` early in `initBoard()`, so messages appear on the hardware UART serial monitor.
 
 - **`debug.Log` is for local debugging only — do not commit calls to it.** Use it freely while developing, but remove all calls before committing. Committed diagnostic output should go through the structured logger (`log.Logger`) instead.
 - **Do not use `println`.** TinyGo's `println` routes to USB-CDC on the Feather M0, not to the hardware UART. The TinyGo `-serial=uart` flag cannot be used because it targets UART1 (SERCOM1 / D10/D11), which conflicts with the Hypnos SD card CS pins.

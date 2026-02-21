@@ -42,9 +42,9 @@ func initBoard(cfg *config.Config) Board {
 	board.SPI.SDI = uint8(machine.SPI0_SDI_PIN)
 
 	// Board-specific config defaults.
-	cfg.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
-	cfg.RTCWakePin = uint8(machine.D12)
-	cfg.LedPin = uint8(machine.LED)
+	cfg.Device.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
+	cfg.Device.RTCWakePin = uint8(machine.D12)
+	cfg.Device.LedPin = uint8(machine.LED)
 
 	return board
 }

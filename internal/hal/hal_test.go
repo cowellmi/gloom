@@ -15,15 +15,15 @@ type mockMCU struct {
 	disarmCalls []uint8
 }
 
-func (m *mockMCU) Identifier() string    { return "mock-mcu" }
-func (m *mockMCU) EnableWatchdog()       { m.calls = append(m.calls, "EnableWatchdog") }
-func (m *mockMCU) DisableWatchdog()      { m.calls = append(m.calls, "DisableWatchdog") }
-func (m *mockMCU) PetWatchdog()          { m.calls = append(m.calls, "PetWatchdog") }
-func (m *mockMCU) ConfigureI2C(_, _ uint8) error { return nil }
-func (m *mockMCU) ConfigureLED(_ uint8)          {}
-func (m *mockMCU) LedOn()                        {}
-func (m *mockMCU) LedOff()                       {}
-func (m *mockMCU) Standby()                      { m.calls = append(m.calls, "Standby") }
+func (m *mockMCU) Identifier() string              { return "mock-mcu" }
+func (m *mockMCU) EnableWatchdog()                  { m.calls = append(m.calls, "EnableWatchdog") }
+func (m *mockMCU) DisableWatchdog()                 { m.calls = append(m.calls, "DisableWatchdog") }
+func (m *mockMCU) PetWatchdog()                     { m.calls = append(m.calls, "PetWatchdog") }
+func (m *mockMCU) ConfigureI2C(_, _ uint8) error    { return nil }
+func (m *mockMCU) ConfigureLED(_ uint8)             {}
+func (m *mockMCU) LedOn()                           {}
+func (m *mockMCU) LedOff()                          {}
+func (m *mockMCU) Standby()                         { m.calls = append(m.calls, "Standby") }
 
 func (m *mockMCU) ArmWake(pin uint8) error {
 	m.calls = append(m.calls, "ArmWake")
@@ -36,8 +36,6 @@ func (m *mockMCU) DisarmWake(pin uint8) {
 	m.disarmCalls = append(m.disarmCalls, pin)
 }
 
-// mockRTC returns pre-programmed times on successive ReadTime calls,
-// simulating time advancing while the MCU is in standby.
 type mockRTC struct {
 	times      []time.Time
 	timeIdx    int
@@ -72,15 +70,13 @@ func (m *mockRTC) WakePin() uint8 { return m.pin }
 type mockRails struct {
 	powerOnCalls  []WakeReason
 	powerOffCount int
-	d             time.Duration
 }
 
 func (m *mockRails) PowerOn(reason WakeReason) {
 	m.powerOnCalls = append(m.powerOnCalls, reason)
 }
 
-func (m *mockRails) PowerOff()            { m.powerOffCount++ }
-func (m *mockRails) Delay() time.Duration { return m.d }
+func (m *mockRails) PowerOff() { m.powerOffCount++ }
 
 // --- helpers ---
 
@@ -93,7 +89,6 @@ func callIndex(calls []string, name string) int {
 	return -1
 }
 
-// callIndexAfter returns the first index of name at or after start.
 func callIndexAfter(calls []string, name string, start int) int {
 	for i := start; i < len(calls); i++ {
 		if calls[i] == name {
@@ -103,32 +98,36 @@ func callIndexAfter(calls []string, name string, start int) int {
 	return -1
 }
 
+func firedSlots(fired []bool) []int {
+	var result []int
+	for i, f := range fired {
+		if f {
+			result = append(result, i)
+		}
+	}
+	return result
+}
+
 // --- tests ---
 
-func TestEarliest(t *testing.T) {
-	a := T
-	b := T.Add(5 * time.Second)
+func TestEarliestDeadline(t *testing.T) {
+	rtc := &mockRTC{times: []time.Time{T}, pin: 12}
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{10 * time.Second, 5 * time.Second})
 
-	if got := earliest(a, b); !got.Equal(a) {
-		t.Errorf("earliest(a, b) = %v, want %v", got, a)
-	}
-	if got := earliest(b, a); !got.Equal(a) {
-		t.Errorf("earliest(b, a) = %v, want %v", got, a)
-	}
-	if got := earliest(time.Time{}, b); !got.Equal(b) {
-		t.Errorf("earliest(zero, b) = %v, want %v", got, b)
-	}
-	if got := earliest(a, time.Time{}); !got.Equal(a) {
-		t.Errorf("earliest(a, zero) = %v, want %v", got, a)
-	}
-	if got := earliest(time.Time{}, time.Time{}); !got.IsZero() {
-		t.Errorf("earliest(zero, zero) = %v, want zero", got)
+	// Force deadlines to be set.
+	sys.nextTimes[0] = T.Add(10 * time.Second)
+	sys.nextTimes[1] = T.Add(5 * time.Second)
+
+	got := sys.earliestDeadline()
+	want := T.Add(5 * time.Second)
+	if !got.Equal(want) {
+		t.Errorf("earliestDeadline() = %v, want %v", got, want)
 	}
 }
 
 func TestNewSystem_RTCWakePin(t *testing.T) {
 	rtc := &mockRTC{pin: 12, times: []time.Time{T}}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 0, 0)
+	sys := NewSystem(&mockMCU{}, rtc, nil, nil)
 
 	if len(sys.wakePins) != 1 || sys.wakePins[0] != 12 {
 		t.Errorf("wakePins = %v, want [12]", sys.wakePins)
@@ -136,28 +135,41 @@ func TestNewSystem_RTCWakePin(t *testing.T) {
 }
 
 func TestNewSystem_NilRTC(t *testing.T) {
-	sys := NewSystem(&mockMCU{}, nil, nil, 0, 0)
+	sys := NewSystem(&mockMCU{}, nil, nil, nil)
 	if len(sys.wakePins) != 0 {
 		t.Errorf("wakePins = %v, want empty", sys.wakePins)
 	}
 }
 
-func TestAddWakePin(t *testing.T) {
+func TestRegisterExternalPin(t *testing.T) {
 	rtc := &mockRTC{pin: 12, times: []time.Time{T}}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 0, 0)
-	sys.AddWakePin(7)
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{0, 0})
+	sys.RegisterExternalPin(7, 1)
 
-	if len(sys.wakePins) != 2 {
-		t.Fatalf("wakePins = %v, want [12 7]", sys.wakePins)
-	}
-	if sys.wakePins[0] != 12 || sys.wakePins[1] != 7 {
+	if len(sys.wakePins) != 2 || sys.wakePins[1] != 7 {
 		t.Errorf("wakePins = %v, want [12 7]", sys.wakePins)
+	}
+	if len(sys.extPins) != 1 || sys.extPins[0].pin != 7 || sys.extPins[0].slot != 1 {
+		t.Errorf("extPins = %v, want [{7 1}]", sys.extPins)
+	}
+}
+
+func TestRegisterExternalPin_NoDuplicate(t *testing.T) {
+	sys := NewSystem(&mockMCU{}, nil, nil, []time.Duration{0, 0})
+	sys.RegisterExternalPin(7, 0)
+	sys.RegisterExternalPin(7, 1)
+
+	if len(sys.wakePins) != 1 {
+		t.Errorf("wakePins = %v, want [7] (no duplicate)", sys.wakePins)
+	}
+	if len(sys.extPins) != 2 {
+		t.Errorf("extPins = %v, want 2 entries (same pin, different slots)", sys.extPins)
 	}
 }
 
 func TestReadTime_WithRTC(t *testing.T) {
 	rtc := &mockRTC{times: []time.Time{T}}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 0, 0)
+	sys := NewSystem(&mockMCU{}, rtc, nil, nil)
 
 	got, err := sys.ReadTime()
 	if err != nil {
@@ -169,7 +181,7 @@ func TestReadTime_WithRTC(t *testing.T) {
 }
 
 func TestReadTime_WithoutRTC(t *testing.T) {
-	sys := NewSystem(&mockMCU{}, nil, nil, 0, 0)
+	sys := NewSystem(&mockMCU{}, nil, nil, nil)
 
 	before := time.Now()
 	got, err := sys.ReadTime()
@@ -185,27 +197,21 @@ func TestReadTime_WithoutRTC(t *testing.T) {
 
 func TestNextWake_FreshDeadlines(t *testing.T) {
 	rtc := &mockRTC{times: []time.Time{T}, pin: 12}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 10*time.Second, 3*time.Second)
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{10 * time.Second, 3 * time.Second})
 
-	s, h := sys.NextWake()
-	if s != 10*time.Second {
-		t.Errorf("sample = %v, want 10s", s)
-	}
-	if h != 3*time.Second {
-		t.Errorf("heartbeat = %v, want 3s", h)
+	d := sys.NextWake()
+	if d != 3*time.Second {
+		t.Errorf("NextWake() = %v, want 3s (nearest)", d)
 	}
 }
 
-func TestNextWake_Disabled(t *testing.T) {
+func TestNextWake_NoDeadlines(t *testing.T) {
 	rtc := &mockRTC{times: []time.Time{T}, pin: 12}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 0, 0)
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{0, 0})
 
-	s, h := sys.NextWake()
-	if s != 0 {
-		t.Errorf("sample = %v, want 0", s)
-	}
-	if h != 0 {
-		t.Errorf("heartbeat = %v, want 0", h)
+	d := sys.NextWake()
+	if d != 0 {
+		t.Errorf("NextWake() = %v, want 0", d)
 	}
 }
 
@@ -218,142 +224,87 @@ func TestNextWake_PartialRemaining(t *testing.T) {
 		},
 		pin: 12,
 	}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 10*time.Second, 3*time.Second)
+	// Slot 0: 10s interval, Slot 1: 3s interval
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{10 * time.Second, 3 * time.Second})
 
-	reason, _ := sys.Sleep()
-	if reason != WakeHeartbeat {
-		t.Fatalf("reason = %d, want WakeHeartbeat", reason)
+	fired, _ := sys.Sleep()
+
+	// Slot 1 (3s) should fire at T+3s when now is T+4s.
+	if !fired[1] {
+		t.Error("slot 1 should have fired")
+	}
+	if fired[0] {
+		t.Error("slot 0 should not have fired")
 	}
 
-	s, h := sys.NextWake()
-	// nextSample was set to T+10s, now is T+4s → 6s remaining.
-	if s != 6*time.Second {
-		t.Errorf("sample remaining = %v, want 6s", s)
-	}
-	// nextHeartbeat advanced from T+3s to T+6s, now is T+4s → 2s remaining.
-	if h != 2*time.Second {
-		t.Errorf("heartbeat remaining = %v, want 2s", h)
+	d := sys.NextWake()
+	// Slot 1 advanced from T+3s to T+6s. Remaining = 6-4 = 2s.
+	// Slot 0 still at T+10s. Remaining = 10-4 = 6s.
+	// Nearest is 2s.
+	if d != 2*time.Second {
+		t.Errorf("NextWake() = %v, want 2s", d)
 	}
 }
 
-func TestSleep_SampleWake(t *testing.T) {
+func TestSleep_SingleSlotFires(t *testing.T) {
 	rtc := &mockRTC{
 		times: []time.Time{T, T.Add(11 * time.Second)},
 		pin:   12,
 	}
-	sys := NewSystem(&mockMCU{}, rtc, &mockRails{}, 10*time.Second, 0)
+	sys := NewSystem(&mockMCU{}, rtc, &mockRails{}, []time.Duration{10 * time.Second})
 
-	reason, err := sys.Sleep()
+	fired, err := sys.Sleep()
 	if err != nil {
 		t.Fatalf("Sleep() error: %v", err)
 	}
-	if reason != WakeSample {
-		t.Errorf("reason = %d, want WakeSample (%d)", reason, WakeSample)
+	if !fired[0] {
+		t.Error("slot 0 should have fired")
 	}
 }
 
-func TestSleep_HeartbeatWake(t *testing.T) {
-	rtc := &mockRTC{
-		times: []time.Time{T, T.Add(61 * time.Second)},
-		pin:   12,
-	}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 0, time.Minute)
-
-	reason, err := sys.Sleep()
-	if err != nil {
-		t.Fatalf("Sleep() error: %v", err)
-	}
-	if reason != WakeHeartbeat {
-		t.Errorf("reason = %d, want WakeHeartbeat (%d)", reason, WakeHeartbeat)
-	}
-}
-
-func TestSleep_HeartbeatWake_NoRailDelay(t *testing.T) {
-	rtc := &mockRTC{
-		times: []time.Time{T, T.Add(61 * time.Second)},
-		pin:   12,
-	}
-	rails := &mockRails{}
-	sys := NewSystem(&mockMCU{}, rtc, rails, 0, time.Minute)
-
-	reason, err := sys.Sleep()
-	if err != nil {
-		t.Fatalf("Sleep() error: %v", err)
-	}
-	if reason != WakeHeartbeat {
-		t.Errorf("reason = %d, want WakeHeartbeat (%d)", reason, WakeHeartbeat)
-	}
-	// Heartbeat wakes should only get core rails (WakeAlways), not a
-	// reason-specific PowerOn, so there's no stabilisation delay.
-	if len(rails.powerOnCalls) != 1 || rails.powerOnCalls[0] != WakeAlways {
-		t.Errorf("PowerOn calls = %v, want [WakeAlways]", rails.powerOnCalls)
-	}
-}
-
-func TestSleep_SampleBeforeHeartbeat(t *testing.T) {
-	rtc := &mockRTC{
-		times: []time.Time{T, T.Add(11 * time.Second)},
-		pin:   12,
-	}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 10*time.Second, time.Minute)
-
-	reason, err := sys.Sleep()
-	if err != nil {
-		t.Fatalf("Sleep() error: %v", err)
-	}
-	if reason != WakeSample {
-		t.Errorf("reason = %d, want WakeSample", reason)
-	}
-}
-
-func TestSleep_HeartbeatBeforeSample(t *testing.T) {
+func TestSleep_MultiSlot_OnlyEarliestFires(t *testing.T) {
 	rtc := &mockRTC{
 		times: []time.Time{T, T.Add(6 * time.Second)},
 		pin:   12,
 	}
-	sys := NewSystem(&mockMCU{}, rtc, nil, time.Minute, 5*time.Second)
+	// Slot 0: 1m interval, Slot 1: 5s interval
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{time.Minute, 5 * time.Second})
 
-	reason, err := sys.Sleep()
+	fired, err := sys.Sleep()
 	if err != nil {
 		t.Fatalf("Sleep() error: %v", err)
 	}
-	if reason != WakeHeartbeat {
-		t.Errorf("reason = %d, want WakeHeartbeat", reason)
+	if fired[0] {
+		t.Error("slot 0 (1m) should not have fired")
+	}
+	if !fired[1] {
+		t.Error("slot 1 (5s) should have fired")
 	}
 }
 
-func TestSleep_SimultaneousWake(t *testing.T) {
+func TestSleep_SimultaneousFire(t *testing.T) {
 	rtc := &mockRTC{
 		times: []time.Time{T, T.Add(11 * time.Second)},
 		pin:   12,
 	}
 	rails := &mockRails{}
-	sys := NewSystem(&mockMCU{}, rtc, rails, 10*time.Second, 10*time.Second)
+	sys := NewSystem(&mockMCU{}, rtc, rails, []time.Duration{10 * time.Second, 10 * time.Second})
 
-	reason, err := sys.Sleep()
+	fired, err := sys.Sleep()
 	if err != nil {
 		t.Fatalf("Sleep() error: %v", err)
 	}
-	if reason != WakeSample|WakeHeartbeat {
-		t.Errorf("reason = %d, want WakeSample|WakeHeartbeat (%d)", reason, WakeSample|WakeHeartbeat)
+	if !fired[0] || !fired[1] {
+		t.Errorf("fired = %v, want [true true]", fired)
 	}
-	// Both deadlines should be advanced to the next interval.
+
+	// Both deadlines should advance.
 	wantNext := T.Add(20 * time.Second)
-	if !sys.nextSample.Equal(wantNext) {
-		t.Errorf("nextSample = %v, want %v", sys.nextSample, wantNext)
+	if !sys.nextTimes[0].Equal(wantNext) {
+		t.Errorf("nextTimes[0] = %v, want %v", sys.nextTimes[0], wantNext)
 	}
-	if !sys.nextHeartbeat.Equal(wantNext) {
-		t.Errorf("nextHeartbeat = %v, want %v", sys.nextHeartbeat, wantNext)
-	}
-	// Sample bit is set, so reason-specific rails should fire.
-	if len(rails.powerOnCalls) != 2 {
-		t.Fatalf("PowerOn called %d times, want 2; got %v", len(rails.powerOnCalls), rails.powerOnCalls)
-	}
-	if rails.powerOnCalls[0] != WakeAlways {
-		t.Errorf("first PowerOn = %d, want WakeAlways", rails.powerOnCalls[0])
-	}
-	if rails.powerOnCalls[1] != WakeSample|WakeHeartbeat {
-		t.Errorf("second PowerOn = %d, want WakeSample|WakeHeartbeat (%d)", rails.powerOnCalls[1], WakeSample|WakeHeartbeat)
+	if !sys.nextTimes[1].Equal(wantNext) {
+		t.Errorf("nextTimes[1] = %v, want %v", sys.nextTimes[1], wantNext)
 	}
 }
 
@@ -363,42 +314,61 @@ func TestSleep_ExternalWake(t *testing.T) {
 		pin:   12,
 	}
 	rails := &mockRails{}
-	sys := NewSystem(&mockMCU{}, rtc, rails, 0, 0)
+	// No interval-based deadlines, one external pin on slot 0.
+	sys := NewSystem(&mockMCU{}, rtc, rails, []time.Duration{0})
+	sys.RegisterExternalPin(7, 0)
 
-	reason, err := sys.Sleep()
+	fired, err := sys.Sleep()
 	if err != nil {
 		t.Fatalf("Sleep() error: %v", err)
 	}
-	if reason != WakeExternal {
-		t.Errorf("reason = %d, want WakeExternal (%d)", reason, WakeExternal)
+	if !fired[0] {
+		t.Error("external pin slot should have fired")
 	}
-	// External wake must not trigger reason-specific PowerOn.
+
+	// Core rails only — no sensor rail call.
 	if len(rails.powerOnCalls) != 1 || rails.powerOnCalls[0] != WakeAlways {
 		t.Errorf("PowerOn calls = %v, want [WakeAlways]", rails.powerOnCalls)
 	}
 }
 
-func TestSleep_RailDelayNotSubtracted(t *testing.T) {
+func TestSleep_ExternalWakeMultipleSlots(t *testing.T) {
 	rtc := &mockRTC{
-		times: []time.Time{T, T.Add(10 * time.Second)},
+		times: []time.Time{T, T.Add(time.Second)},
 		pin:   12,
 	}
-	rails := &mockRails{d: time.Millisecond}
-	sys := NewSystem(&mockMCU{}, rtc, rails, 10*time.Second, 0)
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{0, 0, 0})
+	sys.RegisterExternalPin(7, 0)
+	sys.RegisterExternalPin(8, 2)
 
-	reason, err := sys.Sleep()
+	fired, err := sys.Sleep()
 	if err != nil {
 		t.Fatalf("Sleep() error: %v", err)
 	}
-	if reason != WakeSample {
-		t.Fatalf("reason = %d, want WakeSample", reason)
+	if !fired[0] || fired[1] || !fired[2] {
+		t.Errorf("fired = %v, want [true false true]", fired)
 	}
-	if len(rtc.setWakes) != 1 {
-		t.Fatalf("SetWake called %d times, want 1", len(rtc.setWakes))
+}
+
+func TestSleep_DeadlineOverridesExternal(t *testing.T) {
+	rtc := &mockRTC{
+		times: []time.Time{T, T.Add(11 * time.Second)},
+		pin:   12,
 	}
-	want := T.Add(10 * time.Second)
-	if !rtc.setWakes[0].Equal(want) {
-		t.Errorf("SetWake target = %v, want %v", rtc.setWakes[0], want)
+	// Slot 0: timer-based, Slot 1: external only.
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{10 * time.Second, 0})
+	sys.RegisterExternalPin(7, 1)
+
+	fired, err := sys.Sleep()
+	if err != nil {
+		t.Fatalf("Sleep() error: %v", err)
+	}
+	// Timer fired → external slots should NOT fire.
+	if !fired[0] {
+		t.Error("slot 0 (timer) should have fired")
+	}
+	if fired[1] {
+		t.Error("slot 1 (external) should not fire when timer woke")
 	}
 }
 
@@ -408,27 +378,36 @@ func TestSleep_RailSequencing(t *testing.T) {
 		pin:   12,
 	}
 	rails := &mockRails{}
-	sys := NewSystem(&mockMCU{}, rtc, rails, 10*time.Second, 0)
+	sys := NewSystem(&mockMCU{}, rtc, rails, []time.Duration{10 * time.Second})
 
-	reason, _ := sys.Sleep()
-	if reason != WakeSample {
-		t.Fatalf("reason = %d, want WakeSample", reason)
+	fired, _ := sys.Sleep()
+	if !fired[0] {
+		t.Fatal("slot 0 should have fired")
 	}
 
 	if rails.powerOffCount != 1 {
 		t.Errorf("PowerOff called %d times, want 1", rails.powerOffCount)
 	}
-	// PowerOn: first WakeAlways (core rails after wake), then
-	// WakeSample (reason-specific rails for sensors).
-	if len(rails.powerOnCalls) != 2 {
-		t.Fatalf("PowerOn called %d times, want 2; got %v", len(rails.powerOnCalls), rails.powerOnCalls)
+	// Core rails restored after wake.
+	if len(rails.powerOnCalls) != 1 || rails.powerOnCalls[0] != WakeAlways {
+		t.Errorf("PowerOn calls = %v, want [WakeAlways]", rails.powerOnCalls)
 	}
-	if rails.powerOnCalls[0] != WakeAlways {
-		t.Errorf("first PowerOn = %d, want WakeAlways (%d)", rails.powerOnCalls[0], WakeAlways)
+}
+
+func TestEnableSensorRails(t *testing.T) {
+	rails := &mockRails{}
+	sys := NewSystem(&mockMCU{}, nil, rails, nil)
+
+	sys.EnableSensorRails()
+
+	if len(rails.powerOnCalls) != 1 || rails.powerOnCalls[0] != WakeSensors {
+		t.Errorf("PowerOn calls = %v, want [WakeSensors]", rails.powerOnCalls)
 	}
-	if rails.powerOnCalls[1] != WakeSample {
-		t.Errorf("second PowerOn = %d, want WakeSample (%d)", rails.powerOnCalls[1], WakeSample)
-	}
+}
+
+func TestEnableSensorRails_NilRails(t *testing.T) {
+	sys := NewSystem(&mockMCU{}, nil, nil, nil)
+	sys.EnableSensorRails() // should not panic
 }
 
 func TestSleep_NilRails(t *testing.T) {
@@ -436,7 +415,7 @@ func TestSleep_NilRails(t *testing.T) {
 		times: []time.Time{T, T.Add(11 * time.Second)},
 		pin:   12,
 	}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 10*time.Second, 0)
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{10 * time.Second})
 
 	_, err := sys.Sleep()
 	if err != nil {
@@ -444,7 +423,7 @@ func TestSleep_NilRails(t *testing.T) {
 	}
 }
 
-func TestSleep_DeadlineResets(t *testing.T) {
+func TestSleep_DeadlineAdvances(t *testing.T) {
 	rtc := &mockRTC{
 		times: []time.Time{
 			T,                       // call 1: before sleep
@@ -454,20 +433,20 @@ func TestSleep_DeadlineResets(t *testing.T) {
 		},
 		pin: 12,
 	}
-	sys := NewSystem(&mockMCU{}, rtc, nil, 10*time.Second, 0)
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{10 * time.Second})
 
-	reason, _ := sys.Sleep()
-	if reason != WakeSample {
-		t.Fatalf("first Sleep: reason = %d, want WakeSample", reason)
+	fired, _ := sys.Sleep()
+	if !fired[0] {
+		t.Fatal("first Sleep: slot 0 should have fired")
 	}
 
-	// After firing, nextSample advanced to T+20s (grid-anchored).
-	// Second call uses that deadline → target T+20s.
-	reason, _ = sys.Sleep()
-	if reason != WakeSample {
-		t.Fatalf("second Sleep: reason = %d, want WakeSample", reason)
+	fired, _ = sys.Sleep()
+	if !fired[0] {
+		t.Fatal("second Sleep: slot 0 should have fired")
 	}
 
+	// After first fire: T+10s → T+20s.
+	// After second fire: T+20s → T+30s.
 	if len(rtc.setWakes) != 2 {
 		t.Fatalf("SetWake called %d times, want 2", len(rtc.setWakes))
 	}
@@ -484,7 +463,7 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 	}
 	mcu := &mockMCU{}
 	rails := &mockRails{}
-	sys := NewSystem(mcu, rtc, rails, 10*time.Second, 0)
+	sys := NewSystem(mcu, rtc, rails, []time.Duration{10 * time.Second})
 	sys.AddWakePin(7)
 
 	sys.Sleep()
@@ -494,19 +473,16 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 		t.Fatal("Standby was not called")
 	}
 
-	// ArmWake must precede Standby.
 	armAt := callIndex(mcu.calls, "ArmWake")
 	if armAt < 0 || armAt > standbyAt {
 		t.Error("ArmWake must precede Standby")
 	}
 
-	// DisableWatchdog must precede Standby.
 	disableAt := callIndex(mcu.calls, "DisableWatchdog")
 	if disableAt < 0 || disableAt > standbyAt {
 		t.Error("DisableWatchdog must precede Standby")
 	}
 
-	// DisarmWake and EnableWatchdog must follow Standby.
 	disarmAt := callIndexAfter(mcu.calls, "DisarmWake", standbyAt)
 	if disarmAt < 0 {
 		t.Error("DisarmWake must follow Standby")
@@ -516,23 +492,41 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 		t.Error("EnableWatchdog must follow Standby")
 	}
 
-	// Both pins armed and disarmed (RTC pin 12 + external pin 7).
+	// Both pins armed (RTC pin 12 + extra pin 7).
 	if len(mcu.armCalls) != 2 || mcu.armCalls[0] != 12 || mcu.armCalls[1] != 7 {
 		t.Errorf("ArmWake pins = %v, want [12 7]", mcu.armCalls)
-	}
-	if len(mcu.disarmCalls) != 2 || mcu.disarmCalls[0] != 12 || mcu.disarmCalls[1] != 7 {
-		t.Errorf("DisarmWake pins = %v, want [12 7]", mcu.disarmCalls)
 	}
 
 	// RTC alarm lifecycle: ClearWake before SetWake, ClearWake after wake.
 	if rtc.clearCount != 2 {
 		t.Errorf("ClearWake called %d times, want 2", rtc.clearCount)
 	}
-	if len(rtc.setWakes) != 1 {
-		t.Fatalf("SetWake called %d times, want 1", len(rtc.setWakes))
+}
+
+func TestSleep_FiredSliceReused(t *testing.T) {
+	rtc := &mockRTC{
+		times: []time.Time{
+			T,                       // call 1
+			T.Add(11 * time.Second), // call 1
+			T.Add(11 * time.Second), // call 2
+			T.Add(22 * time.Second), // call 2
+		},
+		pin: 12,
 	}
-	want := T.Add(10 * time.Second)
-	if !rtc.setWakes[0].Equal(want) {
-		t.Errorf("SetWake target = %v, want %v", rtc.setWakes[0], want)
+	sys := NewSystem(&mockMCU{}, rtc, nil, []time.Duration{10 * time.Second, time.Minute})
+
+	fired1, _ := sys.Sleep()
+	if !fired1[0] || fired1[1] {
+		t.Fatalf("first: fired = %v, want [true false]", fired1)
+	}
+
+	fired2, _ := sys.Sleep()
+	if !fired2[0] || fired2[1] {
+		t.Fatalf("second: fired = %v, want [true false]", fired2)
+	}
+
+	// Verify it's the same backing slice (reused).
+	if &fired1[0] != &fired2[0] {
+		t.Error("fired slices should be the same backing array (reused)")
 	}
 }

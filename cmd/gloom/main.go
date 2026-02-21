@@ -24,34 +24,22 @@ func main() {
 	var initErrs []error
 	var initWarns []error
 
-	// Start with debug-friendly defaults (fake sensor, serial on).
 	cfg := config.Default()
 
-	// Initialise board: debug UART, USB-CDC, MCU, pin defaults.
-	// Defined in the build-tagged board file (e.g. main_feather_m0.go).
 	board := initBoard(&cfg)
-	board.MCU.ConfigureLED(cfg.LedPin)
-	board.MCU.LedOn() // Signals start of init sequence.
+	board.MCU.ConfigureLED(cfg.Device.LedPin)
+	board.MCU.LedOn()
 	board.MCU.EnableWatchdog()
 
-	// Setup debug logger
 	debug.W = board.UART
 	debug.Log("loading defaults...")
 
 	// TODO: probe Blues Notecard on I2C 0x17.
-	// If found, read config from env vars: blues.readConfig(&cfg).
-	// This would override sensors (removing "fake"), intervals, etc.
-	// with the Blueshub env vars values.
 
 	board.MCU.PetWatchdog()
 	debug.Log("powering rails...")
 
 	// --- Power rails ---
-	//
-	// Power rails are a compile-time board decision via boardPower()
-	// (build-tagged). On Hypnos, this enables the D5 3.3V core rail
-	// and D6 5V sensor rail before any peripheral probing. Builds
-	// with the no_hypnos tag return nil, skipping rail control.
 	var rails hal.Rails
 	if r := boardPower(); len(r) > 0 {
 		rails = power.NewController(r...)
@@ -60,10 +48,6 @@ func main() {
 	board.MCU.PetWatchdog()
 	debug.Log("configuring I2C...")
 
-	// Configure I2C with bus recovery. If the MCU reset (watchdog,
-	// brownout) while a slave was mid-transaction, the bit-banged
-	// recovery clocks SCL to let it release before configuring the
-	// peripheral.
 	if err := board.MCU.ConfigureI2C(board.SDA, board.SCL); err != nil {
 		board.MCU.DisableWatchdog()
 		fatal(err, board.MCU)
@@ -73,15 +57,12 @@ func main() {
 	debug.Log("probing rtc...")
 
 	// --- RTC probe ---
-	//
-	// Try DS3231 first (Hypnos).
 	var clock hal.RTC
-	ds, err := ds3231.Probe(board.I2C, cfg.RTCWakePin)
+	ds, err := ds3231.Probe(board.I2C, cfg.Device.RTCWakePin)
 	if err != nil {
 		board.MCU.PetWatchdog()
 		initWarns = append(initWarns, err)
-		// Then try PCF8523 (Adalogger).
-		pcf, err := pcf8523.Probe(board.I2C, cfg.RTCWakePin)
+		pcf, err := pcf8523.Probe(board.I2C, cfg.Device.RTCWakePin)
 		if err != nil {
 			initWarns = append(initWarns, err)
 		} else {
@@ -95,17 +76,12 @@ func main() {
 	debug.Log("probing sd...")
 
 	// --- SD card probe ---
-	//
-	// Probe ALL configured CS pins. Each working card is collected.
-	// In the future, multiple cards could back separate file sinks
-	// for redundancy in remote deployments. For now, the first
-	// card found is used for config loading and file output.
 	type sdEntry struct {
 		card *sdcard.Card
 		cs   uint8
 	}
 	var cards []sdEntry
-	for _, cs := range cfg.SDCSPins {
+	for _, cs := range cfg.Device.SDCSPins {
 		board.MCU.PetWatchdog()
 		pin := strconv.Itoa(int(cs))
 		c, err := sdcard.NewCard(board.SPI.Bus, board.SPI.SCK, board.SPI.SDO, board.SPI.SDI, cs)
@@ -116,7 +92,6 @@ func main() {
 		cards = append(cards, sdEntry{card: c, cs: cs})
 	}
 
-	// Primary card for config and file sink.
 	var card *sdcard.Card
 	if len(cards) > 0 {
 		card = cards[0].card
@@ -125,18 +100,9 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// --- Config loading ---
-	//
-	// TODO: once Blues Notecard is implemented, config is loaded
-	// from env vars above. On success, cache to SD card CONFIG.INI.
-	// For now, load from SD card if available.
-	//
-	// NOTE: we use all caps for SD card filenames and directories
-	// to support 8.3 file format (so we can disable LFN).
 	if card != nil {
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
-			// No config file — seed a default so the user has a
-			// template to edit.
 			wErr := card.WriteFile("CONFIG.INI", []byte(config.DefaultINI))
 			if wErr != nil {
 				initErrs = append(initErrs, wErr)
@@ -148,36 +114,14 @@ func main() {
 		}
 	}
 
-	// Reconfigure LED with the (possibly overridden) pin.
-	board.MCU.ConfigureLED(cfg.LedPin)
+	board.MCU.ConfigureLED(cfg.Device.LedPin)
 
 	board.MCU.PetWatchdog()
 
-	// --- Build system ---
-	sys := hal.NewSystem(board.MCU, clock, rails, cfg.SampleInterval, cfg.HeartbeatInterval)
+	// --- Create sinks ---
 
-	// --- Logger + serial sinks ---
-
-	// Read RTC time early so the logger and file sink agree on the
-	// date from the first write.
-	now := time.Now()
-	if t, err := sys.ReadTime(); err == nil {
-		now = t
-	}
-	logger := log.NewLogger(now)
-
-	var uartSink, usbSink *serial.Sink
-	if cfg.SerialEnabled {
-		uartSink = serial.NewSink(board.UART)
-		usbSink = serial.NewSink(board.USBCDC)
-
-		logger.AddSink(uartSink, log.LevelDebug)
-		logger.AddSink(usbSink, log.LevelDebug)
-	}
-
-	board.MCU.PetWatchdog()
-
-	// --- File sink (only if SD card available) ---
+	uartSink := serial.NewSink(board.UART)
+	usbSink := serial.NewSink(board.USBCDC)
 
 	var fileSink *file.Sink
 	if card != nil {
@@ -188,6 +132,7 @@ func main() {
 			initErrs = append(initErrs, err)
 		}
 
+		now := time.Now()
 		opener := func(name string) (file.AppendFile, error) {
 			return card.OpenAppend(name)
 		}
@@ -201,27 +146,81 @@ func main() {
 		}, now)
 		if fileErr != nil {
 			initErrs = append(initErrs, fileErr)
-		} else {
-			logger.AddSink(fileSink, log.LevelDebug)
 		}
 	}
 
 	board.MCU.PetWatchdog()
 
-	// --- Resolve sensors ---
+	// --- Build logger from device log sinks ---
 
-	var devices []sensor.Device
-	for _, id := range cfg.Sensors {
-		newDevice, ok := sensorRegistry[id]
-		if !ok {
-			initErrs = append(initErrs, errors.New("unknown sensor: "+id))
-			continue
+	now := time.Now()
+	if clock != nil {
+		if t, err := clock.ReadTime(); err == nil {
+			now = t
 		}
-		devices = append(devices, newDevice())
-		board.MCU.PetWatchdog()
+	}
+	logger := log.NewLogger(now)
+
+	for _, ls := range cfg.Device.LogSinks {
+		switch ls.Name {
+		case "uart":
+			logger.AddSink(uartSink, ls.Level)
+		case "usb":
+			logger.AddSink(usbSink, ls.Level)
+		case "sd":
+			if fileSink != nil {
+				logger.AddSink(fileSink, ls.Level)
+			}
+		}
 	}
 
-	board.MCU.LedOff() // Signals end of init sequence.
+	board.MCU.PetWatchdog()
+
+	// --- Resolve data sinks (shared by all groups) ---
+
+	var recorders []sensor.Recorder
+	for _, name := range cfg.Device.DataSinks {
+		switch name {
+		case "uart":
+			recorders = append(recorders, uartSink)
+		case "usb":
+			recorders = append(recorders, usbSink)
+		case "sd":
+			if fileSink != nil {
+				recorders = append(recorders, fileSink)
+			}
+		case "blues":
+			// TODO: Blues Notecard sink
+		default:
+			initErrs = append(initErrs, errors.New("unknown data_sink: "+name))
+		}
+	}
+
+	// --- Resolve groups ---
+
+	var groups []manager.Group
+	for _, gcfg := range cfg.Groups {
+		g := manager.Group{
+			Name:     gcfg.Name,
+			PulseLED: gcfg.PulseLED,
+			Host:     gcfg.Host,
+			Payload:  gcfg.Payload,
+		}
+
+		for _, id := range gcfg.Sensors {
+			newDevice, ok := sensorRegistry[id]
+			if !ok {
+				initErrs = append(initErrs, errors.New("["+gcfg.Name+"] unknown sensor: "+id))
+				continue
+			}
+			g.Sensors = append(g.Sensors, newDevice())
+			board.MCU.PetWatchdog()
+		}
+
+		groups = append(groups, g)
+	}
+
+	board.MCU.LedOff()
 
 	// --- Report init warnings and errors ---
 
@@ -252,31 +251,44 @@ func main() {
 		logger.Debug("sd: none")
 	}
 
+	if len(cfg.Groups) > 0 {
+		b := []byte("groups:")
+		for _, g := range cfg.Groups {
+			b = append(b, ' ')
+			b = append(b, g.Name...)
+		}
+		logger.Debug(string(b))
+	} else {
+		logger.Debug("groups: none")
+	}
+
 	board.MCU.PetWatchdog()
+
+	// --- Build system ---
+
+	intervals := make([]time.Duration, len(cfg.Groups))
+	for i, g := range cfg.Groups {
+		intervals[i] = g.Interval
+	}
+	sys := hal.NewSystem(board.MCU, clock, rails, intervals)
+
+	for i, g := range cfg.Groups {
+		if g.ExternalIntPin > 0 {
+			sys.RegisterExternalPin(g.ExternalIntPin, i)
+		}
+	}
 
 	// --- Manager ---
 
-	man := manager.New(sys, cfg, devices, logger)
-	if cfg.LedEnabled {
-		man.EnableLED(board.MCU.LedOn, board.MCU.LedOff)
-	}
+	man := manager.New(sys, groups, recorders, logger)
+	man.SetLED(board.MCU.LedOn, board.MCU.LedOff)
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 
-	if cfg.SerialEnabled {
-		man.AddRecorder(uartSink)
-		man.AddRecorder(usbSink)
-	}
-	if fileSink != nil {
-		man.AddRecorder(fileSink)
-	}
-
-	// Watchdog is already running — enter the main loop.
 	man.Run()
 }
 
 // fatal blinks the LED forever to signal a hard failure when no
-// serial monitor is connected. The caller must disable the watchdog
-// before calling fatal.
+// serial monitor is connected.
 func fatal(err error, mcu hal.MCU) {
 	debug.Log("FATAL: " + err.Error())
 	for {
