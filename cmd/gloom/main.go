@@ -75,6 +75,16 @@ func main() {
 		clock = ds
 	}
 
+	now := time.Now()
+	if clock != nil {
+		t, err := clock.ReadTime()
+		if err != nil {
+			initErrs = append(initErrs, err)
+		} else {
+			now = t
+		}
+	}
+
 	board.MCU.PetWatchdog()
 	debug.Log("probing sd...")
 
@@ -106,8 +116,9 @@ func main() {
 	if card != nil {
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
-			wErr := card.WriteFile("CONFIG.INI", []byte(config.DefaultINI))
-			if wErr != nil {
+			if ini, mErr := cfg.Marshal(); mErr != nil {
+				initErrs = append(initErrs, mErr)
+			} else if wErr := card.WriteFile("CONFIG.INI", ini); wErr != nil {
 				initErrs = append(initErrs, wErr)
 			}
 		} else if raw != nil {
@@ -146,7 +157,6 @@ func main() {
 			initErrs = append(initErrs, err)
 		}
 
-		now := time.Now()
 		opener := func(name string) (file.AppendFile, error) {
 			return card.OpenAppend(name)
 		}
@@ -166,13 +176,6 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// --- Logger ---
-
-	now := time.Now()
-	if clock != nil {
-		if t, err := clock.ReadTime(); err == nil {
-			now = t
-		}
-	}
 	logger := log.NewLogger(now)
 
 	for _, ls := range cfg.Device.LogSinks {

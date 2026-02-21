@@ -70,28 +70,6 @@ type Config struct {
 	Groups []Group
 }
 
-// DefaultINI is the default configuration file content, written to the
-// SD card when no config.ini exists so the user has a documented
-// template to edit.
-const DefaultINI = `# Gloom configuration
-#
-# [device] configures hardware and output routing.
-# Any other [name] defines a group.
-# See example.config.ini for the full spec.
-#
-# Intervals use Go duration syntax: 5s, 3m, 1h
-# Log sinks use name:level syntax: uart:debug, sd:error
-# Valid log levels: debug, info, warn, error
-
-[device]
-# log_sinks = uart:debug, usb:debug
-# data_sinks = uart, usb
-
-[sample]
-interval = 5s
-sensors = fake
-pulse_led = true
-`
 
 // Default returns a Config with debug-friendly defaults. Board-specific
 // pin defaults (SDCSPins, RTCWakePin, LedPin, UART pins) are not set

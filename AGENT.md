@@ -81,7 +81,7 @@ internal/
   targets/             Parent directory for chip-specific MCU implementations
   targets/samd21/      SAMD21 impl: standby, USB detach/reattach, GCLK config
   manager/             Wake/sleep loop, group execution, recorder fan-out (target-agnostic)
-  config/              INI section parser, Config/Device/Group types, DefaultINI (target-agnostic)
+  config/              INI section parser + marshaler, Config/Device/Group types (target-agnostic)
   log/                 Leveled logger with per-sink filtering (target-agnostic)
   sensor/              Device + Recorder interfaces (target-agnostic)
   sensor/fake/         Dummy sensor for debugging
