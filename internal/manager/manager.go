@@ -22,7 +22,8 @@ type system interface {
 }
 
 // Group is a resolved runtime group with sensors already wired up.
-// Built by the caller (main.go) from config.Group.
+// Built by the caller (main.go) from config.Group. Sensor instances
+// may be shared across groups — the manager deduplicates measurements.
 type Group struct {
 	Name     string
 	PulseLED bool
@@ -41,16 +42,41 @@ type Manager struct {
 	ledOff    func()
 	petWDT    func()
 	buf       [64]byte
+
+	// Deduplicated sensor list built at construction. measured is a
+	// parallel slice reset each cycle to track which sensors have
+	// already been init'd + measured, avoiding duplicate I2C traffic
+	// when multiple fired groups share a sensor.
+	allSensors []sensor.Device
+	measured   []bool
 }
 
 func New(sys system, groups []Group, recorders []sensor.Recorder, logger *log.Logger) *Manager {
+	var allSensors []sensor.Device
+	for _, g := range groups {
+		for _, s := range g.Sensors {
+			found := false
+			for _, existing := range allSensors {
+				if existing == s {
+					found = true
+					break
+				}
+			}
+			if !found {
+				allSensors = append(allSensors, s)
+			}
+		}
+	}
+
 	return &Manager{
-		sys:       sys,
-		groups:    groups,
-		recorders: recorders,
-		logger:    logger,
-		ledOn:     func() {},
-		ledOff:    func() {},
+		sys:        sys,
+		groups:     groups,
+		recorders:  recorders,
+		logger:     logger,
+		ledOn:      func() {},
+		ledOff:     func() {},
+		allSensors: allSensors,
+		measured:   make([]bool, len(allSensors)),
 	}
 }
 
@@ -100,11 +126,34 @@ func (m *Manager) step() {
 		m.sys.EnableSensorRails()
 	}
 
+	// Log fired groups.
+	if anyFired {
+		b := m.buf[:0]
+		b = append(b, "wake:"...)
+		for i, f := range fired {
+			if f {
+				b = append(b, ' ')
+				b = append(b, m.groups[i].Name...)
+			}
+		}
+		m.logger.Debug(string(b))
+	}
+
+	// Measure each unique sensor once across all fired groups.
+	if needsSensors {
+		m.measureSensors(fired)
+	}
+
+	// Per-group host/payload.
 	for i, f := range fired {
 		if !f {
 			continue
 		}
-		m.doGroup(&m.groups[i])
+		g := &m.groups[i]
+		if g.Host != "" {
+			// TODO: POST payload to g.Host based on g.Payload
+			m.logger.Debug("payload: " + g.Host)
+		}
 	}
 
 	if !anyFired {
@@ -117,6 +166,53 @@ func (m *Manager) step() {
 
 	m.logMem()
 	runtime.GC()
+}
+
+// measureSensors inits and measures each unique sensor that belongs to
+// at least one fired group, recording results once to all recorders.
+func (m *Manager) measureSensors(fired []bool) {
+	for i := range m.measured {
+		m.measured[i] = false
+	}
+
+	for i, f := range fired {
+		if !f {
+			continue
+		}
+		for _, s := range m.groups[i].Sensors {
+			idx := m.sensorIndex(s)
+			if m.measured[idx] {
+				continue
+			}
+			m.measured[idx] = true
+
+			m.pet()
+
+			if err := s.Init(); err != nil {
+				m.logger.Error("failed to initialize: " + s.Name() + ": " + err.Error())
+				continue
+			}
+
+			ms, err := s.Measure()
+			if err != nil {
+				m.logger.Error("failed to measure: " + s.Name() + ": " + err.Error())
+				continue
+			}
+
+			for _, r := range m.recorders {
+				r.Record(m.wakeTime, s.Name(), ms)
+			}
+		}
+	}
+}
+
+func (m *Manager) sensorIndex(s sensor.Device) int {
+	for i, existing := range m.allSensors {
+		if existing == s {
+			return i
+		}
+	}
+	return -1
 }
 
 func (m *Manager) doSleep() []bool {
@@ -150,34 +246,6 @@ func (m *Manager) doSleep() []bool {
 	return fired
 }
 
-func (m *Manager) doGroup(g *Group) {
-	m.logger.Debug("group: " + g.Name)
-
-	for _, s := range g.Sensors {
-		m.pet()
-
-		if err := s.Init(); err != nil {
-			m.logger.Error("failed to initialize: " + s.Name() + ": " + err.Error())
-			continue
-		}
-
-		ms, err := s.Measure()
-		if err != nil {
-			m.logger.Error("failed to measure: " + s.Name() + ": " + err.Error())
-			continue
-		}
-
-		for _, r := range m.recorders {
-			r.Record(m.wakeTime, s.Name(), ms)
-		}
-	}
-
-	if g.Host != "" {
-		// TODO: POST payload to g.Host based on g.Payload
-		m.logger.Debug("payload: " + g.Host)
-	}
-}
-
 func (m *Manager) pet() {
 	if m.petWDT != nil {
 		m.petWDT()
@@ -196,7 +264,7 @@ func (m *Manager) pulseLED() {
 
 func (m *Manager) logNextWake(d time.Duration) {
 	b := m.buf[:0]
-	b = append(b, "sleep: next wake="...)
+	b = append(b, "sleep: next wake in"...)
 	if d <= 0 {
 		b = append(b, "external"...)
 	} else {

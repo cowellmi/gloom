@@ -75,7 +75,7 @@ func main() {
 	board.MCU.PetWatchdog()
 	debug.Log("probing sd...")
 
-	// --- SD card probe ---
+	// --- SD probe ---
 	type sdEntry struct {
 		card *sdcard.Card
 		cs   uint8
@@ -118,7 +118,7 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- Create sinks ---
+	// --- Log sinks ---
 
 	uartSink := serial.NewSink(board.UART)
 	usbSink := serial.NewSink(board.USBCDC)
@@ -151,7 +151,7 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- Build logger from device log sinks ---
+	// --- Logger ---
 
 	now := time.Now()
 	if clock != nil {
@@ -176,7 +176,7 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- Resolve data sinks (shared by all groups) ---
+	// --- Sensor data sinks ---
 
 	var recorders []sensor.Recorder
 	for _, name := range cfg.Device.DataSinks {
@@ -198,6 +198,7 @@ func main() {
 
 	// --- Resolve groups ---
 
+	sensorPool := make(map[string]sensor.Device)
 	var groups []manager.Group
 	for _, gcfg := range cfg.Groups {
 		g := manager.Group{
@@ -208,13 +209,18 @@ func main() {
 		}
 
 		for _, id := range gcfg.Sensors {
-			newDevice, ok := sensorRegistry[id]
+			dev, ok := sensorPool[id]
 			if !ok {
-				initErrs = append(initErrs, errors.New("["+gcfg.Name+"] unknown sensor: "+id))
-				continue
+				newDevice, found := sensorRegistry[id]
+				if !found {
+					initErrs = append(initErrs, errors.New("["+gcfg.Name+"] unknown sensor: "+id))
+					continue
+				}
+				dev = newDevice()
+				sensorPool[id] = dev
+				board.MCU.PetWatchdog()
 			}
-			g.Sensors = append(g.Sensors, newDevice())
-			board.MCU.PetWatchdog()
+			g.Sensors = append(g.Sensors, dev)
 		}
 
 		groups = append(groups, g)
@@ -264,7 +270,7 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- Build system ---
+	// --- System ---
 
 	intervals := make([]time.Duration, len(cfg.Groups))
 	for i, g := range cfg.Groups {
