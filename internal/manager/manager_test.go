@@ -59,10 +59,10 @@ func (m *mockOutput) countLog(substr string) int {
 }
 
 type mockSystem struct {
-	sleepFn          func() ([]bool, error)
-	timeFn           func() (time.Time, error)
-	nextWakeDuration time.Duration
-	sensorRailsCalls int
+	sleepFn              func() ([]bool, error)
+	timeFn               func() (time.Time, error)
+	nextWakeDuration     time.Duration
+	powerOnSensorRailsCalls int
 }
 
 func (m *mockSystem) ReadTime() (time.Time, error) {
@@ -77,8 +77,8 @@ func (m *mockSystem) NextWake() time.Duration {
 	return m.nextWakeDuration
 }
 
-func (m *mockSystem) EnableSensorRails() {
-	m.sensorRailsCalls++
+func (m *mockSystem) PowerOnSensorRails() {
+	m.powerOnSensorRailsCalls++
 }
 
 type mockSensor struct {
@@ -494,8 +494,8 @@ func TestStep_EnableSensorRailsCalledWhenNeeded(t *testing.T) {
 	man, _ := newTestManager(sys, groups, nil)
 	man.step()
 
-	if sys.sensorRailsCalls != 1 {
-		t.Errorf("EnableSensorRails called %d times, want 1", sys.sensorRailsCalls)
+	if sys.powerOnSensorRailsCalls != 1 {
+		t.Errorf("PowerOnSensorRails called %d times, want 1", sys.powerOnSensorRailsCalls)
 	}
 }
 
@@ -510,8 +510,8 @@ func TestStep_NoSensorRailsForHostOnly(t *testing.T) {
 	man, _ := newTestManager(sys, groups, nil)
 	man.step()
 
-	if sys.sensorRailsCalls != 0 {
-		t.Errorf("EnableSensorRails called %d times, want 0 (no sensors)", sys.sensorRailsCalls)
+	if sys.powerOnSensorRailsCalls != 0 {
+		t.Errorf("PowerOnSensorRails called %d times, want 0 (no sensors)", sys.powerOnSensorRailsCalls)
 	}
 }
 

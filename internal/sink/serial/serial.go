@@ -37,7 +37,7 @@ func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error
 	for _, m := range ms {
 		b := s.buf[:0]
 		b = appendTimestamp(b, t)
-		b = append(b, "INF | "...)
+		b = append(b, "SEN | "...)
 		b = append(b, device...)
 		b = append(b, ": "...)
 		b = append(b, m.Label...)

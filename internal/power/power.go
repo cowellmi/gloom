@@ -6,6 +6,7 @@ package power
 
 import (
 	"machine"
+	"time"
 
 	"github.com/cowellmi/gloom/internal/hal"
 )
@@ -45,14 +46,17 @@ func (r Rail) off() {
 // Controller controls one or more MOSFET-switched power rails.
 // It satisfies hal.Rails.
 type Controller struct {
-	rails []Rail
+	rails       []Rail
+	sensorDelay time.Duration
 }
 
 // compile-time check
 var _ hal.Rails = (*Controller)(nil)
 
-func NewController(rails ...Rail) *Controller {
-	m := &Controller{rails: rails}
+// NewController creates a Controller. sensorDelay is the stabilization
+// time to wait after powering on sensor rails before I2C traffic.
+func NewController(sensorDelay time.Duration, rails ...Rail) *Controller {
+	m := &Controller{rails: rails, sensorDelay: sensorDelay}
 
 	for _, r := range m.rails {
 		r.pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
@@ -76,4 +80,10 @@ func (m *Controller) PowerOff() {
 	for _, r := range m.rails {
 		r.off()
 	}
+}
+
+// SensorDelay returns the board-specific stabilization time for
+// sensor rails.
+func (m *Controller) SensorDelay() time.Duration {
+	return m.sensorDelay
 }

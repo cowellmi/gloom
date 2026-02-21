@@ -130,12 +130,16 @@ func (s *System) NextWake() time.Duration {
 	return nearest
 }
 
-// EnableSensorRails powers on sensor-specific rails (on-demand rails).
-// The manager calls this after determining that at least one fired
-// group has sensors. No-op if rails is nil.
-func (s *System) EnableSensorRails() {
+// PowerOnSensorRails powers on sensor-specific rails (on-demand
+// rails) and waits for the board-specific stabilization delay. The
+// manager calls this after determining that at least one fired group
+// has sensors. No-op if rails is nil.
+func (s *System) PowerOnSensorRails() {
 	if s.rails != nil {
 		s.rails.PowerOn(true)
+		if d := s.rails.SensorDelay(); d > 0 {
+			wait.For(d)
+		}
 	}
 }
 
@@ -278,7 +282,10 @@ func (s *System) deepSleep(target time.Time) error {
 }
 
 // idleSleep busy-waits in short intervals, petting the watchdog
-// between each, until d elapses. The tick duration is such that
+// between each, until d elapses. The tick duration is chosen so
+// the watchdog is petted well within its ~8s timeout window. When
+// d is zero, the loop runs indefinitely (external-interrupt-only
+// configuration with no deep sleep capability).
 func (s *System) idleSleep(d time.Duration) {
 	const tick = 4 * time.Second
 

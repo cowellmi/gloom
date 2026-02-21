@@ -15,23 +15,6 @@ func (c *Config) Marshal() ([]byte, error) {
 
 	buf = append(buf, "# See example.config.ini for full documentation.\n"...)
 
-	// [rails]
-	if len(c.Device.Rails) > 0 {
-		buf = append(buf, "\n[rails]\n"...)
-		for _, r := range c.Device.Rails {
-			buf = append(buf, r.Name...)
-			buf = append(buf, " = "...)
-			buf = strconv.AppendUint(buf, uint64(r.Pin), 10)
-			if r.ActiveLow {
-				buf = append(buf, ", low"...)
-			}
-			if r.Always {
-				buf = append(buf, ", always"...)
-			}
-			buf = append(buf, '\n')
-		}
-	}
-
 	// [device]
 	var err error
 	buf, err = appendDevice(buf, &c.Device)
@@ -79,30 +62,6 @@ func appendDevice(buf []byte, dev *Device) ([]byte, error) {
 			}
 			buf = append(buf, s...)
 		}
-		buf = append(buf, '\n')
-	}
-
-	if dev.LedPin != 0 {
-		buf = append(buf, "led_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(dev.LedPin), 10)
-		buf = append(buf, '\n')
-	}
-
-	if dev.RTCWakePin != 0 {
-		buf = append(buf, "rtc_wake_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(dev.RTCWakePin), 10)
-		buf = append(buf, '\n')
-	}
-
-	if dev.UARTTxPin != 0 {
-		buf = append(buf, "uart_tx_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(dev.UARTTxPin), 10)
-		buf = append(buf, '\n')
-	}
-
-	if dev.UARTRxPin != 0 {
-		buf = append(buf, "uart_rx_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(dev.UARTRxPin), 10)
 		buf = append(buf, '\n')
 	}
 

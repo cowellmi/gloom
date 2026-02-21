@@ -15,13 +15,7 @@ func TestMarshal_RoundTrip(t *testing.T) {
 				{Name: "uart", Level: log.LevelDebug},
 				{Name: "sd", Level: log.LevelError},
 			},
-			DataSinks:  []string{"uart", "sd"},
-			LedPin:     13,
-			RTCWakePin: 12,
-			Rails: []RailConfig{
-				{Name: "3v3", Pin: 5, ActiveLow: true, Always: true},
-				{Name: "5v", Pin: 6, ActiveLow: false, Always: false},
-			},
+			DataSinks: []string{"uart", "sd"},
 		},
 		Groups: []Group{
 			{
@@ -62,25 +56,6 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	}
 	if len(got.Device.DataSinks) != 2 || got.Device.DataSinks[0] != "uart" {
 		t.Errorf("DataSinks = %v", got.Device.DataSinks)
-	}
-	if got.Device.LedPin != 13 {
-		t.Errorf("LedPin = %d, want 13", got.Device.LedPin)
-	}
-	if got.Device.RTCWakePin != 12 {
-		t.Errorf("RTCWakePin = %d, want 12", got.Device.RTCWakePin)
-	}
-
-	// Rails
-	if len(got.Device.Rails) != 2 {
-		t.Fatalf("Rails = %d, want 2", len(got.Device.Rails))
-	}
-	r0 := got.Device.Rails[0]
-	if r0.Name != "3v3" || r0.Pin != 5 || !r0.ActiveLow || !r0.Always {
-		t.Errorf("Rail[0] = %+v", r0)
-	}
-	r1 := got.Device.Rails[1]
-	if r1.Name != "5v" || r1.Pin != 6 || r1.ActiveLow || r1.Always {
-		t.Errorf("Rail[1] = %+v", r1)
 	}
 
 	// Groups
@@ -134,35 +109,12 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 
 	s := string(data)
 	for _, absent := range []string{
-		"led_pin", "rtc_wake_pin",
-		"uart_tx_pin", "uart_rx_pin",
 		"sensors", "rails", "pulse_led", "host", "payload",
-		"external_int_pin", "[rails]",
+		"external_int_pin",
 	} {
 		if strings.Contains(s, absent) {
 			t.Errorf("output should not contain %q:\n%s", absent, s)
 		}
-	}
-}
-
-func TestMarshal_NoRails(t *testing.T) {
-	cfg := Config{
-		Device: Device{
-			LogSinks:  []LogSinkEntry{{Name: "uart", Level: log.LevelDebug}},
-			DataSinks: []string{"uart"},
-		},
-		Groups: []Group{
-			{Name: "test", Interval: 10 * time.Second, Sensors: []string{"fake"}},
-		},
-	}
-
-	data, err := cfg.Marshal()
-	if err != nil {
-		t.Fatalf("Marshal() error: %v", err)
-	}
-
-	if strings.Contains(string(data), "[rails]") {
-		t.Errorf("output should not contain [rails] when no rails configured:\n%s", data)
 	}
 }
 

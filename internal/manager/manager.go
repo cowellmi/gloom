@@ -18,7 +18,7 @@ type system interface {
 	ReadTime() (time.Time, error)
 	Sleep() ([]bool, error)
 	NextWake() time.Duration
-	EnableSensorRails()
+	PowerOnSensorRails()
 }
 
 // Group is a resolved runtime group with sensors already wired up.
@@ -123,7 +123,7 @@ func (m *Manager) step() {
 		}
 	}
 	if needsSensors {
-		m.sys.EnableSensorRails()
+		m.sys.PowerOnSensorRails()
 	}
 
 	// Log fired groups.
@@ -181,6 +181,10 @@ func (m *Manager) measureSensors(fired []bool) {
 		}
 		for _, s := range m.groups[i].Sensors {
 			idx := m.sensorIndex(s)
+			if idx < 0 {
+				m.logger.Error("sensor not in pool: " + s.Name())
+				continue
+			}
 			if m.measured[idx] {
 				continue
 			}

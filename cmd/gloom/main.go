@@ -38,7 +38,7 @@ func main() {
 
 	// --- Power rails (from board defaults) ---
 	var rails hal.Rails
-	if ctrl := buildRails(cfg.Device.Rails); ctrl != nil {
+	if ctrl := buildRails(cfg.Device.Rails, cfg.Device.SensorDelay); ctrl != nil {
 		ctrl.PowerOff()
 		wait.For(250 * time.Millisecond)
 		ctrl.PowerOn(false)
@@ -46,7 +46,6 @@ func main() {
 		wait.For(2 * time.Second)
 		rails = ctrl
 	}
-	initialRailCount := len(cfg.Device.Rails)
 
 	board.MCU.PetWatchdog()
 	debug.Log("configuring I2C...")
@@ -131,13 +130,6 @@ func main() {
 				initErrs = append(initErrs, errors.New("config: "+err.Error()))
 			}
 			}
-		}
-	}
-
-	// Rebuild rail controller if config.ini overrode the board defaults.
-	if len(cfg.Device.Rails) != initialRailCount {
-		if ctrl := buildRails(cfg.Device.Rails); ctrl != nil {
-			rails = ctrl
 		}
 	}
 
@@ -349,7 +341,7 @@ func needsSDSink(cfg *config.Config) bool {
 	return false
 }
 
-func buildRails(rcfg []config.RailConfig) *power.Controller {
+func buildRails(rcfg []config.RailConfig, sensorDelay time.Duration) *power.Controller {
 	if len(rcfg) == 0 {
 		return nil
 	}
@@ -357,7 +349,7 @@ func buildRails(rcfg []config.RailConfig) *power.Controller {
 	for _, rc := range rcfg {
 		pr = append(pr, power.NewRail(rc.Pin, rc.ActiveLow, rc.Always))
 	}
-	return power.NewController(pr...)
+	return power.NewController(sensorDelay, pr...)
 }
 
 // fatal blinks the LED forever to signal a hard failure when no

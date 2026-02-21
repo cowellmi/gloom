@@ -83,6 +83,8 @@ func (m *mockRails) PowerOn(sensors bool) {
 
 func (m *mockRails) PowerOff() { m.powerOffCount++ }
 
+func (m *mockRails) SensorDelay() time.Duration { return 0 }
+
 // --- helpers ---
 
 func callIndex(calls []string, name string) int {
@@ -445,20 +447,20 @@ func TestSleep_RailSequencing(t *testing.T) {
 	}
 }
 
-func TestEnableSensorRails(t *testing.T) {
+func TestPowerOnSensorRails(t *testing.T) {
 	rails := &mockRails{}
 	sys := NewSystem(&mockMCU{}, nil, rails, nil)
 
-	sys.EnableSensorRails()
+	sys.PowerOnSensorRails()
 
 	if len(rails.powerOnCalls) != 1 || rails.powerOnCalls[0] != true {
 		t.Errorf("PowerOn calls = %v, want [true]", rails.powerOnCalls)
 	}
 }
 
-func TestEnableSensorRails_NilRails(t *testing.T) {
+func TestPowerOnSensorRails_NilRails(t *testing.T) {
 	sys := NewSystem(&mockMCU{}, nil, nil, nil)
-	sys.EnableSensorRails() // should not panic
+	sys.PowerOnSensorRails() // should not panic
 }
 
 func TestSleep_NilRails(t *testing.T) {

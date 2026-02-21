@@ -37,7 +37,7 @@ func TestRecord_FormatsLine(t *testing.T) {
 	}
 
 	got := buf.String()
-	want := "[09:05:07] INF | bme280: temp: 22.5 C\r\n"
+	want := "[09:05:07] SEN | bme280: temp: 22.5 C\r\n"
 	if got != want {
 		t.Errorf("Record =\n  %q\nwant\n  %q", got, want)
 	}

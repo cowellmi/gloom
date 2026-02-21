@@ -26,8 +26,8 @@ type LogSinkEntry struct {
 	Level log.Level
 }
 
-// RailConfig describes a MOSFET-switched power rail. Board files set
-// defaults; the [rails] INI section can override or add rails.
+// RailConfig describes a MOSFET-switched power rail. Board files
+// populate these via initRails(); they are not configurable via INI.
 type RailConfig struct {
 	Name      string
 	Pin       uint8
@@ -35,18 +35,19 @@ type RailConfig struct {
 	Always    bool // true = on every wake; false = on-demand (sensors)
 }
 
-// Device holds hardware, logging, and data output configuration.
-// These settings are not per-group — they describe the physical
-// board and how all output is routed.
+// Device holds logging, data output, and hardware configuration.
+// Pin fields are set by board files at compile time; only sink
+// settings are user-configurable via the [device] INI section.
 type Device struct {
-	LogSinks   []LogSinkEntry
-	DataSinks  []string
-	LedPin     uint8
-	SDCSPins   []uint8
-	RTCWakePin uint8
-	UARTTxPin  uint8
-	UARTRxPin  uint8
-	Rails      []RailConfig
+	LogSinks     []LogSinkEntry
+	DataSinks    []string
+	LedPin       uint8
+	SDCSPins     []uint8
+	RTCWakePin   uint8
+	UARTTxPin    uint8
+	UARTRxPin    uint8
+	Rails        []RailConfig
+	SensorDelay  time.Duration
 }
 
 // Group defines a scheduled task with its own sensors and optional
@@ -71,9 +72,8 @@ type Config struct {
 }
 
 // Default returns a Config with debug-friendly defaults. Board-specific
-// pin defaults (SDCSPins, RTCWakePin, LedPin, UART pins) are not set
-// here — board files apply those via initBoard() before any external
-// config is loaded.
+// pin and rail settings are not set here — board files apply those via
+// initBoard() before any external config is loaded.
 func Default() Config {
 	return Config{
 		Device: Device{
@@ -101,10 +101,9 @@ func Parse(data []byte, cfg *Config) error {
 	var errs []error
 
 	var (
-		section      string
-		groups       []Group
-		groupIndex   = make(map[string]int)
-		railsCleared bool
+		section    string
+		groups     []Group
+		groupIndex = make(map[string]int)
 	)
 
 	for line := range strings.SplitSeq(string(data), "\n") {
@@ -118,7 +117,7 @@ func Parse(data []byte, cfg *Config) error {
 			if section == "" {
 				errs = append(errs, errors.New("empty section name"))
 			}
-			if section != "device" && section != "rails" {
+			if section != "device" {
 				if _, exists := groupIndex[section]; !exists {
 					groupIndex[section] = len(groups)
 					groups = append(groups, Group{Name: section})
@@ -135,8 +134,9 @@ func Parse(data []byte, cfg *Config) error {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 
-		// Strip inline comments.
-		if i := strings.IndexByte(value, '#'); i >= 0 {
+		// Strip inline comments (require preceding space to avoid
+		// truncating URLs with # fragments).
+		if i := strings.Index(value, " #"); i >= 0 {
 			value = strings.TrimSpace(value[:i])
 		}
 
@@ -146,17 +146,6 @@ func Parse(data []byte, cfg *Config) error {
 		case "device":
 			if err := parseDeviceKey(&cfg.Device, key, value); err != nil {
 				errs = append(errs, err)
-			}
-		case "rails":
-			if !railsCleared {
-				cfg.Device.Rails = nil
-				railsCleared = true
-			}
-			rc, err := parseRailValue(key, value)
-			if err != nil {
-				errs = append(errs, err)
-			} else {
-				cfg.Device.Rails = append(cfg.Device.Rails, rc)
 			}
 		default:
 			idx := groupIndex[section]
@@ -191,30 +180,6 @@ func parseDeviceKey(dev *Device, key, value string) error {
 			return err
 		}
 		dev.DataSinks = names
-	case "led_pin":
-		pin, err := parsePin(key, value)
-		if err != nil {
-			return err
-		}
-		dev.LedPin = pin
-	case "rtc_wake_pin":
-		pin, err := parsePin(key, value)
-		if err != nil {
-			return err
-		}
-		dev.RTCWakePin = pin
-	case "uart_tx_pin":
-		pin, err := parsePin(key, value)
-		if err != nil {
-			return err
-		}
-		dev.UARTTxPin = pin
-	case "uart_rx_pin":
-		pin, err := parsePin(key, value)
-		if err != nil {
-			return err
-		}
-		dev.UARTRxPin = pin
 	default:
 		return errors.New("[device] unknown key: " + key)
 	}
@@ -262,18 +227,6 @@ func validateGroup(g *Group, dev *Device) error {
 	}
 	if len(g.Sensors) > 0 && len(dev.DataSinks) == 0 {
 		errs = append(errs, errors.New("["+g.Name+"] sensors require at least one data_sink in [device]"))
-	}
-	for _, rn := range g.Rails {
-		found := false
-		for _, rc := range dev.Rails {
-			if rc.Name == rn {
-				found = true
-				break
-			}
-		}
-		if !found {
-			errs = append(errs, errors.New("["+g.Name+"] unknown rail: "+rn))
-		}
 	}
 	return errors.Join(errs...)
 }
@@ -389,64 +342,6 @@ func parseDuration(key, value string) (time.Duration, error) {
 		return 0, errors.New(key + ": negative duration not allowed: " + value)
 	}
 	return d, nil
-}
-
-func parsePinList(key, value string) ([]uint8, error) {
-	var pins []uint8
-	for _, p := range strings.Split(value, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		pin, err := parsePin(key, p)
-		if err != nil {
-			return nil, err
-		}
-		pins = append(pins, pin)
-	}
-	return pins, nil
-}
-
-// parseRailValue parses a rail definition: "pin, polarity[, always]".
-// The key becomes the rail name. Example: "5v = 6, high" or
-// "3v3 = 5, low, always".
-// parseRailValue parses a rail definition: "pin[, polarity][, always]".
-// Polarity defaults to high (active-high). The key becomes the rail name.
-// Examples: "5v = 20", "3v3 = 15, low, always".
-func parseRailValue(name, value string) (RailConfig, error) {
-	parts := strings.Split(value, ",")
-	if len(parts) < 1 || len(parts) > 3 {
-		return RailConfig{}, errors.New("[rails] " + name + ": expected pin[, low|high][, always]")
-	}
-
-	pinStr := strings.TrimSpace(parts[0])
-	pin, err := strconv.ParseUint(pinStr, 10, 8)
-	if err != nil {
-		return RailConfig{}, errors.New("[rails] " + name + ": invalid pin number: " + pinStr)
-	}
-
-	var activeLow bool
-	always := false
-
-	for _, part := range parts[1:] {
-		switch strings.TrimSpace(part) {
-		case "low":
-			activeLow = true
-		case "high":
-			activeLow = false
-		case "always":
-			always = true
-		default:
-			return RailConfig{}, errors.New("[rails] " + name + ": unknown option: " + strings.TrimSpace(part))
-		}
-	}
-
-	return RailConfig{
-		Name:      name,
-		Pin:       uint8(pin),
-		ActiveLow: activeLow,
-		Always:    always,
-	}, nil
 }
 
 func parsePin(key, value string) (uint8, error) {
