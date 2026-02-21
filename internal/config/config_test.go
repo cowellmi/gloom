@@ -47,9 +47,8 @@ func TestParse_DeviceSection(t *testing.T) {
 	input := []byte(`
 [device]
 log_sinks = uart:debug, sd:error
-data_sinks = uart, usb, sd, blues
+data_sinks = uart, usb, sd
 led_pin = 13
-sd_cs_pins = 16, 18
 rtc_wake_pin = 19
 uart_tx_pin = 0
 uart_rx_pin = 1
@@ -62,9 +61,6 @@ uart_rx_pin = 1
 	if cfg.Device.LedPin != 13 {
 		t.Errorf("LedPin = %d, want 13", cfg.Device.LedPin)
 	}
-	if len(cfg.Device.SDCSPins) != 2 || cfg.Device.SDCSPins[0] != 16 || cfg.Device.SDCSPins[1] != 18 {
-		t.Errorf("SDCSPins = %v, want [16 18]", cfg.Device.SDCSPins)
-	}
 	if cfg.Device.RTCWakePin != 19 {
 		t.Errorf("RTCWakePin = %d, want 19", cfg.Device.RTCWakePin)
 	}
@@ -76,11 +72,11 @@ uart_rx_pin = 1
 		t.Errorf("LogSinks[1] = %+v, want sd:error", cfg.Device.LogSinks[1])
 	}
 
-	if len(cfg.Device.DataSinks) != 4 {
-		t.Fatalf("DataSinks = %v, want 4 entries", cfg.Device.DataSinks)
+	if len(cfg.Device.DataSinks) != 3 {
+		t.Fatalf("DataSinks = %v, want 3 entries", cfg.Device.DataSinks)
 	}
-	if cfg.Device.DataSinks[3] != "blues" {
-		t.Errorf("DataSinks[3] = %q, want blues", cfg.Device.DataSinks[3])
+	if cfg.Device.DataSinks[2] != "sd" {
+		t.Errorf("DataSinks[2] = %q, want sd", cfg.Device.DataSinks[2])
 	}
 }
 
@@ -581,7 +577,7 @@ func TestParse_RailsBadPolarity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for bad polarity")
 	}
-	if !strings.Contains(err.Error(), "polarity must be low or high") {
+	if !strings.Contains(err.Error(), "unknown option") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -593,20 +589,23 @@ func TestParse_RailsBadFlag(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for bad flag")
 	}
-	if !strings.Contains(err.Error(), "unknown flag") {
+	if !strings.Contains(err.Error(), "unknown option") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
-func TestParse_RailsTooFewParts(t *testing.T) {
+func TestParse_RailsPinOnly(t *testing.T) {
 	input := []byte("[rails]\ntest = 6\n")
 	cfg := Default()
-	err := Parse(input, &cfg)
-	if err == nil {
-		t.Fatal("expected error for too few parts")
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "expected pin, polarity") {
-		t.Errorf("unexpected error: %v", err)
+	if len(cfg.Device.Rails) != 1 {
+		t.Fatalf("Rails = %d, want 1", len(cfg.Device.Rails))
+	}
+	r := cfg.Device.Rails[0]
+	if r.Name != "test" || r.Pin != 6 || r.ActiveLow || r.Always {
+		t.Errorf("rail = %+v, want {test 6 high on-demand}", r)
 	}
 }
 
@@ -683,8 +682,7 @@ func TestParse_FullExample(t *testing.T) {
 	input := []byte(`
 [device]
 log_sinks = uart:debug, usb:debug, sd:error
-data_sinks = uart, usb, sd, blues
-sd_cs_pins = 16, 18
+data_sinks = uart, usb, sd
 
 [weather]
 interval = 1m
@@ -709,8 +707,8 @@ payload = full
 	if len(cfg.Device.LogSinks) != 3 {
 		t.Fatalf("LogSinks = %d, want 3", len(cfg.Device.LogSinks))
 	}
-	if len(cfg.Device.DataSinks) != 4 {
-		t.Fatalf("DataSinks = %d, want 4", len(cfg.Device.DataSinks))
+	if len(cfg.Device.DataSinks) != 3 {
+		t.Fatalf("DataSinks = %d, want 3", len(cfg.Device.DataSinks))
 	}
 
 	// Groups

@@ -74,6 +74,8 @@ Notehub environment variables are hierarchical (project → fleet → device). S
 
 This means a freshly flashed device with no SD card still boots, self-identifies, and becomes configurable from the cloud once the Notecard connects.
 
+Once Blues config is loaded before SD probing, `sd_cs_pins` can be added back to `config.ini` so the Notecard can override board-default CS pins. Currently `SDCSPins` is only set by the board file (`initBoard`) because config lives on the SD card (chicken-and-egg).
+
 #### 5. Data sink — `internal/sink/notecard/notecard.go`
 
 Implement `sensor.Recorder` and `log.Sink`. Queue measurements into a `data.qo` Notefile via `note.add`; queue error-level logs into `logs.qo`. Let the Notecard manage its own sync cadence, or optionally `hub.sync` on `Flush()`. From Notehub, data routes to MQTT, HTTP, AWS IoT, etc.

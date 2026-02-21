@@ -17,7 +17,6 @@ func TestMarshal_RoundTrip(t *testing.T) {
 			},
 			DataSinks:  []string{"uart", "sd"},
 			LedPin:     13,
-			SDCSPins:   []uint8{11, 10},
 			RTCWakePin: 12,
 			Rails: []RailConfig{
 				{Name: "3v3", Pin: 5, ActiveLow: true, Always: true},
@@ -66,9 +65,6 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	}
 	if got.Device.LedPin != 13 {
 		t.Errorf("LedPin = %d, want 13", got.Device.LedPin)
-	}
-	if len(got.Device.SDCSPins) != 2 || got.Device.SDCSPins[0] != 11 || got.Device.SDCSPins[1] != 10 {
-		t.Errorf("SDCSPins = %v, want [11 10]", got.Device.SDCSPins)
 	}
 	if got.Device.RTCWakePin != 12 {
 		t.Errorf("RTCWakePin = %d, want 12", got.Device.RTCWakePin)
@@ -138,7 +134,7 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 
 	s := string(data)
 	for _, absent := range []string{
-		"led_pin", "sd_cs_pins", "rtc_wake_pin",
+		"led_pin", "rtc_wake_pin",
 		"uart_tx_pin", "uart_rx_pin",
 		"sensors", "rails", "pulse_led", "host", "payload",
 		"external_int_pin", "[rails]",

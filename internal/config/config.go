@@ -70,7 +70,6 @@ type Config struct {
 	Groups []Group
 }
 
-
 // Default returns a Config with debug-friendly defaults. Board-specific
 // pin defaults (SDCSPins, RTCWakePin, LedPin, UART pins) are not set
 // here — board files apply those via initBoard() before any external
@@ -187,19 +186,17 @@ func parseDeviceKey(dev *Device, key, value string) error {
 		}
 		dev.LogSinks = sinks
 	case "data_sinks":
-		dev.DataSinks = parseStringList(value)
+		names, err := parseDataSinks(value)
+		if err != nil {
+			return err
+		}
+		dev.DataSinks = names
 	case "led_pin":
 		pin, err := parsePin(key, value)
 		if err != nil {
 			return err
 		}
 		dev.LedPin = pin
-	case "sd_cs_pins":
-		pins, err := parsePinList(key, value)
-		if err != nil {
-			return err
-		}
-		dev.SDCSPins = pins
 	case "rtc_wake_pin":
 		pin, err := parsePin(key, value)
 		if err != nil {
@@ -283,6 +280,17 @@ func validateGroup(g *Group, dev *Device) error {
 
 // --- parse helpers ---
 
+var knownSinks = []string{"uart", "usb", "sd"}
+
+func validSinkName(name string) bool {
+	for _, s := range knownSinks {
+		if s == name {
+			return true
+		}
+	}
+	return false
+}
+
 func parseLogSinks(value string) ([]LogSinkEntry, error) {
 	var sinks []LogSinkEntry
 	for _, p := range strings.Split(value, ",") {
@@ -292,6 +300,9 @@ func parseLogSinks(value string) ([]LogSinkEntry, error) {
 		}
 		name, levelStr, hasLevel := strings.Cut(p, ":")
 		name = strings.TrimSpace(name)
+		if !validSinkName(name) {
+			return nil, errors.New("unknown log sink: " + name)
+		}
 		level := log.LevelDebug
 		if hasLevel {
 			var err error
@@ -301,6 +312,21 @@ func parseLogSinks(value string) ([]LogSinkEntry, error) {
 			}
 		}
 		sinks = append(sinks, LogSinkEntry{Name: name, Level: level})
+	}
+	return sinks, nil
+}
+
+func parseDataSinks(value string) ([]string, error) {
+	var sinks []string
+	for _, p := range strings.Split(value, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if !validSinkName(p) {
+			return nil, errors.New("unknown data sink: " + p)
+		}
+		sinks = append(sinks, p)
 	}
 	return sinks, nil
 }
@@ -384,10 +410,13 @@ func parsePinList(key, value string) ([]uint8, error) {
 // parseRailValue parses a rail definition: "pin, polarity[, always]".
 // The key becomes the rail name. Example: "5v = 6, high" or
 // "3v3 = 5, low, always".
+// parseRailValue parses a rail definition: "pin[, polarity][, always]".
+// Polarity defaults to high (active-high). The key becomes the rail name.
+// Examples: "5v = 20", "3v3 = 15, low, always".
 func parseRailValue(name, value string) (RailConfig, error) {
 	parts := strings.Split(value, ",")
-	if len(parts) < 2 || len(parts) > 3 {
-		return RailConfig{}, errors.New("[rails] " + name + ": expected pin, polarity[, always]")
+	if len(parts) < 1 || len(parts) > 3 {
+		return RailConfig{}, errors.New("[rails] " + name + ": expected pin[, low|high][, always]")
 	}
 
 	pinStr := strings.TrimSpace(parts[0])
@@ -396,24 +425,20 @@ func parseRailValue(name, value string) (RailConfig, error) {
 		return RailConfig{}, errors.New("[rails] " + name + ": invalid pin number: " + pinStr)
 	}
 
-	polarity := strings.TrimSpace(parts[1])
 	var activeLow bool
-	switch polarity {
-	case "low":
-		activeLow = true
-	case "high":
-		activeLow = false
-	default:
-		return RailConfig{}, errors.New("[rails] " + name + ": polarity must be low or high: " + polarity)
-	}
-
 	always := false
-	if len(parts) == 3 {
-		flag := strings.TrimSpace(parts[2])
-		if flag != "always" {
-			return RailConfig{}, errors.New("[rails] " + name + ": unknown flag: " + flag)
+
+	for _, part := range parts[1:] {
+		switch strings.TrimSpace(part) {
+		case "low":
+			activeLow = true
+		case "high":
+			activeLow = false
+		case "always":
+			always = true
+		default:
+			return RailConfig{}, errors.New("[rails] " + name + ": unknown option: " + strings.TrimSpace(part))
 		}
-		always = true
 	}
 
 	return RailConfig{

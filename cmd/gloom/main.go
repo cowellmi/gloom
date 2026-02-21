@@ -79,7 +79,7 @@ func main() {
 	if clock != nil {
 		t, err := clock.ReadTime()
 		if err != nil {
-			initErrs = append(initErrs, err)
+			initErrs = append(initErrs, errors.New("rtc: "+err.Error()))
 		} else {
 			now = t
 		}
@@ -99,7 +99,7 @@ func main() {
 		pin := strconv.Itoa(int(cs))
 		c, err := sdcard.NewCard(board.SPI.Bus, board.SPI.SCK, board.SPI.SDO, board.SPI.SDI, cs)
 		if err != nil {
-			initWarns = append(initWarns, errors.New("CS: "+pin+": "+err.Error()))
+			initWarns = append(initWarns, errors.New("CS "+pin+": "+err.Error()))
 			continue
 		}
 		cards = append(cards, sdEntry{card: c, cs: cs})
@@ -117,17 +117,19 @@ func main() {
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
 			if ini, mErr := cfg.Marshal(); mErr != nil {
-				initErrs = append(initErrs, mErr)
+				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
 			} else if wErr := card.WriteFile("CONFIG.INI", ini); wErr != nil {
-				initErrs = append(initErrs, wErr)
+				initErrs = append(initErrs, errors.New("sd: "+wErr.Error()))
 			}
 		} else if raw != nil {
 			if err := config.Parse(raw, &cfg); err != nil {
-				if joined, ok := err.(interface{ Unwrap() []error }); ok {
-					initErrs = append(initErrs, joined.Unwrap()...)
-				} else {
-					initErrs = append(initErrs, err)
+			if joined, ok := err.(interface{ Unwrap() []error }); ok {
+				for _, e := range joined.Unwrap() {
+					initErrs = append(initErrs, errors.New("config: "+e.Error()))
 				}
+			} else {
+				initErrs = append(initErrs, errors.New("config: "+err.Error()))
+			}
 			}
 		}
 	}
@@ -149,9 +151,9 @@ func main() {
 	usbSink := serial.NewSink(board.USBCDC)
 
 	var fileSink *file.Sink
-	if card != nil {
+	if card != nil && needsSDSink(&cfg) {
 		if err := card.Mkdir("GLOOM"); err != nil {
-			initErrs = append(initErrs, err)
+			initErrs = append(initErrs, errors.New("sd: "+err.Error()))
 		}
 
 		opener := func(name string) (file.AppendFile, error) {
@@ -166,7 +168,7 @@ func main() {
 			Ext: ".LOG",
 		}, now)
 		if fileErr != nil {
-			initErrs = append(initErrs, fileErr)
+			initErrs = append(initErrs, errors.New("sd: "+fileErr.Error()))
 		}
 	}
 
@@ -203,10 +205,6 @@ func main() {
 			if fileSink != nil {
 				recorders = append(recorders, fileSink)
 			}
-		case "blues":
-			// TODO: Blues Notecard sink
-		default:
-			initErrs = append(initErrs, errors.New("unknown data_sink: "+name))
 		}
 	}
 
@@ -227,7 +225,7 @@ func main() {
 			if !ok {
 				newDevice, found := sensorRegistry[id]
 				if !found {
-					initErrs = append(initErrs, errors.New("["+gcfg.Name+"] unknown sensor: "+id))
+					initErrs = append(initErrs, errors.New("config: ["+gcfg.Name+"] unknown sensor: "+id))
 					continue
 				}
 				dev = newDevice()
@@ -267,8 +265,29 @@ func main() {
 			sd += " CS " + strconv.Itoa(int(e.cs))
 		}
 		logger.Debug(sd)
+		if !needsSDSink(&cfg) {
+			logger.Warn("sd: card detected but not configured as a sink")
+		}
 	} else {
 		logger.Debug("sd: none")
+	}
+
+	if len(cfg.Device.LogSinks) > 0 {
+		b := []byte("log sinks:")
+		for _, ls := range cfg.Device.LogSinks {
+			b = append(b, ' ')
+			b = append(b, ls.Name...)
+		}
+		logger.Debug(string(b))
+	}
+
+	if len(cfg.Device.DataSinks) > 0 {
+		b := []byte("data sinks:")
+		for _, ds := range cfg.Device.DataSinks {
+			b = append(b, ' ')
+			b = append(b, ds...)
+		}
+		logger.Debug(string(b))
 	}
 
 	if len(cfg.Groups) > 0 {
@@ -314,6 +333,20 @@ func main() {
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 
 	man.Run()
+}
+
+func needsSDSink(cfg *config.Config) bool {
+	for _, ls := range cfg.Device.LogSinks {
+		if ls.Name == "sd" {
+			return true
+		}
+	}
+	for _, ds := range cfg.Device.DataSinks {
+		if ds == "sd" {
+			return true
+		}
+	}
+	return false
 }
 
 func buildRails(rcfg []config.RailConfig) *power.Controller {

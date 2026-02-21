@@ -24,8 +24,6 @@ func (c *Config) Marshal() ([]byte, error) {
 			buf = strconv.AppendUint(buf, uint64(r.Pin), 10)
 			if r.ActiveLow {
 				buf = append(buf, ", low"...)
-			} else {
-				buf = append(buf, ", high"...)
 			}
 			if r.Always {
 				buf = append(buf, ", always"...)
@@ -87,17 +85,6 @@ func appendDevice(buf []byte, dev *Device) ([]byte, error) {
 	if dev.LedPin != 0 {
 		buf = append(buf, "led_pin = "...)
 		buf = strconv.AppendUint(buf, uint64(dev.LedPin), 10)
-		buf = append(buf, '\n')
-	}
-
-	if len(dev.SDCSPins) > 0 {
-		buf = append(buf, "sd_cs_pins = "...)
-		for i, p := range dev.SDCSPins {
-			if i > 0 {
-				buf = append(buf, ", "...)
-			}
-			buf = strconv.AppendUint(buf, uint64(p), 10)
-		}
 		buf = append(buf, '\n')
 	}
 
