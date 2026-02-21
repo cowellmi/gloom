@@ -2,6 +2,10 @@
 
 Items are ordered by severity: critical (data loss / field failure) first, then high (correctness / memory), medium (conventions / maintainability), low (polish), and finally features.
 
+## TOP
+
+- Hypnos rails not powering off during System.idleSleep
+
 ## Low
 
 ### SD card probe may fail after watchdog reset on Hypnos

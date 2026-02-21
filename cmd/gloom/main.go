@@ -43,6 +43,11 @@ func main() {
 	var rails hal.Rails
 	if r := boardPower(); len(r) > 0 {
 		rails = power.NewController(r...)
+		rails.PowerOff()
+		wait.For(250 * time.Millisecond)
+		rails.PowerOn(hal.WakeAlways)
+		board.MCU.PetWatchdog()
+		wait.For(2 * time.Second)
 	}
 
 	board.MCU.PetWatchdog()
@@ -109,7 +114,11 @@ func main() {
 			}
 		} else if raw != nil {
 			if err := config.Parse(raw, &cfg); err != nil {
-				initErrs = append(initErrs, err)
+				if joined, ok := err.(interface{ Unwrap() []error }); ok {
+					initErrs = append(initErrs, joined.Unwrap()...)
+				} else {
+					initErrs = append(initErrs, err)
+				}
 			}
 		}
 	}
