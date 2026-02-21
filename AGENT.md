@@ -86,7 +86,7 @@ internal/
   sensor/              Device + Recorder interfaces (target-agnostic)
   sensor/fake/         Dummy sensor for debugging
   sink/serial/         Serial text output (log.Sink + sensor.Recorder)
-  sink/file/           Daily-rotating file output to data/ and logs/ (log.Sink + sensor.Recorder)
+  sink/file/           Daily-rotating file output to GLOOM/ on SD card (log.Sink + sensor.Recorder)
 ```
 
 Packages marked *target-agnostic* contain no hardware imports and are testable with the standard Go toolchain. Hardware-specific code lives in `targets/<chip>`, `drivers/<chip>`, `power/`, and the build-tagged board files in `cmd/gloom/`.

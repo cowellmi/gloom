@@ -150,10 +150,7 @@ func main() {
 
 	var fileSink *file.Sink
 	if card != nil {
-		if err := card.Mkdir("DATA"); err != nil {
-			initErrs = append(initErrs, err)
-		}
-		if err := card.Mkdir("LOGS"); err != nil {
+		if err := card.Mkdir("GLOOM"); err != nil {
 			initErrs = append(initErrs, err)
 		}
 
@@ -162,10 +159,10 @@ func main() {
 		}
 		var fileErr error
 		fileSink, fileErr = file.New("sd", opener, file.FileSpec{
-			Dir: "DATA",
+			Dir: "GLOOM",
 			Ext: ".CSV",
 		}, file.FileSpec{
-			Dir: "LOGS",
+			Dir: "GLOOM",
 			Ext: ".LOG",
 		}, now)
 		if fileErr != nil {
