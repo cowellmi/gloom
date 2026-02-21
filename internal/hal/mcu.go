@@ -62,4 +62,15 @@ type MCU interface {
 
 	// Standby puts the MCU into its deepest sleep mode.
 	Standby()
+
+	// PaintStack fills the unused portion of the stack region with a
+	// sentinel pattern (0xDEADBEEF). Must be called as early as
+	// possible in main — before deep call chains execute — so the
+	// watermark captures the true high-water mark.
+	PaintStack()
+
+	// StackFree returns the number of stack bytes that still contain
+	// the sentinel pattern, i.e. the remaining headroom. Returns 0
+	// if PaintStack was never called or the entire stack was used.
+	StackFree() uint
 }

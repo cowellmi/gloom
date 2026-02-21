@@ -40,8 +40,9 @@ type Manager struct {
 	wakeTime  time.Time
 	ledOn     func()
 	ledOff    func()
-	petWDT    func()
-	buf       [64]byte
+	petWDT     func()
+	stackFree  func() uint
+	buf        [64]byte
 
 	// Deduplicated sensor list built at construction. measured is a
 	// parallel slice reset each cycle to track which sensors have
@@ -96,8 +97,16 @@ func (m *Manager) SetLED(on, off func()) {
 	m.ledOff = off
 }
 
-// Run enters the main loop.
+// SetStackMonitor sets a callback the manager calls each cycle to
+// report remaining stack headroom alongside heap stats.
+func (m *Manager) SetStackMonitor(fn func() uint) {
+	m.stackFree = fn
+}
+
+// Run enters the main loop. A GC pass runs first to reclaim
+// transient boot allocations before the first sleep.
 func (m *Manager) Run() {
+	runtime.GC()
 	for {
 		m.step()
 	}
@@ -307,6 +316,11 @@ func (m *Manager) logMem() {
 	b = append(b, "kb heap_sys="...)
 	b = strconv.AppendUint(b, ms.HeapSys/1024, 10)
 	b = append(b, "kb"...)
+	if m.stackFree != nil {
+		b = append(b, " stack_free="...)
+		b = strconv.AppendUint(b, uint64(m.stackFree()), 10)
+		b = append(b, 'b')
+	}
 	m.logger.Debug(string(b))
 }
 

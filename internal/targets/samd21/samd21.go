@@ -8,9 +8,22 @@ import (
 	"device/sam"
 	"machine"
 	"time"
+	"unsafe"
 
 	"github.com/cowellmi/gloom/internal/wait"
 )
+
+// Linker-defined symbols for the stack region. The "address" of each
+// zero-length variable is the symbol's value: _stack_top is the
+// initial SP, _stack_size is the region length in bytes.
+//
+//go:extern _stack_top
+var _stackTop [0]byte
+
+//go:extern _stack_size
+var _stackSize [0]byte
+
+const stackSentinel = 0xDEADBEEF
 
 // Name is the human-readable identifier for this MCU.
 const Name = "ATSAMD21"
@@ -32,6 +45,7 @@ const (
 // MCU holds SAMD21-specific state for deep-sleep management.
 type MCU struct {
 	standbyReady bool
+	stackPainted bool
 	wakeFlags    uint32
 	ledPin       machine.Pin
 	ledReady     bool
@@ -259,6 +273,52 @@ func (m *MCU) LedOff() {
 	if m.ledReady {
 		m.ledPin.Low()
 	}
+}
+
+// --- stack watermark ---
+
+// PaintStack fills the unused stack region with 0xDEADBEEF. The stack
+// lives at the bottom of RAM (per arm.ld) and grows downward from
+// _stack_top. We paint from the region base upward, leaving a fixed
+// guard zone at the top for the active call frames. Must be called as
+// early as possible in main so minimal stack depth has accumulated.
+//
+// The 256-byte guard covers the boot frames (main → initBoard →
+// PaintStack) plus headroom for an interrupt that could fire mid-paint.
+func (m *MCU) PaintStack() {
+	top := uintptr(unsafe.Pointer(&_stackTop))
+	size := uintptr(unsafe.Pointer(&_stackSize))
+	bottom := top - size
+
+	const guard = 256
+	limit := top - guard
+
+	for addr := bottom; addr < limit; addr += 4 {
+		*(*uint32)(unsafe.Pointer(addr)) = stackSentinel
+	}
+	m.stackPainted = true
+}
+
+// StackFree scans upward from the stack region base and counts
+// consecutive sentinel words. Returns the number of bytes that have
+// never been touched — the remaining headroom.
+func (m *MCU) StackFree() uint {
+	if !m.stackPainted {
+		return 0
+	}
+
+	top := uintptr(unsafe.Pointer(&_stackTop))
+	size := uintptr(unsafe.Pointer(&_stackSize))
+	bottom := top - size
+
+	var free uint
+	for addr := bottom; addr < top; addr += 4 {
+		if *(*uint32)(unsafe.Pointer(addr)) != stackSentinel {
+			break
+		}
+		free += 4
+	}
+	return free
 }
 
 // --- clock configuration ---

@@ -27,6 +27,7 @@ func main() {
 	cfg := config.Default()
 
 	board := initBoard(&cfg)
+	board.MCU.PaintStack()
 	initRails(&cfg)
 	board.MCU.ConfigureLED(cfg.Device.LedPin)
 	board.MCU.LedOn()
@@ -323,6 +324,7 @@ func main() {
 	man := manager.New(sys, groups, recorders, logger)
 	man.SetLED(board.MCU.LedOn, board.MCU.LedOff)
 	man.EnableWatchdog(board.MCU.PetWatchdog)
+	man.SetStackMonitor(board.MCU.StackFree)
 
 	man.Run()
 }
