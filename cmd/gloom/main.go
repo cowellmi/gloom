@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"runtime"
 	"strconv"
 	"time"
@@ -31,8 +32,8 @@ func main() {
 	board.MCU.ConfigureLED(board.LEDPin)
 	board.MCU.LedOn()
 	board.MCU.EnableWatchdog()
-	debug.Add(board.UART)
-	debug.Add(board.USBCDC)
+	debug.W = io.MultiWriter(board.SerialWriters...)
+
 	board.MCU.PetWatchdog()
 	debug.Log("powering rails...")
 

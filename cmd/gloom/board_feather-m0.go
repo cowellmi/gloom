@@ -16,14 +16,15 @@ func initBoard() Board {
 	// UART serial.
 	uart0 := machine.UART0
 	_ = uart0.Configure(machine.UARTConfig{
-		TX: machine.UART0_TX_PIN,
-		RX: machine.UART0_RX_PIN,
+		BaudRate: 115200,
+		TX:       machine.UART0_TX_PIN,
+		RX:       machine.UART0_RX_PIN,
 	})
-	board.UART = uart0
+	board.SerialWriters = append(board.SerialWriters, uart0)
 
 	// USB CDC serial.
 	_ = machine.Serial.Configure(machine.UARTConfig{BaudRate: 115200})
-	board.USBCDC = machine.Serial
+	board.SerialWriters = append(board.SerialWriters, machine.Serial)
 
 	// MCU.
 	board.MCU = samd21.New()

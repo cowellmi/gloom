@@ -13,6 +13,8 @@ import (
 // power_hypnos.go). main.go consumes this struct without importing
 // machine, keeping all pin/bus mappings in the board file.
 type Board struct {
+	SerialWriters []io.Writer
+
 	MCU hal.MCU
 	I2C drivers.I2C
 	SDA uint8
@@ -24,9 +26,6 @@ type Board struct {
 		SDO uint8
 		SDI uint8
 	}
-
-	UART   io.Writer
-	USBCDC io.Writer
 
 	LEDPin uint8
 	ADCPin uint8
