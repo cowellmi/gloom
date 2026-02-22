@@ -131,15 +131,12 @@ func (s *System) NextWake() time.Duration {
 }
 
 // PowerOnSensorRails powers on sensor-specific rails (on-demand
-// rails) and waits for the board-specific stabilization delay. The
-// manager calls this after determining that at least one fired group
-// has sensors. No-op if rails is nil.
+// rails). The manager calls this after determining that at least one
+// fired group has sensors. The Rails implementation handles
+// stabilization delays internally. No-op if rails is nil.
 func (s *System) PowerOnSensorRails() {
 	if s.rails != nil {
 		s.rails.PowerOn(true)
-		if d := s.rails.SensorDelay(); d > 0 {
-			wait.For(d)
-		}
 	}
 }
 

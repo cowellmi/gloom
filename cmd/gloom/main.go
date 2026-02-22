@@ -36,7 +36,14 @@ func main() {
 	debug.Log("powering rails...")
 
 	// --- Power rails ---
-	rails := initRails(board.MCU.PetWatchdog)
+	rails := initRails()
+	if rails != nil {
+		rails.PowerOff()
+		wait.For(250 * time.Millisecond)
+		rails.PowerOn(false)
+	}
+	board.MCU.PetWatchdog()
+	wait.For(2 * time.Second)
 
 	board.MCU.PetWatchdog()
 	debug.Log("configuring I2C...")

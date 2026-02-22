@@ -85,8 +85,6 @@ func (m *mockRails) PowerOn(sensors bool) {
 
 func (m *mockRails) PowerOff() { m.powerOffCount++ }
 
-func (m *mockRails) SensorDelay() time.Duration { return 0 }
-
 // --- helpers ---
 
 func callIndex(calls []string, name string) int {

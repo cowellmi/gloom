@@ -12,7 +12,7 @@ Items are ordered by severity: critical (data loss / field failure) first, then 
 
 ### SD card probe may fail after watchdog reset on Hypnos
 
-After a watchdog reset, the SD card can be stuck mid-SPI-command. `power.NewController` power-cycles the rails (250ms off, 2s stabilise) before any peripheral probing, which should discharge the card's capacitors and reset its state machine. If SD card probe failures are observed specifically after watchdog resets on Hypnos, the power-cycle timing in `internal/power/power.go` (`powerCycleDelay`) is the first place to adjust.
+After a watchdog reset, the SD card can be stuck mid-SPI-command. The boot ceremony in `main.go` power-cycles the rails (250ms off, 2s stabilise) before any peripheral probing, which should discharge the card's capacitors and reset its state machine. If SD card probe failures are observed specifically after watchdog resets on Hypnos, the boot-time discharge and settling delays in `main.go` are the first place to adjust.
 
 ### No CSV header row in data files
 
