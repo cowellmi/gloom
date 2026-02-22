@@ -83,7 +83,7 @@ internal/
   config/              INI section parser + marshaler, Config/Device/Group types (target-agnostic)
   log/                 Leveled logger with per-sink filtering (target-agnostic)
   sensor/              Device + Recorder interfaces (target-agnostic)
-  sensor/battery/      VBAT voltage via ADC + voltage divider (registered as "vbat")
+  sensor/vbat/      VBAT voltage via ADC + voltage divider (registered as "vbat")
   sink/serial/         Serial text output (log.Sink + sensor.Recorder)
   sink/file/           Daily-rotating file output to GLOOM/ on SD card (log.Sink + sensor.Recorder)
 ```

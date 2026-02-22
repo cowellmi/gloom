@@ -5,6 +5,8 @@ package main
 import (
 	"machine"
 
+	"github.com/cowellmi/gloom/internal/sensor"
+	"github.com/cowellmi/gloom/internal/sensor/vbat"
 	"github.com/cowellmi/gloom/internal/targets/samd21"
 )
 
@@ -45,6 +47,10 @@ func initBoard() Board {
 	// Hypnos.
 	board.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
 	board.RTCWakePin = uint8(machine.D12)
+
+	sensorRegistry["vbat"] = func() sensor.Device {
+		return vbat.NewDevice(uint8(machine.D9))
+	}
 
 	return board
 }

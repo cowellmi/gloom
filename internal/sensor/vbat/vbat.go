@@ -1,7 +1,6 @@
-// Package battery provides a sensor.Device that reads battery voltage
-// from an ADC pin behind a 2:1 voltage divider (common on Adafruit
-// Feather boards).
-package battery
+// Reads voltage from an ADC pin behind a 2:1 voltage divider
+// (common on Adafruit Feather boards).
+package vbat
 
 import (
 	"machine"
@@ -19,10 +18,10 @@ func NewDevice(pin uint8) *Device {
 	return &Device{adc: machine.ADC{Pin: machine.Pin(pin)}}
 }
 
-func (*Device) Init() error { return nil }
+func (*Device) Init() error  { return nil }
 func (*Device) Name() string { return "vbat" }
 
-// Measure reads the ADC and converts the raw 16-bit value to battery
+// Measure reads the ADC and converts the raw 16-bit value to
 // voltage assuming a 2:1 divider with a 3.3V reference:
 //
 //	V = raw * 2 * 3.3 / 65535

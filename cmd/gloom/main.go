@@ -23,9 +23,8 @@ func main() {
 	var initErrs []error
 	var initWarns []error
 
-	// --- Board comptime ---
+	// --- Board ---
 	board := initBoard()
-	initSensors()
 	board.MCU.PaintStack()
 	board.MCU.ConfigureLED(board.LedPin)
 	board.MCU.LedOn()
