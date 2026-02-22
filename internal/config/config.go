@@ -67,7 +67,7 @@ func Default() Config {
 			{
 				Name:     "sample",
 				Interval: 5 * time.Second,
-				Sensors:  []string{"fake"},
+				Sensors:  []string{"vbat"},
 				PulseLED: true,
 			},
 		},

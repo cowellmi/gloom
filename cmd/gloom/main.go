@@ -25,6 +25,7 @@ func main() {
 
 	// --- Board comptime ---
 	board := initBoard()
+	initSensors()
 	board.MCU.PaintStack()
 	board.MCU.ConfigureLED(board.LedPin)
 	board.MCU.LedOn()

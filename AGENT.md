@@ -83,7 +83,7 @@ internal/
   config/              INI section parser + marshaler, Config/Device/Group types (target-agnostic)
   log/                 Leveled logger with per-sink filtering (target-agnostic)
   sensor/              Device + Recorder interfaces (target-agnostic)
-  sensor/fake/         Dummy sensor for debugging
+  sensor/battery/      VBAT voltage via ADC + voltage divider (registered as "vbat")
   sink/serial/         Serial text output (log.Sink + sensor.Recorder)
   sink/file/           Daily-rotating file output to GLOOM/ on SD card (log.Sink + sensor.Recorder)
 ```
@@ -170,8 +170,9 @@ _ = s.rtc.ClearWake()
 3. If the board has power rail control, add a build-tagged `power_<name>.go` in `cmd/gloom/` that provides `initRails() hal.Rails`. This function creates a `power.Controller` with per-rail pin, polarity, always/on-demand, and stabilization delay settings, then returns it. The boot power ceremony (off → discharge → always-on) lives in `main.go`. The `no_hypnos` variant returns nil so no power code is compiled. Rail configuration is a compile-time board decision, not INI-configurable. Hypnos is the default for `feather_m0`; pass `-tags no_hypnos` to build without rail control.
 4. Add `cmd/gloom/main_<board>.go` with a `//go:build <board_tag>` constraint. It must provide:
    - `initBoard() Board` — configure MCU, UART, USB CDC, I2C, SPI, and set board-specific hardware pin assignments (`LedPin`, `SDCSPins`, `RTCWakePin`, etc.) on the returned `Board`.
-5. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
-6. Build with `tinygo build -target=<board> ./cmd/gloom/` — TinyGo's build tags select the right board file automatically.
+5. If the board has built-in sensors (e.g. battery voltage divider), add a build-tagged `sensors_<board>.go` in `cmd/gloom/` that provides `initSensors()`. This function registers board-level sensor factories into `sensorRegistry`. Sensor implementations live in `internal/sensor/<name>/` and are target-agnostic (take a pin number); the board file wires the pin.
+6. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
+7. Build with `tinygo build -target=<board> ./cmd/gloom/` — TinyGo's build tags select the right board file automatically.
 
 ### Style
 

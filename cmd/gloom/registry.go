@@ -1,10 +1,5 @@
 package main
 
-import (
-	"github.com/cowellmi/gloom/internal/sensor"
-	"github.com/cowellmi/gloom/internal/sensor/fake"
-)
+import "github.com/cowellmi/gloom/internal/sensor"
 
-var sensorRegistry = map[string]func() sensor.Device{
-	"fake": func() sensor.Device { return fake.NewDevice() },
-}
+var sensorRegistry = map[string]func() sensor.Device{}

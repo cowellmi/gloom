@@ -33,8 +33,8 @@ func TestDefault(t *testing.T) {
 	if g.Interval != 5*time.Second {
 		t.Errorf("Groups[0].Interval = %v, want 5s", g.Interval)
 	}
-	if len(g.Sensors) != 1 || g.Sensors[0] != "fake" {
-		t.Errorf("Groups[0].Sensors = %v, want [fake]", g.Sensors)
+	if len(g.Sensors) != 1 || g.Sensors[0] != "vbat" {
+		t.Errorf("Groups[0].Sensors = %v, want [vbat]", g.Sensors)
 	}
 	if !g.PulseLED {
 		t.Error("Groups[0].PulseLED = false, want true")
@@ -325,7 +325,7 @@ data_sinks = uart
 
 [sample]
 interval = 3s
-sensors = fake
+sensors = vbat
 `)
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
