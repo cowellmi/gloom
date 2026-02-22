@@ -167,9 +167,9 @@ _ = s.rtc.ClearWake()
 
 1. If the board uses a new MCU chip, create `internal/targets/<chip>/` implementing `hal.MCU`.
 2. If the board has a new RTC chip, create `internal/drivers/<chip>/<chip>.go` implementing `hal.RTC`.
-3. If the board has power rail control, add a build-tagged `board_<name>.go` in `cmd/gloom/` that provides `initRails(cfg *config.Config)` to populate `cfg.Device.Rails` with pin, polarity, and always/on-demand settings. Rail configuration is a compile-time board decision, not INI-configurable. Hypnos is the default for `feather_m0`; pass `-tags no_hypnos` to build without rail control.
+3. If the board has power rail control, add a build-tagged `board_<name>.go` in `cmd/gloom/` that provides `initRails(board *Board)` to populate `board.Rails` with pin, polarity, and always/on-demand settings. Rail configuration is a compile-time board decision, not INI-configurable. Hypnos is the default for `feather_m0`; pass `-tags no_hypnos` to build without rail control.
 4. Add `cmd/gloom/main_<board>.go` with a `//go:build <board_tag>` constraint. It must provide:
-   - `initBoard(cfg *config.Config) Board` — configure MCU, UART, USB-CDC, I2C, SPI, and apply board-specific pin defaults to `cfg.Device`.
+   - `initBoard() Board` — configure MCU, UART, USB-CDC, I2C, SPI, and set board-specific hardware pin assignments (`LedPin`, `SDCSPins`, `RTCWakePin`, etc.) on the returned `Board`.
 5. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
 6. Build with `tinygo build -target=<board> ./cmd/gloom/` — TinyGo's build tags select the right board file automatically.
 

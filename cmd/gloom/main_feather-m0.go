@@ -5,14 +5,12 @@ package main
 import (
 	"machine"
 
-	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/targets/samd21"
 )
 
 // initBoard configures the Feather M0 (SAMD21) and returns a Board
-// with all peripherals ready. Board-specific pin defaults are applied
-// to cfg before returning so they can be overridden by config.ini.
-func initBoard(cfg *config.Config) Board {
+// with all peripherals and hardware pin assignments ready.
+func initBoard() Board {
 	var board Board
 
 	// UART serial.
@@ -41,10 +39,10 @@ func initBoard(cfg *config.Config) Board {
 	board.SPI.SDO = uint8(machine.SPI0_SDO_PIN)
 	board.SPI.SDI = uint8(machine.SPI0_SDI_PIN)
 
-	// Board-specific config defaults.
-	cfg.Device.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
-	cfg.Device.RTCWakePin = uint8(machine.D12)
-	cfg.Device.LedPin = uint8(machine.LED)
+	// Hardware pin assignments.
+	board.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
+	board.RTCWakePin = uint8(machine.D12)
+	board.LedPin = uint8(machine.LED)
 
 	return board
 }

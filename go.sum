@@ -1,6 +1,6 @@
+github.com/cowellmi/drivers v0.34.1-0.20260222013331-70fcaddea195 h1:BZ+xZj9OeGge/FejhUC04oQrexSH/SCjFU3MEV5BzsI=
+github.com/cowellmi/drivers v0.34.1-0.20260222013331-70fcaddea195/go.mod h1:ZdErNrApSABdVXjA1RejD67R8SNRI6RKVfYgQDZtKtk=
 github.com/cowellmi/tinyfs v0.5.1-0.20260215224512-3de04b468176 h1:hN1mWN7ZGyXJKPZH/OnZzYAax8iLjcWTYZ/kv+qu3+c=
 github.com/cowellmi/tinyfs v0.5.1-0.20260215224512-3de04b468176/go.mod h1:45hZCJ5e4rJxc3BaJTy1qhe5N+LbF/CpuFS4jPhhYuo=
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 h1:El6M4kTTCOh6aBiKaUGG7oYTSPP8MxqL4YI3kZKwcP4=
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510/go.mod h1:pupxD2MaaD3pAXIBCelhxNneeOaAeabZDe5s4K6zSpQ=
-tinygo.org/x/drivers v0.34.0 h1:lw8ePJeUSn9oICKBvQXHC9TIE+J00OfXfkGTrpXM9Iw=
-tinygo.org/x/drivers v0.34.0/go.mod h1:ZdErNrApSABdVXjA1RejD67R8SNRI6RKVfYgQDZtKtk=

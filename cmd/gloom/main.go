@@ -26,10 +26,10 @@ func main() {
 
 	cfg := config.Default()
 
-	board := initBoard(&cfg)
+	board := initBoard()
 	board.MCU.PaintStack()
-	initRails(&cfg)
-	board.MCU.ConfigureLED(cfg.Device.LedPin)
+	initRails(&board) // see board_hypnos.go
+	board.MCU.ConfigureLED(board.LedPin)
 	board.MCU.LedOn()
 	board.MCU.EnableWatchdog()
 	debug.W = board.UART
@@ -39,7 +39,7 @@ func main() {
 
 	// --- Power rails (from board defaults) ---
 	var rails hal.Rails
-	if ctrl := buildRails(cfg.Device.Rails, cfg.Device.SensorDelay); ctrl != nil {
+	if ctrl := buildRails(board.Rails, board.SensorDelay); ctrl != nil {
 		ctrl.PowerOff()
 		wait.For(250 * time.Millisecond)
 		ctrl.PowerOn(false)
@@ -61,11 +61,11 @@ func main() {
 
 	// --- RTC probe ---
 	var clock hal.RTC
-	ds, err := ds3231.Probe(board.I2C, cfg.Device.RTCWakePin)
+	ds, err := ds3231.Probe(board.I2C, board.RTCWakePin)
 	if err != nil {
 		board.MCU.PetWatchdog()
 		initWarns = append(initWarns, err)
-		pcf, err := pcf8523.Probe(board.I2C, cfg.Device.RTCWakePin)
+		pcf, err := pcf8523.Probe(board.I2C, board.RTCWakePin)
 		if err != nil {
 			initWarns = append(initWarns, err)
 		} else {
@@ -94,7 +94,7 @@ func main() {
 		cs   uint8
 	}
 	var cards []sdEntry
-	for _, cs := range cfg.Device.SDCSPins {
+	for _, cs := range board.SDCSPins {
 		board.MCU.PetWatchdog()
 		pin := strconv.Itoa(int(cs))
 		c, err := sdcard.NewCard(board.SPI.Bus, board.SPI.SCK, board.SPI.SDO, board.SPI.SDI, cs)
@@ -123,18 +123,18 @@ func main() {
 			}
 		} else if raw != nil {
 			if err := config.Parse(raw, &cfg); err != nil {
-			if joined, ok := err.(interface{ Unwrap() []error }); ok {
-				for _, e := range joined.Unwrap() {
-					initErrs = append(initErrs, errors.New("config: "+e.Error()))
+				if joined, ok := err.(interface{ Unwrap() []error }); ok {
+					for _, e := range joined.Unwrap() {
+						initErrs = append(initErrs, errors.New("config: "+e.Error()))
+					}
+				} else {
+					initErrs = append(initErrs, errors.New("config: "+err.Error()))
 				}
-			} else {
-				initErrs = append(initErrs, errors.New("config: "+err.Error()))
-			}
 			}
 		}
 	}
 
-	board.MCU.ConfigureLED(cfg.Device.LedPin)
+	board.MCU.ConfigureLED(board.LedPin)
 
 	board.MCU.PetWatchdog()
 
@@ -343,7 +343,7 @@ func needsSDSink(cfg *config.Config) bool {
 	return false
 }
 
-func buildRails(rcfg []config.RailConfig, sensorDelay time.Duration) *power.Controller {
+func buildRails(rcfg []RailConfig, sensorDelay time.Duration) *power.Controller {
 	if len(rcfg) == 0 {
 		return nil
 	}
