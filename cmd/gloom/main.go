@@ -305,8 +305,8 @@ func main() {
 	if clock == nil {
 		for _, d := range intervals {
 			if d > 0 {
-				logger.Warn("config: Timed groups configured without an RTC.")
-				logger.Warn("config: Deep sleep disabled! Using idle sleep.")
+				logger.Warn("config: timed groups configured without an RTC")
+				logger.Warn("config: deep sleep disabled; using idle sleep")
 				break
 			}
 		}
