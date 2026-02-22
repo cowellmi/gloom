@@ -6,6 +6,7 @@ import (
 	"machine"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/power"
 )
@@ -19,6 +20,7 @@ import (
 //     one fired group has sensors. 250ms delay for MOSFET switching
 //     and sensor power-on.
 func initRails() hal.Rails {
+	debug.Log("init: hypnos power rails")
 	return power.NewController(
 		power.NewRail(uint8(machine.D5), power.ActiveLow, true, 0),
 		power.NewRail(uint8(machine.D6), power.ActiveHigh, false, 250*time.Millisecond),

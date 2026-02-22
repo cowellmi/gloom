@@ -69,6 +69,11 @@ type MCU interface {
 	// watermark captures the true high-water mark.
 	PaintStack()
 
+	// StackSize returns the total stack region size in bytes as set
+	// by the linker (e.g. tinygo -stack-size=4KB). Returns 0 if the
+	// target does not expose the linker symbol.
+	StackSize() uint
+
 	// StackFree returns the number of stack bytes that still contain
 	// the sentinel pattern, i.e. the remaining headroom. Returns 0
 	// if PaintStack was never called or the entire stack was used.

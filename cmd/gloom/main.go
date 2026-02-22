@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -292,6 +293,18 @@ func main() {
 	} else {
 		logger.Debug("groups: none")
 	}
+
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	b := []byte("mem: heap_sys=")
+	b = strconv.AppendUint(b, ms.HeapSys/1024, 10)
+	b = append(b, "kb"...)
+	if ss := board.MCU.StackSize(); ss > 0 {
+		b = append(b, " stack_size="...)
+		b = strconv.AppendUint(b, uint64(ss/1024), 10)
+		b = append(b, "kb"...)
+	}
+	logger.Debug(string(b))
 
 	board.MCU.PetWatchdog()
 

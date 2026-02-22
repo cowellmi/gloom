@@ -299,6 +299,11 @@ func (m *MCU) PaintStack() {
 	m.stackPainted = true
 }
 
+// StackSize returns the total stack region size set by the linker.
+func (m *MCU) StackSize() uint {
+	return uint(uintptr(unsafe.Pointer(&_stackSize)))
+}
+
 // StackFree scans upward from the stack region base and counts
 // consecutive sentinel words. Returns the number of bytes that have
 // never been touched — the remaining headroom.

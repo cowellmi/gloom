@@ -26,6 +26,7 @@ func (m *mockMCU) LedOn()                           {}
 func (m *mockMCU) LedOff()                          {}
 func (m *mockMCU) Standby()                         { m.calls = append(m.calls, "Standby") }
 func (m *mockMCU) PaintStack()                       {}
+func (m *mockMCU) StackSize() uint                   { return 0 }
 func (m *mockMCU) StackFree() uint                   { return 0 }
 
 func (m *mockMCU) ArmWake(pin uint8) error {

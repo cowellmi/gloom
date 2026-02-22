@@ -48,6 +48,7 @@ func initBoard() Board {
 	board.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
 	board.RTCWakePin = uint8(machine.D12)
 
+	// Sensors.
 	sensorRegistry["vbat"] = func() sensor.Device {
 		return vbat.NewDevice(uint8(machine.D9))
 	}

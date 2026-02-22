@@ -313,8 +313,6 @@ func (m *Manager) logMem() {
 	b := m.buf[:0]
 	b = append(b, "mem: heap_alloc="...)
 	b = strconv.AppendUint(b, ms.HeapAlloc/1024, 10)
-	b = append(b, "kb heap_sys="...)
-	b = strconv.AppendUint(b, ms.HeapSys/1024, 10)
 	b = append(b, "kb"...)
 	if m.stackFree != nil {
 		b = append(b, " stack_free="...)

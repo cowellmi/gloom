@@ -148,7 +148,7 @@ _ = s.rtc.ClearWake()
 - **Scratch buffers are owned by the component that uses them.** Each sink, recorder, or package that needs formatting scratch space declares its own `[N]byte` field (struct) or package-level var, sized to fit its workload. Callers never pass buffers through interfaces — the buffer is an internal optimization detail, not part of the API contract. Use `s.buf[:0]` (struct field) or `buf[:0]` (package var) and build output via `append` chains.
 - Never allocate in a formatting hot path. Avoid `string(buf[:])` returns that escape stack arrays to the heap — prefer `appendX(buf, ...)` helpers that append directly into the caller's scratch buffer.
 - Call `runtime.GC()` once per wake cycle to collect per-cycle garbage. An initial GC runs at the start of `manager.Run()` to reclaim transient boot allocations before the first sleep.
-- Log heap stats (`runtime.MemStats`) and stack watermark each cycle. Stack watermark uses a sentinel pattern (`0xDEADBEEF`) painted at boot via `MCU.PaintStack()`, read back via `MCU.StackFree()`. Output: `mem: heap_alloc=10kb heap_sys=23kb stack_free=1932b`.
+- `heap_sys` (total heap region size) is fixed at link time on bare-metal TinyGo targets and is logged once in the boot banner. Per-cycle output is: `mem: heap_alloc=10kb stack_free=1932b`. Stack watermark uses a sentinel pattern (`0xDEADBEEF`) painted at boot via `MCU.PaintStack()`, read back via `MCU.StackFree()`.
 
 ### Interfaces & Layering
 
