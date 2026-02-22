@@ -2,21 +2,11 @@ package main
 
 import (
 	"io"
-	"time"
 
 	"tinygo.org/x/drivers"
 
 	"github.com/cowellmi/gloom/internal/hal"
 )
-
-// RailConfig describes a MOSFET-switched power rail set by board files
-// at compile time (not user-configurable via INI).
-type RailConfig struct {
-	Name      string
-	Pin       uint8
-	ActiveLow bool
-	Always    bool // true = on every wake; false = on-demand (sensors)
-}
 
 // Board holds board-specific peripherals and hardware pin assignments
 // provided by build-tagged board files (e.g. main_feather-m0.go,
@@ -38,9 +28,7 @@ type Board struct {
 	UART   io.Writer
 	USBCDC io.Writer
 
-	LedPin      uint8
-	SDCSPins    []uint8
-	RTCWakePin  uint8
-	Rails       []RailConfig
-	SensorDelay time.Duration
+	LedPin     uint8
+	SDCSPins   []uint8
+	RTCWakePin uint8
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
-	"github.com/cowellmi/gloom/internal/power"
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sink/file"
@@ -24,11 +23,9 @@ func main() {
 	var initErrs []error
 	var initWarns []error
 
-	cfg := config.Default()
-
+	// --- Board comptime ---
 	board := initBoard()
 	board.MCU.PaintStack()
-	board.Rails, board.SensorDelay = initRails()
 	board.MCU.ConfigureLED(board.LedPin)
 	board.MCU.LedOn()
 	board.MCU.EnableWatchdog()
@@ -37,16 +34,8 @@ func main() {
 	board.MCU.PetWatchdog()
 	debug.Log("powering rails...")
 
-	// --- Power rails (from board defaults) ---
-	var rails hal.Rails
-	if ctrl := buildRails(board.Rails, board.SensorDelay); ctrl != nil {
-		ctrl.PowerOff()
-		wait.For(250 * time.Millisecond)
-		ctrl.PowerOn(false)
-		board.MCU.PetWatchdog()
-		wait.For(2 * time.Second)
-		rails = ctrl
-	}
+	// --- Power rails ---
+	rails := initRails(board.MCU.PetWatchdog)
 
 	board.MCU.PetWatchdog()
 	debug.Log("configuring I2C...")
@@ -59,7 +48,7 @@ func main() {
 	board.MCU.PetWatchdog()
 	debug.Log("probing rtc...")
 
-	// --- RTC probe ---
+	// --- RTC ---
 	var clock hal.RTC
 	ds, err := ds3231.Probe(board.I2C, board.RTCWakePin)
 	if err != nil {
@@ -88,7 +77,7 @@ func main() {
 	board.MCU.PetWatchdog()
 	debug.Log("probing sd...")
 
-	// --- SD probe ---
+	// --- SD Card ---
 	type sdEntry struct {
 		card *sdcard.Card
 		cs   uint8
@@ -112,7 +101,9 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- Config loading ---
+	// --- Config ---
+	cfg := config.Default()
+
 	if card != nil {
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
@@ -342,17 +333,6 @@ func needsSDSink(cfg *config.Config) bool {
 		}
 	}
 	return false
-}
-
-func buildRails(rcfg []RailConfig, sensorDelay time.Duration) *power.Controller {
-	if len(rcfg) == 0 {
-		return nil
-	}
-	var pr []power.Rail
-	for _, rc := range rcfg {
-		pr = append(pr, power.NewRail(rc.Pin, rc.ActiveLow, rc.Always))
-	}
-	return power.NewController(sensorDelay, pr...)
 }
 
 // fatal blinks the LED forever to signal a hard failure when no
