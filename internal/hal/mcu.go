@@ -29,23 +29,23 @@ type MCU interface {
 	// pullup, registers a falling-edge interrupt (no-op callback),
 	// prepares standby clocks, and enables the EIC wakeup bit.
 	// The caller must call DisarmWake after Standby returns.
-	ArmWake(pin uint8) error
+	ArmWake(pin Pin) error
 
 	// DisarmWake tears down the wake source for pin: clears the
 	// interrupt registration and the EIC wakeup bit. Safe to call
 	// even if the pin was not previously armed.
-	DisarmWake(pin uint8)
+	DisarmWake(pin Pin)
 
 	// PinFired reports whether pin's interrupt flag was set when
 	// the MCU last woke from Standby. The flag is captured before
 	// DisarmWake clears it, so callers may check at any point
 	// after Standby returns.
-	PinFired(pin uint8) bool
+	PinFired(pin Pin) bool
 
 	// ConfigureI2C performs a bit-banged bus recovery sequence on
 	// the given SDA/SCL pins to release a stuck slave, then
 	// configures the I2C peripheral for normal operation.
-	ConfigureI2C(sda, scl uint8) error
+	ConfigureI2C(sda, scl Pin) error
 
 	// Standby puts the MCU into its deepest sleep mode.
 	Standby()

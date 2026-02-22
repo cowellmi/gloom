@@ -22,8 +22,8 @@ type RTC interface {
 	// pin releases.
 	ClearWake() error
 
-	// WakePin returns the GPIO pin number (as uint8) that the RTC
-	// asserts when a wake interrupt fires. Used by the system to
-	// configure the MCU wake source.
-	WakePin() uint8
+	// WakePin returns the GPIO pin that the RTC asserts when a wake
+	// interrupt fires. Used by the system to configure the MCU wake
+	// source.
+	WakePin() Pin
 }

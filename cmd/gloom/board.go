@@ -8,7 +8,7 @@ import (
 )
 
 // Board holds board-specific peripherals and hardware pin assignments
-// provided by build-tagged board files (e.g. main_feather-m0.go,
+// provided by build-tagged board files (e.g. board_feather-m0.go,
 // power_hypnos.go). main.go consumes this struct without importing
 // machine, keeping all pin/bus mappings in the board file.
 type Board struct {
@@ -20,22 +20,29 @@ type Board struct {
 
 	I2C struct {
 		Bus hal.I2C
-		SDA uint8
-		SCL uint8
+		SDA hal.Pin
+		SCL hal.Pin
 	}
 
 	SPI struct {
 		Bus hal.SPI
-		SCK uint8
-		SDO uint8
-		SDI uint8
+		SCK hal.Pin
+		SDO hal.Pin
+		SDI hal.Pin
 	}
 
-	ADCPin uint8
+	ADCPin hal.Pin
 
-	RTCWakePin uint8
+	RTCWakePin hal.Pin
 
-	SDCSPins []uint8
+	SDCSPins []hal.Pin
+}
+
+// ConfigureLED reassigns the board LED to a different GPIO pin.
+// Called from main after loading config when the user specifies a
+// non-default LED pin.
+func (b *Board) ConfigureLED(pin hal.Pin) {
+	b.LED = newLED(machine.Pin(pin))
 }
 
 type LED struct {
@@ -43,14 +50,9 @@ type LED struct {
 }
 
 func newLED(pin machine.Pin) *LED {
-	l := &LED{}
-	l.Configure(uint8(pin))
-	return l
-}
-
-func (l *LED) Configure(pin uint8) {
-	l.pin = machine.Pin(pin)
+	l := &LED{pin: pin}
 	l.pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	return l
 }
 
 func (l *LED) On() { l.pin.High() }

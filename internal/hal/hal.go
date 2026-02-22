@@ -2,9 +2,7 @@
 //
 // The central type is System, a composable struct that assembles
 // optional hardware components (RTC, power rails) alongside a
-// required MCU into a unified sleep/wake interface. All pin
-// references use uint8 so this package remains testable with the
-// standard Go toolchain.
+// required MCU into a unified sleep/wake interface.
 package hal
 
 import (
@@ -15,6 +13,9 @@ import (
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
+// Pin is a GPIO pin number. It mirrors the underlying type of
+// machine.Pin so conversions between the two are trivial.
+type Pin uint8
 
 // minDeepSleep is the minimum time remaining before a target deadline
 // for deep sleep to be worthwhile. Below this threshold the overhead
@@ -24,7 +25,7 @@ const minDeepSleep = 2 * time.Second
 
 // extPin associates an external interrupt pin with a group slot.
 type extPin struct {
-	pin  uint8
+	pin  Pin
 	slot int
 }
 
@@ -42,7 +43,7 @@ type System struct {
 	rtc   RTC
 	rails Rails
 
-	wakePins []uint8
+	wakePins []Pin
 
 	intervals []time.Duration
 	deadlines []time.Time
@@ -76,7 +77,7 @@ func NewSystem(mcu MCU, rtc RTC, rails Rails, intervals []time.Duration) *System
 // slot. When the system wakes from an external interrupt (no deadline
 // fired), all slots with registered external pins are marked as fired.
 // The pin is also added to the set of deep-sleep wake sources.
-func (s *System) RegisterExternalPin(pin uint8, slot int) {
+func (s *System) RegisterExternalPin(pin Pin, slot int) {
 	s.extPins = append(s.extPins, extPin{pin: pin, slot: slot})
 
 	// Add to wake pin set if not already present.
@@ -90,7 +91,7 @@ func (s *System) RegisterExternalPin(pin uint8, slot int) {
 // AddWakePin registers an additional GPIO pin as a deep-sleep wake
 // source that is not associated with any group slot. On external
 // wake these pins contribute to the wake but don't fire any group.
-func (s *System) AddWakePin(pin uint8) {
+func (s *System) AddWakePin(pin Pin) {
 	s.wakePins = append(s.wakePins, pin)
 }
 

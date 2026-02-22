@@ -10,6 +10,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
@@ -73,7 +74,7 @@ func (m *MCU) Identifier() string { return Name }
 // holding SDA low waiting for clocks. The recovery toggles SCL 9
 // times to let the slave finish its byte and release SDA, then
 // generates a STOP condition. Equivalent to Linux's i2c_recover_bus().
-func (m *MCU) ConfigureI2C(sda, scl uint8) error {
+func (m *MCU) ConfigureI2C(sda, scl hal.Pin) error {
 	sdaPin := machine.Pin(sda)
 	sclPin := machine.Pin(scl)
 
@@ -123,7 +124,7 @@ func (m *MCU) ConfigureI2C(sda, scl uint8) error {
 //  4. Sets the EIC.WAKEUP bit for the pin's external interrupt channel.
 //
 // The pin number is a uint8 matching machine.Pin's underlying type.
-func (m *MCU) ArmWake(pin uint8) error {
+func (m *MCU) ArmWake(pin hal.Pin) error {
 	p := machine.Pin(pin)
 
 	p.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
@@ -150,7 +151,7 @@ func (m *MCU) ArmWake(pin uint8) error {
 // DisarmWake tears down pin as a wake source: clears the interrupt
 // registration and the EIC wakeup bit. Safe to call even if the pin
 // was not previously armed.
-func (m *MCU) DisarmWake(pin uint8) {
+func (m *MCU) DisarmWake(pin hal.Pin) {
 	p := machine.Pin(pin)
 	_ = p.SetInterrupt(0, nil)
 	sam.EIC.WAKEUP.ClearBits(1 << extIntChannel(p))
@@ -158,7 +159,7 @@ func (m *MCU) DisarmWake(pin uint8) {
 
 // PinFired reports whether pin's EIC channel had its interrupt flag
 // set when the MCU last woke from Standby.
-func (m *MCU) PinFired(pin uint8) bool {
+func (m *MCU) PinFired(pin hal.Pin) bool {
 	ch := extIntChannel(machine.Pin(pin))
 	return m.wakeFlags&(1<<ch) != 0
 }

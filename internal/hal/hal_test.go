@@ -11,16 +11,16 @@ var T = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 type mockMCU struct {
 	calls       []string
-	armCalls    []uint8
-	disarmCalls []uint8
-	firedPins   map[uint8]bool
+	armCalls    []Pin
+	disarmCalls []Pin
+	firedPins   map[Pin]bool
 }
 
 func (m *mockMCU) Identifier() string           { return "mock-mcu" }
 func (m *mockMCU) EnableWatchdog()               { m.calls = append(m.calls, "EnableWatchdog") }
 func (m *mockMCU) DisableWatchdog()              { m.calls = append(m.calls, "DisableWatchdog") }
 func (m *mockMCU) PetWatchdog()                  { m.calls = append(m.calls, "PetWatchdog") }
-func (m *mockMCU) ConfigureI2C(_, _ uint8) error { return nil }
+func (m *mockMCU) ConfigureI2C(_, _ Pin) error { return nil }
 func (m *mockMCU) Standby()                      { m.calls = append(m.calls, "Standby") }
 func (m *mockMCU) PaintStack()                   {}
 func (m *mockMCU) StackSize() uint               { return 0 }
@@ -28,29 +28,28 @@ func (m *mockMCU) StackFree() uint               { return 0 }
 
 type mockLED struct{}
 
-func (l *mockLED) Configure(_ uint8) {}
-func (l *mockLED) On()               {}
-func (l *mockLED) Off()              {}
+func (l *mockLED) On()  {}
+func (l *mockLED) Off() {}
 
-func (m *mockMCU) ArmWake(pin uint8) error {
+func (m *mockMCU) ArmWake(pin Pin) error {
 	m.calls = append(m.calls, "ArmWake")
 	m.armCalls = append(m.armCalls, pin)
 	return nil
 }
 
-func (m *mockMCU) DisarmWake(pin uint8) {
+func (m *mockMCU) DisarmWake(pin Pin) {
 	m.calls = append(m.calls, "DisarmWake")
 	m.disarmCalls = append(m.disarmCalls, pin)
 }
 
-func (m *mockMCU) PinFired(pin uint8) bool {
+func (m *mockMCU) PinFired(pin Pin) bool {
 	return m.firedPins[pin]
 }
 
 type mockRTC struct {
 	times      []time.Time
 	timeIdx    int
-	pin        uint8
+	pin        Pin
 	setWakes   []time.Time
 	clearCount int
 }
@@ -76,7 +75,7 @@ func (m *mockRTC) ClearWake() error {
 	return nil
 }
 
-func (m *mockRTC) WakePin() uint8 { return m.pin }
+func (m *mockRTC) WakePin() Pin { return m.pin }
 
 type mockRails struct {
 	powerOnCalls  []bool
@@ -328,7 +327,7 @@ func TestSleep_ExternalWake(t *testing.T) {
 		pin:   12,
 	}
 	rails := &mockRails{}
-	mcu := &mockMCU{firedPins: map[uint8]bool{7: true}}
+	mcu := &mockMCU{firedPins: map[Pin]bool{7: true}}
 	// No interval-based deadlines, one external pin on slot 0.
 	sys := NewSystem(mcu, rtc, rails, []time.Duration{0})
 	sys.RegisterExternalPin(7, 0)
@@ -352,7 +351,7 @@ func TestSleep_ExternalWakeMultipleSlots(t *testing.T) {
 		times: []time.Time{T, T.Add(time.Second)},
 		pin:   12,
 	}
-	mcu := &mockMCU{firedPins: map[uint8]bool{7: true, 8: true}}
+	mcu := &mockMCU{firedPins: map[Pin]bool{7: true, 8: true}}
 	sys := NewSystem(mcu, rtc, nil, []time.Duration{0, 0, 0})
 	sys.RegisterExternalPin(7, 0)
 	sys.RegisterExternalPin(8, 2)
@@ -372,7 +371,7 @@ func TestSleep_ExternalWakeSelectivePin(t *testing.T) {
 		pin:   12,
 	}
 	// Only pin 7 fired; pin 8 did not.
-	mcu := &mockMCU{firedPins: map[uint8]bool{7: true}}
+	mcu := &mockMCU{firedPins: map[Pin]bool{7: true}}
 	sys := NewSystem(mcu, rtc, nil, []time.Duration{0, 0, 0})
 	sys.RegisterExternalPin(7, 0)
 	sys.RegisterExternalPin(8, 2)
@@ -413,7 +412,7 @@ func TestSleep_DeadlineAndExternalSimultaneous(t *testing.T) {
 		pin:   12,
 	}
 	// Both deadline and external pin fire during the same cycle.
-	mcu := &mockMCU{firedPins: map[uint8]bool{7: true}}
+	mcu := &mockMCU{firedPins: map[Pin]bool{7: true}}
 	sys := NewSystem(mcu, rtc, nil, []time.Duration{10 * time.Second, 0})
 	sys.RegisterExternalPin(7, 1)
 

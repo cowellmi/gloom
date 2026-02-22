@@ -23,7 +23,7 @@ const Name = "DS3231"
 // RTC wraps the TinyGo DS3231 driver and satisfies hal.RTC.
 type RTC struct {
 	dev     *driver.Device
-	wakePin uint8
+	wakePin hal.Pin
 }
 
 // compile-time check
@@ -47,7 +47,7 @@ const (
 // I2C address).
 var errNotFound = errors.New("ds3231: not found")
 
-func Probe(bus drivers.I2C, wakePin uint8) (*RTC, error) {
+func Probe(bus drivers.I2C, wakePin hal.Pin) (*RTC, error) {
 	dev := driver.New(bus)
 
 	if !dev.Configure() {
@@ -140,7 +140,7 @@ func (r *RTC) ClearWake() error {
 }
 
 // WakePin returns the GPIO pin connected to the DS3231 SQW/INT line.
-func (r *RTC) WakePin() uint8 {
+func (r *RTC) WakePin() hal.Pin {
 	return r.wakePin
 }
 

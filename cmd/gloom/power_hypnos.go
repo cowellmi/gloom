@@ -22,7 +22,7 @@ import (
 func initRails() hal.Rails {
 	debug.Log("init: hypnos power rails")
 	return power.NewController(
-		power.NewRail(uint8(machine.D5), power.ActiveLow, true, 0),
-		power.NewRail(uint8(machine.D6), power.ActiveHigh, false, 250*time.Millisecond),
+		power.NewRail(hal.Pin(machine.D5), power.ActiveLow, true, 0),
+		power.NewRail(hal.Pin(machine.D6), power.ActiveHigh, false, 250*time.Millisecond),
 	)
 }

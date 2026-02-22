@@ -6,6 +6,7 @@ import (
 	"machine"
 	"strconv"
 
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
@@ -14,7 +15,7 @@ type Device struct {
 	ms  [1]sensor.Measurement
 }
 
-func NewDevice(pin uint8) *Device {
+func NewDevice(pin hal.Pin) *Device {
 	return &Device{adc: machine.ADC{Pin: machine.Pin(pin)}}
 }
 

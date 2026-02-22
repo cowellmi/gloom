@@ -27,8 +27,8 @@ func main() {
 
 	// --- Board ---
 	board := initBoard()
-	board.MCU.PaintStack()
 	board.LED.On()
+	board.MCU.PaintStack()
 	board.MCU.EnableWatchdog()
 	debug.W = board.Serial
 
@@ -41,9 +41,9 @@ func main() {
 		rails.PowerOff()
 		wait.For(250 * time.Millisecond)
 		rails.PowerOn(false)
+		board.MCU.PetWatchdog()
+		wait.For(2 * time.Second)
 	}
-	board.MCU.PetWatchdog()
-	wait.For(2 * time.Second)
 
 	board.MCU.PetWatchdog()
 	debug.Log("configuring I2C...")
@@ -88,7 +88,7 @@ func main() {
 	// --- SD Card ---
 	type sdEntry struct {
 		card *sdcard.Card
-		cs   uint8
+		cs   hal.Pin
 	}
 	var cards []sdEntry
 	for _, cs := range board.SDCSPins {
@@ -333,7 +333,7 @@ func main() {
 
 	for i, g := range cfg.Groups {
 		if g.ExternalIntPin > 0 {
-			sys.RegisterExternalPin(g.ExternalIntPin, i)
+			sys.RegisterExternalPin(hal.Pin(g.ExternalIntPin), i)
 		}
 	}
 

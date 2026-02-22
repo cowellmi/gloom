@@ -14,6 +14,8 @@ import (
 	"tinygo.org/x/drivers"
 	"tinygo.org/x/drivers/sdcard"
 	"tinygo.org/x/tinyfs/fatfs"
+
+	"github.com/cowellmi/gloom/internal/hal"
 )
 
 // mountRetries is the number of mount attempts before falling back to
@@ -40,7 +42,7 @@ type Card struct {
 // internally by the sdcard driver; the caller should not pre-configure
 // it. spi must be a *machine.SPI; the drivers.SPI interface is used
 // so callers don't need to import the machine package.
-func NewCard(spi drivers.SPI, sck, sdo, sdi, cs uint8) (*Card, error) {
+func NewCard(spi drivers.SPI, sck, sdo, sdi, cs hal.Pin) (*Card, error) {
 	dev := sdcard.New(
 		spi.(*machine.SPI),
 		machine.Pin(sck), machine.Pin(sdo), machine.Pin(sdi), machine.Pin(cs),

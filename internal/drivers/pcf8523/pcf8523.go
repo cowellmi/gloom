@@ -91,7 +91,7 @@ type RTC struct {
 	dev     *driver.Device
 	bus     drivers.I2C
 	addr    uint16
-	wakePin uint8
+	wakePin hal.Pin
 }
 
 // compile-time check
@@ -104,7 +104,7 @@ var _ hal.RTC = (*RTC)(nil)
 // Probe issues a software reset, verifies the post-reset register
 // state, then configures the chip for battery switch-over and
 // interrupt-based wake.
-func Probe(bus drivers.I2C, wakePin uint8) (*RTC, error) {
+func Probe(bus drivers.I2C, wakePin hal.Pin) (*RTC, error) {
 	dev := driver.New(bus)
 	r := &RTC{
 		dev:     &dev,
@@ -265,7 +265,7 @@ func (r *RTC) ClearWake() error {
 }
 
 // WakePin returns the GPIO pin connected to the PCF8523 INT1 line.
-func (r *RTC) WakePin() uint8 {
+func (r *RTC) WakePin() hal.Pin {
 	return r.wakePin
 }
 

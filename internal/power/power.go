@@ -37,7 +37,7 @@ type Rail struct {
 // rails are on-demand and only enabled when fired groups need sensor
 // power. delay is the stabilization time to wait after switching this
 // rail on.
-func NewRail(pin uint8, polarity Polarity, always bool, delay time.Duration) Rail {
+func NewRail(pin hal.Pin, polarity Polarity, always bool, delay time.Duration) Rail {
 	return Rail{pin: machine.Pin(pin), polarity: polarity, always: always, delay: delay}
 }
 

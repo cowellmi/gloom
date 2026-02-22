@@ -6,6 +6,7 @@ import (
 	"io"
 	"machine"
 
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/targets/samd21"
 )
 
@@ -31,21 +32,21 @@ func initBoard() Board {
 
 	// I2C
 	board.I2C.Bus = machine.I2C0
-	board.I2C.SDA = uint8(machine.SDA_PIN)
-	board.I2C.SCL = uint8(machine.SCL_PIN)
+	board.I2C.SDA = hal.Pin(machine.SDA_PIN)
+	board.I2C.SCL = hal.Pin(machine.SCL_PIN)
 
 	// SPI
 	board.SPI.Bus = machine.SPI0
-	board.SPI.SCK = uint8(machine.SPI0_SCK_PIN)
-	board.SPI.SDO = uint8(machine.SPI0_SDO_PIN)
-	board.SPI.SDI = uint8(machine.SPI0_SDI_PIN)
+	board.SPI.SCK = hal.Pin(machine.SPI0_SCK_PIN)
+	board.SPI.SDO = hal.Pin(machine.SPI0_SDO_PIN)
+	board.SPI.SDI = hal.Pin(machine.SPI0_SDI_PIN)
 
 	// ADC
-	board.ADCPin = uint8(machine.D9)
+	board.ADCPin = hal.Pin(machine.D9)
 
 	// Hypnos
-	board.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
-	board.RTCWakePin = uint8(machine.D12)
+	board.SDCSPins = []hal.Pin{hal.Pin(machine.D11), hal.Pin(machine.D10)}
+	board.RTCWakePin = hal.Pin(machine.D12)
 
 	return board
 }
