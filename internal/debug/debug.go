@@ -1,10 +1,12 @@
-// Package debug provides a global debug logger backed by an io.Writer.
-// Import it from any package and call debug.Log to emit messages.
-// Output is silently dropped when no writer is configured.
+// Package debug provides a global debug logger that fans out to
+// multiple io.Writers. Import it from any package and call debug.Log
+// to emit messages. Output is silently dropped when no writers are
+// configured.
 //
 // Usage in main.go:
 //
-//	debug.W = myUART   // set once, early
+//	debug.Add(myUART)    // set once, early
+//	debug.Add(myUSBCDC)
 //
 // Usage anywhere:
 //
@@ -13,19 +15,40 @@ package debug
 
 import "io"
 
-// W is the debug output destination. Set it to a *machine.UART or
-// any io.Writer early in main. nil by default (all output dropped).
-var W io.Writer
+var writers [2]io.Writer
+var n int
 
 var buf [128]byte
 
-// Log writes msg followed by \r\n to W. No-op when W is nil.
+// Add registers a debug output destination. Callers should add
+// writers early in main before any Log calls. Writers beyond the
+// internal capacity are silently ignored.
+func Add(w io.Writer) {
+	if w == nil || n >= len(writers) {
+		return
+	}
+	writers[n] = w
+	n++
+}
+
+// Reset removes all registered writers. Intended for tests.
+func Reset() {
+	for i := 0; i < n; i++ {
+		writers[i] = nil
+	}
+	n = 0
+}
+
+// Log writes msg followed by \r\n to all registered writers.
+// No-op when no writers are configured.
 func Log(msg string) {
-	if W == nil {
+	if n == 0 {
 		return
 	}
 	b := buf[:0]
 	b = append(b, msg...)
 	b = append(b, '\r', '\n')
-	W.Write(b)
+	for i := 0; i < n; i++ {
+		writers[i].Write(b)
+	}
 }

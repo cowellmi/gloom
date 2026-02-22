@@ -200,7 +200,7 @@ These are specific to the current target and live in `drivers/ds3231/`, `power/`
 
 ### Debugging
 
-The `internal/debug` package provides a global `debug.Log` backed by an `io.Writer`. The board-specific init file (e.g. `main_feather_m0.go`) wires `debug.W = UART0` early in `initBoard()`, so messages appear on the hardware UART serial monitor.
+The `internal/debug` package fans out to multiple `io.Writer`s via `debug.Add`. Early in `main()`, both UART and USB CDC are registered so boot messages appear on whichever serial monitor is connected.
 
 - **`debug.Log` is for local debugging only — do not commit calls to it.** Use it freely while developing, but remove all calls before committing. Committed diagnostic output should go through the structured logger (`log.Logger`) instead.
 - **Do not use `println`.** TinyGo's `println` routes to USB CDC on the Feather M0, not to the hardware UART. The TinyGo `-serial=uart` flag cannot be used because it targets UART1 (SERCOM1 / D10/D11), which conflicts with the Hypnos SD card CS pins.

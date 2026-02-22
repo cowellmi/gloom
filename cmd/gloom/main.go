@@ -29,7 +29,8 @@ func main() {
 	board.MCU.ConfigureLED(board.LedPin)
 	board.MCU.LedOn()
 	board.MCU.EnableWatchdog()
-	debug.W = board.UART
+	debug.Add(board.UART)
+	debug.Add(board.USBCDC)
 
 	board.MCU.PetWatchdog()
 	debug.Log("powering rails...")

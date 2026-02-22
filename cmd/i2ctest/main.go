@@ -35,7 +35,7 @@ func main() {
 	wait.For(2 * time.Second)
 
 	proc, uart := initMCU()
-	debug.W = uart
+	debug.Add(uart)
 
 	debug.Log("")
 	debug.Log("=== I2C RECOVERY TEST ===")

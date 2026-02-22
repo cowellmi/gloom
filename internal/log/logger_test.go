@@ -28,9 +28,9 @@ func (m *mockSink) Flush() error { return m.err }
 
 func TestLog_SinkErrorRoutedToDebug(t *testing.T) {
 	var buf bytes.Buffer
-	old := debug.W
-	debug.W = &buf
-	defer func() { debug.W = old }()
+	debug.Reset()
+	debug.Add(&buf)
+	defer debug.Reset()
 
 	sink := &mockSink{err: errors.New("sd card full")}
 	l := NewLogger(time.Time{})
@@ -46,9 +46,9 @@ func TestLog_SinkErrorRoutedToDebug(t *testing.T) {
 
 func TestLog_NoDebugOutputOnSuccess(t *testing.T) {
 	var buf bytes.Buffer
-	old := debug.W
-	debug.W = &buf
-	defer func() { debug.W = old }()
+	debug.Reset()
+	debug.Add(&buf)
+	defer debug.Reset()
 
 	sink := &mockSink{}
 	l := NewLogger(time.Time{})
