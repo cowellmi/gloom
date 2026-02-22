@@ -78,7 +78,7 @@ Notehub environment variables are hierarchical (project → fleet → device). S
 
 This means a freshly flashed device with no SD card still boots, self-identifies, and becomes configurable from the cloud once the Notecard connects.
 
-Once Blues config is loaded before SD probing, `sd_cs_pins` can be added back to `config.ini` so the Notecard can override board-default CS pins. Currently `SDCSPins` is only set by the board file (`initBoard`) because config lives on the SD card (chicken-and-egg).
+Once Blues config is loaded before SD probing, `sd_cs_pins` can be added back to `config.ini` so the Notecard can override board-default CS pins. Currently `SDCSPins` is only set by the board file (`initBoard()`) on the `Board` struct because config lives on the SD card (chicken-and-egg).
 
 #### 5. Data sink — `internal/sink/notecard/notecard.go`
 
@@ -112,7 +112,7 @@ Implement `hal.MCU` for the nRF52840:
 //go:build feather_nrf52840
 ```
 
-Provides `initMCU() hal.MCU` and `boardDefaults(cfg *config.Config)`. The nRF52840 Feather exposes UART on D0/D1 via `machine.UART0`.
+Provides `initBoard() Board` with MCU, peripherals, and pin assignments. The nRF52840 Feather exposes UART on D0/D1 via `machine.UART0`.
 
 #### 3. Sleep considerations
 

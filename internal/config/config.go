@@ -53,9 +53,7 @@ type Config struct {
 	Groups []Group
 }
 
-// Default returns a Config with debug-friendly defaults. Board-specific
-// pin and rail settings are not set here — board files apply those via
-// initBoard() before any external config is loaded.
+// Default returns a Config with debug-friendly defaults.
 func Default() Config {
 	return Config{
 		Device: Device{
