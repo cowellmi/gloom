@@ -13,14 +13,14 @@ import (
 func TestDefault(t *testing.T) {
 	cfg := Default()
 
-	if len(cfg.Device.LogSinks) != 2 {
-		t.Fatalf("LogSinks = %v, want 2 entries", cfg.Device.LogSinks)
+	if len(cfg.Device.LogSinks) != 1 {
+		t.Fatalf("LogSinks = %v, want 1 entries", cfg.Device.LogSinks)
 	}
-	if cfg.Device.LogSinks[0].Name != "uart" || cfg.Device.LogSinks[0].Level != log.LevelDebug {
-		t.Errorf("LogSinks[0] = %+v, want uart:debug", cfg.Device.LogSinks[0])
+	if cfg.Device.LogSinks[0].Name != "serial" || cfg.Device.LogSinks[0].Level != log.LevelDebug {
+		t.Errorf("LogSinks[0] = %+v, want serial:debug", cfg.Device.LogSinks[0])
 	}
-	wantSinks := []string{"uart", "usb"}
-	if len(cfg.Device.DataSinks) != 2 || cfg.Device.DataSinks[0] != wantSinks[0] || cfg.Device.DataSinks[1] != wantSinks[1] {
+	wantSinks := []string{"serial"}
+	if len(cfg.Device.DataSinks) != 1 || cfg.Device.DataSinks[0] != wantSinks[0] {
 		t.Errorf("DataSinks = %v, want %v", cfg.Device.DataSinks, wantSinks)
 	}
 	if len(cfg.Groups) != 1 {
@@ -46,8 +46,8 @@ func TestDefault(t *testing.T) {
 func TestParse_DeviceSection(t *testing.T) {
 	input := []byte(`
 [device]
-log_sinks = uart:debug, sd:error
-data_sinks = uart, usb, sd
+log_sinks = serial:debug, sd:error
+data_sinks = serial, sd
 `)
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
@@ -61,18 +61,18 @@ data_sinks = uart, usb, sd
 		t.Errorf("LogSinks[1] = %+v, want sd:error", cfg.Device.LogSinks[1])
 	}
 
-	if len(cfg.Device.DataSinks) != 3 {
+	if len(cfg.Device.DataSinks) != 2 {
 		t.Fatalf("DataSinks = %v, want 3 entries", cfg.Device.DataSinks)
 	}
-	if cfg.Device.DataSinks[2] != "sd" {
-		t.Errorf("DataSinks[2] = %q, want sd", cfg.Device.DataSinks[2])
+	if cfg.Device.DataSinks[1] != "sd" {
+		t.Errorf("DataSinks[1] = %q, want sd", cfg.Device.DataSinks[1])
 	}
 }
 
 func TestParse_LogSinksDefaultLevel(t *testing.T) {
 	input := []byte(`
 [device]
-log_sinks = uart, usb
+log_sinks = serial, sd
 `)
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
@@ -88,7 +88,7 @@ log_sinks = uart, usb
 func TestParse_LogSinksInvalidLevel(t *testing.T) {
 	input := []byte(`
 [device]
-log_sinks = uart:verbose
+log_sinks = serial:verbose
 `)
 	cfg := Default()
 	err := Parse(input, &cfg)
@@ -139,7 +139,7 @@ func TestParse_DeviceUnknownKey(t *testing.T) {
 func TestParse_MultipleGroups(t *testing.T) {
 	input := []byte(`
 [device]
-data_sinks = uart
+data_sinks = serial
 
 [weather]
 interval = 1m
@@ -235,7 +235,7 @@ sensors = tipping_bucket
 func TestParse_RepeatedSection(t *testing.T) {
 	input := []byte(`
 [device]
-data_sinks = uart
+data_sinks = serial
 
 [weather]
 interval = 1m
@@ -265,7 +265,7 @@ sensors = temp
 func TestParse_InlineComments(t *testing.T) {
 	input := []byte(`
 [device]
-data_sinks = uart
+data_sinks = serial
 
 [weather]
 interval = 5m # every five minutes
@@ -321,7 +321,7 @@ func TestParse_CommentsAndBlanks(t *testing.T) {
 
 [device]
 # Another comment
-data_sinks = uart
+data_sinks = serial
 
 [sample]
 interval = 3s
@@ -332,8 +332,8 @@ sensors = vbat
 		t.Fatalf("Parse() error: %v", err)
 	}
 
-	if len(cfg.Device.DataSinks) != 1 || cfg.Device.DataSinks[0] != "uart" {
-		t.Errorf("DataSinks = %v, want [uart]", cfg.Device.DataSinks)
+	if len(cfg.Device.DataSinks) != 1 || cfg.Device.DataSinks[0] != "serial" {
+		t.Errorf("DataSinks = %v, want [serial]", cfg.Device.DataSinks)
 	}
 	if cfg.Groups[0].Interval != 3*time.Second {
 		t.Errorf("Interval = %v, want 3s", cfg.Groups[0].Interval)
@@ -346,7 +346,7 @@ func TestParse_EmptyInput(t *testing.T) {
 		t.Fatalf("Parse() error: %v", err)
 	}
 
-	if len(cfg.Device.LogSinks) != 2 {
+	if len(cfg.Device.LogSinks) != 1 {
 		t.Error("LogSinks should retain defaults from Default()")
 	}
 	if len(cfg.Groups) != 0 {
@@ -359,7 +359,7 @@ func TestParse_EmptyInput(t *testing.T) {
 func TestParse_GroupMissingTrigger(t *testing.T) {
 	input := []byte(`
 [device]
-data_sinks = uart
+data_sinks = serial
 
 [weather]
 sensors = temp
@@ -541,8 +541,8 @@ func TestParse_PayloadVariants(t *testing.T) {
 func TestParse_FullExample(t *testing.T) {
 	input := []byte(`
 [device]
-log_sinks = uart:debug, usb:debug, sd:error
-data_sinks = uart, usb, sd
+log_sinks = serial:debug, sd:error
+data_sinks = serial, sd
 
 [weather]
 interval = 1m
@@ -564,10 +564,10 @@ payload = full
 	}
 
 	// Device
-	if len(cfg.Device.LogSinks) != 3 {
+	if len(cfg.Device.LogSinks) != 2 {
 		t.Fatalf("LogSinks = %d, want 3", len(cfg.Device.LogSinks))
 	}
-	if len(cfg.Device.DataSinks) != 3 {
+	if len(cfg.Device.DataSinks) != 2 {
 		t.Fatalf("DataSinks = %d, want 3", len(cfg.Device.DataSinks))
 	}
 

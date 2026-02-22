@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"io"
 	"runtime"
 	"strconv"
 	"time"
@@ -32,7 +31,7 @@ func main() {
 	board.MCU.ConfigureLED(board.LEDPin)
 	board.MCU.LedOn()
 	board.MCU.EnableWatchdog()
-	debug.W = io.MultiWriter(board.SerialWriters...)
+	debug.W = board.Serial
 
 	board.MCU.PetWatchdog()
 	debug.Log("powering rails...")
@@ -150,11 +149,9 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// --- Log sinks ---
+	serialSink := serial.NewSink(board.Serial)
 
-	uartSink := serial.NewSink(board.UART)
-	usbSink := serial.NewSink(board.USBCDC)
-
-	var fileSink *file.Sink
+	var sdCardFileSink *file.Sink
 	if card != nil && needsSDSink(&cfg) {
 		if err := card.Mkdir("GLOOM"); err != nil {
 			initErrs = append(initErrs, errors.New("sd: "+err.Error()))
@@ -164,7 +161,7 @@ func main() {
 			return card.OpenAppend(name)
 		}
 		var fileErr error
-		fileSink, fileErr = file.New("sd", opener, file.FileSpec{
+		sdCardFileSink, fileErr = file.New("sd", opener, file.FileSpec{
 			Dir: "GLOOM",
 			Ext: ".CSV",
 		}, file.FileSpec{
@@ -183,13 +180,13 @@ func main() {
 
 	for _, ls := range cfg.Device.LogSinks {
 		switch ls.Name {
-		case "uart":
-			logger.AddSink(uartSink, ls.Level)
-		case "usb":
-			logger.AddSink(usbSink, ls.Level)
+		case "serial":
+			logger.AddSink(serialSink, ls.Level)
 		case "sd":
-			if fileSink != nil {
-				logger.AddSink(fileSink, ls.Level)
+			if sdCardFileSink != nil {
+				logger.AddSink(sdCardFileSink, ls.Level)
+			} else {
+				initWarns = append(initWarns, errors.New(""))
 			}
 		}
 	}
@@ -201,13 +198,11 @@ func main() {
 	var recorders []sensor.Recorder
 	for _, name := range cfg.Device.DataSinks {
 		switch name {
-		case "uart":
-			recorders = append(recorders, uartSink)
-		case "usb":
-			recorders = append(recorders, usbSink)
+		case "serial":
+			recorders = append(recorders, serialSink)
 		case "sd":
-			if fileSink != nil {
-				recorders = append(recorders, fileSink)
+			if sdCardFileSink != nil {
+				recorders = append(recorders, sdCardFileSink)
 			}
 		}
 	}

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"io"
 	"machine"
 
 	"github.com/cowellmi/gloom/internal/targets/samd21"
@@ -13,18 +14,14 @@ import (
 func initBoard() Board {
 	var board Board
 
-	// UART serial.
-	uart0 := machine.UART0
-	_ = uart0.Configure(machine.UARTConfig{
+	// Serial.
+	_ = machine.UART0.Configure(machine.UARTConfig{
 		BaudRate: 115200,
 		TX:       machine.UART0_TX_PIN,
 		RX:       machine.UART0_RX_PIN,
 	})
-	board.SerialWriters = append(board.SerialWriters, uart0)
-
-	// USB CDC serial.
 	_ = machine.Serial.Configure(machine.UARTConfig{BaudRate: 115200})
-	board.SerialWriters = append(board.SerialWriters, machine.Serial)
+	board.Serial = io.MultiWriter(machine.UART0, machine.Serial)
 
 	// MCU.
 	board.MCU = samd21.New()

@@ -19,7 +19,7 @@ const (
 )
 
 // LogSinkEntry pairs a sink name with its minimum log level.
-// Parsed from the "name:level" syntax (e.g. "uart:debug").
+// Parsed from the "name:level" syntax (e.g. "serial:debug").
 // When no level is specified, LevelDebug is assumed.
 type LogSinkEntry struct {
 	Name  string
@@ -58,10 +58,9 @@ func Default() Config {
 	return Config{
 		Device: Device{
 			LogSinks: []LogSinkEntry{
-				{Name: "uart", Level: log.LevelDebug},
-				{Name: "usb", Level: log.LevelDebug},
+				{Name: "serial", Level: log.LevelDebug},
 			},
-			DataSinks: []string{"uart", "usb"},
+			DataSinks: []string{"serial"},
 		},
 		Groups: []Group{
 			{
@@ -211,7 +210,7 @@ func validateGroup(g *Group, dev *Device) error {
 
 // --- parse helpers ---
 
-var knownSinks = []string{"uart", "usb", "sd"}
+var knownSinks = []string{"serial", "sd"}
 
 func validSinkName(name string) bool {
 	for _, s := range knownSinks {
@@ -292,7 +291,7 @@ func parsePayload(value string) (Payload, error) {
 
 func parseStringList(value string) []string {
 	var result []string
-	for _, p := range strings.Split(value, ",") {
+	for p := range strings.SplitSeq(value, ",") {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue

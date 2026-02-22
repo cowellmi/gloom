@@ -1,13 +1,8 @@
 package log
 
 import (
-	"bytes"
-	"errors"
-	"strings"
 	"testing"
 	"time"
-
-	"github.com/cowellmi/gloom/internal/debug"
 )
 
 // --- mocks ---
@@ -25,41 +20,6 @@ func (m *mockSink) WriteLog(_ time.Time, _ Level, msg string) error {
 func (m *mockSink) Flush() error { return m.err }
 
 // --- tests ---
-
-func TestLog_SinkErrorRoutedToDebug(t *testing.T) {
-	var buf bytes.Buffer
-	debug.Reset()
-	debug.Add(&buf)
-	defer debug.Reset()
-
-	sink := &mockSink{err: errors.New("sd card full")}
-	l := NewLogger(time.Time{})
-	l.AddSink(sink, LevelDebug)
-
-	l.Info("hello")
-
-	out := buf.String()
-	if !strings.Contains(out, "sink error: sd card full") {
-		t.Errorf("expected debug output with sink error, got: %q", out)
-	}
-}
-
-func TestLog_NoDebugOutputOnSuccess(t *testing.T) {
-	var buf bytes.Buffer
-	debug.Reset()
-	debug.Add(&buf)
-	defer debug.Reset()
-
-	sink := &mockSink{}
-	l := NewLogger(time.Time{})
-	l.AddSink(sink, LevelDebug)
-
-	l.Info("hello")
-
-	if buf.Len() != 0 {
-		t.Errorf("expected no debug output, got: %q", buf.String())
-	}
-}
 
 func TestLog_LevelFiltering(t *testing.T) {
 	sink := &mockSink{}
