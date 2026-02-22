@@ -28,7 +28,7 @@ func main() {
 
 	board := initBoard()
 	board.MCU.PaintStack()
-	initRails(&board) // see board_hypnos.go
+	board.Rails, board.SensorDelay = initRails()
 	board.MCU.ConfigureLED(board.LedPin)
 	board.MCU.LedOn()
 	board.MCU.EnableWatchdog()
@@ -218,7 +218,7 @@ func main() {
 			if !ok {
 				newDevice, found := sensorRegistry[id]
 				if !found {
-					initErrs = append(initErrs, errors.New("config: ["+gcfg.Name+"] unknown sensor: "+id))
+					initErrs = append(initErrs, errors.New("config: ["+gcfg.Name+"] Unknown sensor: "+id))
 					continue
 				}
 				dev = newDevice()
@@ -249,7 +249,7 @@ func main() {
 	if clock != nil {
 		logger.Debug("rtc: " + clock.Identifier())
 	} else {
-		logger.Debug("rtc: none")
+		logger.Debug("rtc: NONE")
 	}
 
 	if len(cards) > 0 {
@@ -259,10 +259,10 @@ func main() {
 		}
 		logger.Debug(sd)
 		if !needsSDSink(&cfg) {
-			logger.Warn("sd: card detected but not configured as a sink")
+			logger.Warn("sd: Card detected but not configured as a sink.")
 		}
 	} else {
-		logger.Debug("sd: none")
+		logger.Debug("sd: NONE")
 	}
 
 	if len(cfg.Device.LogSinks) > 0 {
@@ -305,7 +305,8 @@ func main() {
 	if clock == nil {
 		for _, d := range intervals {
 			if d > 0 {
-				logger.Warn("timed groups configured without an RTC; deep sleep disabled! Using idle sleep.")
+				logger.Warn("config: Timed groups configured without an RTC.")
+				logger.Warn("config: Deep sleep disabled! Using idle sleep.")
 				break
 			}
 		}

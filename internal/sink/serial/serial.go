@@ -16,7 +16,7 @@ import (
 
 // Sink writes formatted text lines to a serial io.Writer.
 // Write errors are ignored: serial is a diagnostic channel and
-// transient failures (e.g. USB-CDC host not listening) should not
+// transient failures (e.g. USB CDC host not listening) should not
 // impact behaviour.
 type Sink struct {
 	w   io.Writer
@@ -84,4 +84,3 @@ func appendTwoDigits(buf []byte, n int) []byte {
 	}
 	return strconv.AppendInt(buf, int64(n), 10)
 }
-

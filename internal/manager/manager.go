@@ -40,9 +40,9 @@ type Manager struct {
 	wakeTime  time.Time
 	ledOn     func()
 	ledOff    func()
-	petWDT     func()
-	stackFree  func() uint
-	buf        [64]byte
+	petWDT    func()
+	stackFree func() uint
+	buf       [64]byte
 
 	// Deduplicated sensor list built at construction. measured is a
 	// parallel slice reset each cycle to track which sensors have

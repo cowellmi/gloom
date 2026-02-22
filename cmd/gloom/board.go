@@ -19,8 +19,8 @@ type RailConfig struct {
 }
 
 // Board holds board-specific peripherals and hardware pin assignments
-// provided by build-tagged board files (e.g. main_feather_m0.go,
-// board_hypnos.go). main.go consumes this struct without importing
+// provided by build-tagged board files (e.g. main_feather-m0.go,
+// power_hypnos.go). main.go consumes this struct without importing
 // machine, keeping all pin/bus mappings in the board file.
 type Board struct {
 	MCU hal.MCU

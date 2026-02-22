@@ -65,8 +65,8 @@ Without an RTC or power rails, `hal.System.Sleep()` degrades to idle busy-wait u
 cmd/gloom/
   main.go              Generic boot: config-driven probe, sinks, group resolution, manager
   main_feather-m0.go   //go:build feather_m0 — initBoard(), UART0, pin defaults
-  board_hypnos.go      //go:build feather_m0 && !no_hypnos — initRails() sets Hypnos D5/D6 rail defaults
-  board_no_hypnos.go   //go:build feather_m0 && no_hypnos — initRails() is a no-op (no rail control)
+  power_hypnos.go      //go:build feather_m0 && !no_hypnos — initRails() returns Hypnos D5/D6 rail defaults
+  power_no_hypnos.go   //go:build feather_m0 && no_hypnos — initRails() returns nil (no rail control)
   board.go             Board struct shared across board files
   registry.go          Sensor registry (universal)
 internal/
@@ -169,13 +169,13 @@ _ = s.rtc.ClearWake()
 2. If the board has a new RTC chip, create `internal/drivers/<chip>/<chip>.go` implementing `hal.RTC`.
 3. If the board has power rail control, add a build-tagged `board_<name>.go` in `cmd/gloom/` that provides `initRails(board *Board)` to populate `board.Rails` with pin, polarity, and always/on-demand settings. Rail configuration is a compile-time board decision, not INI-configurable. Hypnos is the default for `feather_m0`; pass `-tags no_hypnos` to build without rail control.
 4. Add `cmd/gloom/main_<board>.go` with a `//go:build <board_tag>` constraint. It must provide:
-   - `initBoard() Board` — configure MCU, UART, USB-CDC, I2C, SPI, and set board-specific hardware pin assignments (`LedPin`, `SDCSPins`, `RTCWakePin`, etc.) on the returned `Board`.
+   - `initBoard() Board` — configure MCU, UART, USB CDC, I2C, SPI, and set board-specific hardware pin assignments (`LedPin`, `SDCSPins`, `RTCWakePin`, etc.) on the returned `Board`.
 5. The generic `main.go`, sensor registry, and all `internal/` logic stay untouched.
 6. Build with `tinygo build -target=<board> ./cmd/gloom/` — TinyGo's build tags select the right board file automatically.
 
 ### Style
 
-- No `fmt` package — it's too large for TinyGo on constrained targets. Use `strconv` and manual `append` for string building. Do not use `println` — it routes to USB-CDC which is unreliable on this target.
+- No `fmt` package — it's too large for TinyGo on constrained targets. Use `strconv` and manual `append` for string building. Do not use `println` — it routes to USB CDC which is unreliable on this target.
 - String building via `append(buf, ...)` chains.
 - Prefer returning errors over panicking.
 - Short, descriptive variable names (`cfg`, `proc`, `sys`, `buf`, `ms`).
@@ -186,7 +186,7 @@ _ = s.rtc.ClearWake()
 These are specific to the current target and live in `drivers/ds3231/`, `power/`, and `targets/samd21/`:
 
 - Pin 12 is the DS3231 alarm interrupt line (active-low, needs pullup).
-- 3.3 V rail (pin 5) is **active-low** — `Low()` = on, `High()` = off. Set in `board_hypnos.go` `initRails()` (build tag: `feather_m0 && !no_hypnos`).
+- 3.3 V rail (pin 5) is **active-low** — `Low()` = on, `High()` = off. Set in `power_hypnos.go` `initRails()` (build tag: `feather_m0 && !no_hypnos`).
 - After powering on rails, wait `powerOnDelay` (2 s) for voltage to stabilize before talking to sensors.
 - Before STANDBY: detach USB, disable SysTick (prevents a known SAMD21 lock-up). After wake: re-enable SysTick, re-attach USB.
 - GCLK_EIC must be rerouted to GCLK6 (OSCULP32K, run-in-standby) so edge-detection works during STANDBY sleep. `prepareStandby()` (called internally by `ArmWake`) handles this and is idempotent.
@@ -203,8 +203,8 @@ These are specific to the current target and live in `drivers/ds3231/`, `power/`
 The `internal/debug` package provides a global `debug.Log` backed by an `io.Writer`. The board-specific init file (e.g. `main_feather_m0.go`) wires `debug.W = UART0` early in `initBoard()`, so messages appear on the hardware UART serial monitor.
 
 - **`debug.Log` is for local debugging only — do not commit calls to it.** Use it freely while developing, but remove all calls before committing. Committed diagnostic output should go through the structured logger (`log.Logger`) instead.
-- **Do not use `println`.** TinyGo's `println` routes to USB-CDC on the Feather M0, not to the hardware UART. The TinyGo `-serial=uart` flag cannot be used because it targets UART1 (SERCOM1 / D10/D11), which conflicts with the Hypnos SD card CS pins.
-- **Panics and stack traces** still go to USB-CDC (`println` path). To see them, connect a USB cable and open a CDC serial monitor in addition to the UART monitor.
+- **Do not use `println`.** TinyGo's `println` routes to USB CDC on the Feather M0, not to the hardware UART. The TinyGo `-serial=uart` flag cannot be used because it targets UART1 (SERCOM1 / D10/D11), which conflicts with the Hypnos SD card CS pins.
+- **Panics and stack traces** still go to USB CDC (`println` path). To see them, connect a USB cable and open a CDC serial monitor in addition to the UART monitor.
 
 To view UART output, connect a USB-to-serial adapter to D0/D1 and open a monitor at 115200 baud:
 

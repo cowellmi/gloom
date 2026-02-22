@@ -21,7 +21,7 @@ func initBoard() Board {
 	})
 	board.UART = uart0
 
-	// USB-CDC serial.
+	// USB CDC serial.
 	_ = machine.Serial.Configure(machine.UARTConfig{BaudRate: 115200})
 	board.USBCDC = machine.Serial
 
@@ -39,10 +39,12 @@ func initBoard() Board {
 	board.SPI.SDO = uint8(machine.SPI0_SDO_PIN)
 	board.SPI.SDI = uint8(machine.SPI0_SDI_PIN)
 
-	// Hardware pin assignments.
+	// LED.
+	board.LedPin = uint8(machine.LED)
+
+	// Hypnos.
 	board.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
 	board.RTCWakePin = uint8(machine.D12)
-	board.LedPin = uint8(machine.LED)
 
 	return board
 }

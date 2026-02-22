@@ -46,7 +46,7 @@ func NewCard(spi drivers.SPI, sck, sdo, sdi, cs uint8) (*Card, error) {
 		machine.Pin(sck), machine.Pin(sdo), machine.Pin(sdi), machine.Pin(cs),
 	)
 	if err := dev.Configure(); err != nil {
-		return nil, errors.New("sdcard: " + err.Error())
+		return nil, err
 	}
 
 	filesystem := fatfs.New(&dev)
@@ -66,7 +66,7 @@ func NewCard(spi drivers.SPI, sck, sdo, sdi, cs uint8) (*Card, error) {
 
 	// All mount attempts exhausted. Return the last error so the
 	// caller can treat it as fatal (blink LED, halt).
-	return nil, errors.New("sdcard: mount failed after " + strconv.Itoa(mountRetries) + " attempts: " + mountErr.Error())
+	return nil, errors.New("mount failed after " + strconv.Itoa(mountRetries) + " attempts: " + mountErr.Error())
 }
 
 // ReadFile reads an entire file into a byte slice. Intended for small
@@ -134,7 +134,7 @@ func (c *Card) OpenAppend(name string) (File, error) {
 		// The concrete *fatfs.File always satisfies File. If this
 		// fails something is very wrong with the driver.
 		f.Close()
-		return nil, errors.New("sdcard: file does not support sync")
+		return nil, errors.New("file does not support sync")
 	}
 	return af, nil
 }
