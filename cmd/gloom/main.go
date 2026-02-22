@@ -15,6 +15,7 @@ import (
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
+	"github.com/cowellmi/gloom/internal/sensor/vbat"
 	"github.com/cowellmi/gloom/internal/sink/file"
 	"github.com/cowellmi/gloom/internal/sink/serial"
 	"github.com/cowellmi/gloom/internal/wait"
@@ -27,12 +28,11 @@ func main() {
 	// --- Board ---
 	board := initBoard()
 	board.MCU.PaintStack()
-	board.MCU.ConfigureLED(board.LedPin)
+	board.MCU.ConfigureLED(board.LEDPin)
 	board.MCU.LedOn()
 	board.MCU.EnableWatchdog()
 	debug.Add(board.UART)
 	debug.Add(board.USBCDC)
-
 	board.MCU.PetWatchdog()
 	debug.Log("powering rails...")
 
@@ -110,6 +110,18 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
+	// --- Sensors ---
+	sensorRegistry := make(map[string]func() sensor.Device)
+
+	if board.ADCPin != 0 {
+		sensorRegistry["vbat"] = func() sensor.Device {
+			return vbat.NewDevice(board.ADCPin)
+		}
+		board.MCU.PetWatchdog()
+	}
+
+	board.MCU.PetWatchdog()
+
 	// --- Config ---
 	cfg := config.Default()
 
@@ -133,8 +145,6 @@ func main() {
 			}
 		}
 	}
-
-	board.MCU.ConfigureLED(board.LedPin)
 
 	board.MCU.PetWatchdog()
 

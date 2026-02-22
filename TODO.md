@@ -2,11 +2,21 @@
 
 Items are ordered by severity: critical (data loss / field failure) first, then high (correctness / memory), medium (conventions / maintainability), low (polish), and finally features.
 
+## Critical
+
+### Standby with no deadlines bricks the device
+
+When every group has `interval = 0` and no external wake pins are registered, `hal.System.Sleep()` still arms the RTC wake pin but never schedules an alarm. The watchdog is disabled and the MCU enters standby with no wake source, hanging until manual reset. Detect the "no deadlines" case and fall back to idle sleep or refuse the configuration before entering standby.
+
 ## Medium
 
 ### Rails not powered off during idleSleep fallback
 
 `hal.System.idleSleep()` busy-waits without calling `rails.PowerOff()`. When the system falls back to idle sleep (no wake pins, or remaining time below `minDeepSleep`), rails stay powered the entire time. For short idle waits this is fine, but for the indefinite case (external-interrupt-only config without deep sleep) it wastes power. Consider cutting on-demand rails during long idle waits, keeping always-rails up for RTC/SD.
+
+### Host `go test` fails for TinyGo-only packages
+
+Running `go test ./...` with the stock Go toolchain fails because packages such as `internal/targets/samd21` import TinyGo-only packages (`device/sam`, `machine`). Add TinyGo build tags or stub files so host-side tooling can list and test non-TinyGo packages without error.
 
 ## Low
 
@@ -17,6 +27,10 @@ After a watchdog reset, the SD card can be stuck mid-SPI-command. The boot cerem
 ### No CSV header row in data files
 
 Data files are written as bare CSV (`timestamp,device,label,value,unit`) but there's no header row. Adding a header on file creation would make the CSVs self-documenting for researchers working with the data offline.
+
+### Init errors lost when SD is the only configured sink
+
+If `[device] log_sinks` only lists the SD card and the card fails to mount, all collected init warnings/errors are dropped because the logger has no working sinks. Fallback to the debug channel (UART/USB) or keep a default sink until after init so failures remain observable.
 
 ### Research config-defined UART
 

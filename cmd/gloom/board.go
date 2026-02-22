@@ -28,7 +28,9 @@ type Board struct {
 	UART   io.Writer
 	USBCDC io.Writer
 
-	LedPin     uint8
+	LEDPin uint8
+	ADCPin uint8
+
 	SDCSPins   []uint8
 	RTCWakePin uint8
 }
