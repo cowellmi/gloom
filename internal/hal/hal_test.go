@@ -16,18 +16,21 @@ type mockMCU struct {
 	firedPins   map[uint8]bool
 }
 
-func (m *mockMCU) Identifier() string              { return "mock-mcu" }
-func (m *mockMCU) EnableWatchdog()                  { m.calls = append(m.calls, "EnableWatchdog") }
-func (m *mockMCU) DisableWatchdog()                 { m.calls = append(m.calls, "DisableWatchdog") }
-func (m *mockMCU) PetWatchdog()                     { m.calls = append(m.calls, "PetWatchdog") }
-func (m *mockMCU) ConfigureI2C(_, _ uint8) error    { return nil }
-func (m *mockMCU) ConfigureLED(_ uint8)             {}
-func (m *mockMCU) LedOn()                           {}
-func (m *mockMCU) LedOff()                          {}
-func (m *mockMCU) Standby()                         { m.calls = append(m.calls, "Standby") }
-func (m *mockMCU) PaintStack()                       {}
-func (m *mockMCU) StackSize() uint                   { return 0 }
-func (m *mockMCU) StackFree() uint                   { return 0 }
+func (m *mockMCU) Identifier() string           { return "mock-mcu" }
+func (m *mockMCU) EnableWatchdog()               { m.calls = append(m.calls, "EnableWatchdog") }
+func (m *mockMCU) DisableWatchdog()              { m.calls = append(m.calls, "DisableWatchdog") }
+func (m *mockMCU) PetWatchdog()                  { m.calls = append(m.calls, "PetWatchdog") }
+func (m *mockMCU) ConfigureI2C(_, _ uint8) error { return nil }
+func (m *mockMCU) Standby()                      { m.calls = append(m.calls, "Standby") }
+func (m *mockMCU) PaintStack()                   {}
+func (m *mockMCU) StackSize() uint               { return 0 }
+func (m *mockMCU) StackFree() uint               { return 0 }
+
+type mockLED struct{}
+
+func (l *mockLED) Configure(_ uint8) {}
+func (l *mockLED) On()               {}
+func (l *mockLED) Off()              {}
 
 func (m *mockMCU) ArmWake(pin uint8) error {
 	m.calls = append(m.calls, "ArmWake")

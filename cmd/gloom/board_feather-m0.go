@@ -14,36 +14,36 @@ import (
 func initBoard() Board {
 	var board Board
 
-	// Serial.
-	_ = machine.UART0.Configure(machine.UARTConfig{
+	// MCU
+	board.MCU = samd21.New()
+
+	// Serial
+	machine.UART0.Configure(machine.UARTConfig{
 		BaudRate: 115200,
 		TX:       machine.UART0_TX_PIN,
 		RX:       machine.UART0_RX_PIN,
 	})
-	_ = machine.Serial.Configure(machine.UARTConfig{BaudRate: 115200})
+	machine.Serial.Configure(machine.UARTConfig{BaudRate: 115200})
 	board.Serial = io.MultiWriter(machine.UART0, machine.Serial)
 
-	// MCU.
-	board.MCU = samd21.New()
+	// LED
+	board.LED = newLED(machine.LED)
 
-	// I2C.
-	board.I2C = machine.I2C0
-	board.SDA = uint8(machine.SDA_PIN)
-	board.SCL = uint8(machine.SCL_PIN)
+	// I2C
+	board.I2C.Bus = machine.I2C0
+	board.I2C.SDA = uint8(machine.SDA_PIN)
+	board.I2C.SCL = uint8(machine.SCL_PIN)
 
-	// SPI.
+	// SPI
 	board.SPI.Bus = machine.SPI0
 	board.SPI.SCK = uint8(machine.SPI0_SCK_PIN)
 	board.SPI.SDO = uint8(machine.SPI0_SDO_PIN)
 	board.SPI.SDI = uint8(machine.SPI0_SDI_PIN)
 
-	// LED.
-	board.LEDPin = uint8(machine.LED)
-
-	// ADC.
+	// ADC
 	board.ADCPin = uint8(machine.D9)
 
-	// Hypnos.
+	// Hypnos
 	board.SDCSPins = []uint8{uint8(machine.D11), uint8(machine.D10)}
 	board.RTCWakePin = uint8(machine.D12)
 

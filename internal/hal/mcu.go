@@ -47,19 +47,6 @@ type MCU interface {
 	// configures the I2C peripheral for normal operation.
 	ConfigureI2C(sda, scl uint8) error
 
-	// ConfigureLED configures the given pin as a push-pull output
-	// for use as a status LED. Subsequent LedOn/LedOff calls drive
-	// this pin. Safe to call multiple times (reconfigures the pin).
-	ConfigureLED(pin uint8)
-
-	// LedOn drives the configured LED pin high (active-high boards)
-	// or low (active-low boards). No-op if ConfigureLED was not called.
-	LedOn()
-
-	// LedOff drives the configured LED pin low (active-high boards)
-	// or high (active-low boards). No-op if ConfigureLED was not called.
-	LedOff()
-
 	// Standby puts the MCU into its deepest sleep mode.
 	Standby()
 

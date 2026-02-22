@@ -28,8 +28,7 @@ func main() {
 	// --- Board ---
 	board := initBoard()
 	board.MCU.PaintStack()
-	board.MCU.ConfigureLED(board.LEDPin)
-	board.MCU.LedOn()
+	board.LED.On()
 	board.MCU.EnableWatchdog()
 	debug.W = board.Serial
 
@@ -49,9 +48,9 @@ func main() {
 	board.MCU.PetWatchdog()
 	debug.Log("configuring I2C...")
 
-	if err := board.MCU.ConfigureI2C(board.SDA, board.SCL); err != nil {
+	if err := board.MCU.ConfigureI2C(board.I2C.SDA, board.I2C.SCL); err != nil {
 		board.MCU.DisableWatchdog()
-		fatal(err, board.MCU)
+		fatal(err, board.LED)
 	}
 
 	board.MCU.PetWatchdog()
@@ -59,11 +58,11 @@ func main() {
 
 	// --- RTC ---
 	var clock hal.RTC
-	ds, err := ds3231.Probe(board.I2C, board.RTCWakePin)
+	ds, err := ds3231.Probe(board.I2C.Bus, board.RTCWakePin)
 	if err != nil {
 		board.MCU.PetWatchdog()
 		initWarns = append(initWarns, err)
-		pcf, err := pcf8523.Probe(board.I2C, board.RTCWakePin)
+		pcf, err := pcf8523.Probe(board.I2C.Bus, board.RTCWakePin)
 		if err != nil {
 			initWarns = append(initWarns, err)
 		} else {
@@ -237,7 +236,7 @@ func main() {
 		groups = append(groups, g)
 	}
 
-	board.MCU.LedOff()
+	board.LED.Off()
 
 	// --- Report init warnings and errors ---
 
@@ -341,7 +340,7 @@ func main() {
 	// --- Manager ---
 
 	man := manager.New(sys, groups, recorders, logger)
-	man.SetLED(board.MCU.LedOn, board.MCU.LedOff)
+	man.SetLED(board.LED.On, board.LED.Off)
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackFree)
 
@@ -364,12 +363,12 @@ func needsSDSink(cfg *config.Config) bool {
 
 // fatal blinks the LED forever to signal a hard failure when no
 // serial monitor is connected.
-func fatal(err error, mcu hal.MCU) {
+func fatal(err error, led hal.LED) {
 	debug.Log("FATAL: " + err.Error())
 	for {
-		mcu.LedOn()
+		led.On()
 		wait.For(250 * time.Millisecond)
-		mcu.LedOff()
+		led.Off()
 		wait.For(250 * time.Millisecond)
 	}
 }

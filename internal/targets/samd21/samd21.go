@@ -47,8 +47,6 @@ type MCU struct {
 	standbyReady bool
 	stackPainted bool
 	wakeFlags    uint32
-	ledPin       machine.Pin
-	ledReady     bool
 }
 
 // New returns an MCU ready for use.
@@ -253,26 +251,6 @@ func (m *MCU) PetWatchdog() {
 func (m *MCU) DisableWatchdog() {
 	sam.WDT.CTRL.ClearBits(sam.WDT_CTRL_ENABLE)
 	syncWDT()
-}
-
-// --- LED ---
-
-func (m *MCU) ConfigureLED(pin uint8) {
-	m.ledPin = machine.Pin(pin)
-	m.ledPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	m.ledReady = true
-}
-
-func (m *MCU) LedOn() {
-	if m.ledReady {
-		m.ledPin.High()
-	}
-}
-
-func (m *MCU) LedOff() {
-	if m.ledReady {
-		m.ledPin.Low()
-	}
 }
 
 // --- stack watermark ---
