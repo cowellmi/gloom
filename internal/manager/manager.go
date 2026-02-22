@@ -13,12 +13,13 @@ import (
 )
 
 // system is the interface the manager needs from the hardware layer.
-// It is satisfied by hal.System and by test mocks.
+// It is satisfied by *sleeper.Sleeper and by test mocks.
+// Uses uint8 for pin numbers so Manager does not import hal.
 type system interface {
 	ReadTime() (time.Time, error)
-	Sleep() ([]bool, error)
-	NextWake() time.Duration
+	Sleep(target time.Time) (time.Time, error)
 	PowerOnSensorRails()
+	PinFired(pin uint8) bool
 }
 
 // Group is a resolved runtime group with sensors already wired up.
@@ -26,10 +27,17 @@ type system interface {
 // may be shared across groups — the manager deduplicates measurements.
 type Group struct {
 	Name     string
+	Interval time.Duration
 	PulseLED bool
 	Sensors  []sensor.Device
 	Host     string
 	Payload  config.Payload
+}
+
+// extPin associates an external interrupt pin with a group slot.
+type extPin struct {
+	pin  uint8
+	slot int
 }
 
 type Manager struct {
@@ -50,6 +58,13 @@ type Manager struct {
 	// when multiple fired groups share a sensor.
 	allSensors []sensor.Device
 	measured   []bool
+
+	// Deadline tracking (parallel to groups).
+	deadlines []time.Time // zero until first initialized
+	fired     []bool      // reused each cycle
+
+	// External interrupt pins registered by main.go before Run.
+	extPins []extPin
 }
 
 func New(sys system, groups []Group, recorders []sensor.Recorder, logger *log.Logger) *Manager {
@@ -69,6 +84,7 @@ func New(sys system, groups []Group, recorders []sensor.Recorder, logger *log.Lo
 		}
 	}
 
+	n := len(groups)
 	return &Manager{
 		sys:        sys,
 		groups:     groups,
@@ -78,7 +94,16 @@ func New(sys system, groups []Group, recorders []sensor.Recorder, logger *log.Lo
 		ledOff:     func() {},
 		allSensors: allSensors,
 		measured:   make([]bool, len(allSensors)),
+		deadlines:  make([]time.Time, n),
+		fired:      make([]bool, n),
 	}
+}
+
+// RegisterExternalPin records that pin (as uint8) maps to group slot.
+// Called from main.go before Run. Manager checks sys.PinFired(pin)
+// after each wake to determine whether to fire that group.
+func (m *Manager) RegisterExternalPin(pin uint8, slot int) {
+	m.extPins = append(m.extPins, extPin{pin: pin, slot: slot})
 }
 
 // EnableWatchdog sets a callback the manager calls to pet the hardware
@@ -116,14 +141,20 @@ func (m *Manager) Run() {
 func (m *Manager) step() {
 	fired := m.doSleep()
 
+	// Single pass: gather flags and build the "wake:" log message.
 	needsSensors := false
 	anyFired := false
 	wantLED := false
+	b := m.buf[:0]
+	b = append(b, "wake:"...)
+
 	for i, f := range fired {
 		if !f {
 			continue
 		}
 		anyFired = true
+		b = append(b, ' ')
+		b = append(b, m.groups[i].Name...)
 		if m.groups[i].PulseLED {
 			wantLED = true
 		}
@@ -131,20 +162,12 @@ func (m *Manager) step() {
 			needsSensors = true
 		}
 	}
+
 	if needsSensors {
 		m.sys.PowerOnSensorRails()
 	}
 
-	// Log fired groups.
 	if anyFired {
-		b := m.buf[:0]
-		b = append(b, "wake:"...)
-		for i, f := range fired {
-			if f {
-				b = append(b, ' ')
-				b = append(b, m.groups[i].Name...)
-			}
-		}
 		m.logger.Debug(string(b))
 	}
 
@@ -153,7 +176,7 @@ func (m *Manager) step() {
 		m.measureSensors(fired)
 	}
 
-	// Per-group host/payload.
+	// Per-group host/payload dispatch.
 	for i, f := range fired {
 		if !f {
 			continue
@@ -229,34 +252,88 @@ func (m *Manager) sensorIndex(s sensor.Device) int {
 }
 
 func (m *Manager) doSleep() []bool {
-	nextWake := m.sys.NextWake()
+	// 1. Read time for deadline initialization and next-wake logging.
+	now, rtcErr := m.sys.ReadTime()
+	if rtcErr != nil {
+		now = time.Now()
+	}
+
+	// 2. Initialize zero deadlines on first call.
+	for i, g := range m.groups {
+		if g.Interval > 0 && m.deadlines[i].IsZero() {
+			m.deadlines[i] = now.Add(g.Interval)
+		}
+	}
+
+	// 3. Compute the earliest deadline and log the upcoming sleep.
+	target, _ := m.earliestDeadline()
+	var nextWake time.Duration
+	if !target.IsZero() {
+		nextWake = target.Sub(now)
+	}
 	m.logNextWake(nextWake)
 
+	// 4. Flush before sleeping.
 	m.pet()
-
 	if err := m.flush(); err != nil {
 		m.logger.Error("flush: " + err.Error())
 	}
-
 	m.pet()
 
-	fired, err := m.sys.Sleep()
-	if err != nil {
-		m.logger.Error("sleep: " + err.Error())
-	}
+	// 5. Sleep — wakeTime comes back directly; no additional ReadTime call.
+	wakeTime, sleepErr := m.sys.Sleep(target)
+	m.wakeTime = wakeTime
+	m.logger.SetTime(wakeTime)
 
-	t, rtcErr := m.sys.ReadTime()
-	if rtcErr != nil {
-		t = time.Now()
+	// 6. Log errors.
+	if sleepErr != nil {
+		m.logger.Error("sleep: " + sleepErr.Error())
 	}
-	m.wakeTime = t
-	m.logger.SetTime(t)
-
 	if rtcErr != nil {
 		m.logger.Error("rtc: " + rtcErr.Error())
 	}
 
-	return fired
+	// 7. Resolve which deadline slots fired.
+	for i := range m.fired {
+		m.fired[i] = false
+	}
+	for i, g := range m.groups {
+		if g.Interval > 0 && !m.deadlines[i].IsZero() && !wakeTime.Before(m.deadlines[i]) {
+			m.fired[i] = true
+			for !wakeTime.Before(m.deadlines[i]) {
+				m.deadlines[i] = m.deadlines[i].Add(g.Interval)
+			}
+		}
+	}
+
+	// 8. Resolve ext-pin slots. Checked independently of deadlines
+	// since both can trigger during the same sleep cycle.
+	for _, ep := range m.extPins {
+		if m.sys.PinFired(ep.pin) {
+			m.fired[ep.slot] = true
+		}
+	}
+
+	return m.fired
+}
+
+// earliestDeadline returns the earliest non-zero deadline entry and
+// whether any interval-based deadlines exist at all.
+func (m *Manager) earliestDeadline() (time.Time, bool) {
+	var best time.Time
+	for i, g := range m.groups {
+		if g.Interval <= 0 {
+			continue
+		}
+		t := m.deadlines[i]
+		if t.IsZero() {
+			continue
+		}
+		if best.IsZero() || t.Before(best) {
+			best = t
+		}
+	}
+	return best, !best.IsZero()
 }
 
 func (m *Manager) pet() {

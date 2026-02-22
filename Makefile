@@ -11,7 +11,7 @@ PORT		?= $(GLOOM_PORT)
 SERIAL_PORT ?= $(or $(GLOOM_SERIAL_PORT),$(PORT))
 TAGS		?= $(GLOOM_TAGS)
 
-TEST_PKGS := ./internal/config/ ./internal/hal/ ./internal/log/ ./internal/manager/ ./internal/sink/...
+TEST_PKGS := ./internal/config/ ./internal/hal/ ./internal/log/ ./internal/manager/ ./internal/sleeper/ ./internal/sink/...
 
 SOURCES := $(shell find cmd internal -name '*.go')
 

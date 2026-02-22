@@ -18,6 +18,7 @@ import (
 	"github.com/cowellmi/gloom/internal/sensor/vbat"
 	"github.com/cowellmi/gloom/internal/sink/file"
 	"github.com/cowellmi/gloom/internal/sink/serial"
+	"github.com/cowellmi/gloom/internal/sleeper"
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
@@ -213,6 +214,7 @@ func main() {
 	for _, gcfg := range cfg.Groups {
 		g := manager.Group{
 			Name:     gcfg.Name,
+			Interval: gcfg.Interval,
 			PulseLED: gcfg.PulseLED,
 			Host:     gcfg.Host,
 			Payload:  gcfg.Payload,
@@ -315,13 +317,9 @@ func main() {
 
 	// --- System ---
 
-	intervals := make([]time.Duration, len(cfg.Groups))
-	for i, g := range cfg.Groups {
-		intervals[i] = g.Interval
-	}
 	if clock == nil {
-		for _, d := range intervals {
-			if d > 0 {
+		for _, g := range cfg.Groups {
+			if g.Interval > 0 {
 				logger.Warn("config: timed groups configured without an RTC")
 				logger.Warn("config: deep sleep disabled; using idle sleep")
 				break
@@ -329,17 +327,20 @@ func main() {
 		}
 	}
 
-	sys := hal.NewSystem(board.MCU, clock, rails, intervals)
+	sys := sleeper.New(board.MCU, clock, rails)
 
+	// --- Register external interrupt pins ---
+	// AGENT: can we just do register groups in manager.New if we pass config?
+
+	man := manager.New(sys, groups, recorders, logger)
 	for i, g := range cfg.Groups {
 		if g.ExternalIntPin > 0 {
-			sys.RegisterExternalPin(hal.Pin(g.ExternalIntPin), i)
+			pin := hal.Pin(g.ExternalIntPin)
+			sys.AddWakePin(pin)
+			man.RegisterExternalPin(uint8(pin), i)
 		}
 	}
 
-	// --- Manager ---
-
-	man := manager.New(sys, groups, recorders, logger)
 	man.SetLED(board.LED.On, board.LED.Off)
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackFree)

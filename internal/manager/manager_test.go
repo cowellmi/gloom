@@ -11,6 +11,8 @@ import (
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
+var T = time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+
 // --- mocks ---
 
 type mockOutput struct {
@@ -59,9 +61,9 @@ func (m *mockOutput) countLog(substr string) int {
 }
 
 type mockSystem struct {
-	sleepFn              func() ([]bool, error)
-	timeFn               func() (time.Time, error)
-	nextWakeDuration     time.Duration
+	sleepFn                 func(target time.Time) (time.Time, error)
+	timeFn                  func() (time.Time, error)
+	firedPins               map[uint8]bool
 	powerOnSensorRailsCalls int
 }
 
@@ -69,12 +71,12 @@ func (m *mockSystem) ReadTime() (time.Time, error) {
 	return m.timeFn()
 }
 
-func (m *mockSystem) Sleep() ([]bool, error) {
-	return m.sleepFn()
+func (m *mockSystem) Sleep(target time.Time) (time.Time, error) {
+	return m.sleepFn(target)
 }
 
-func (m *mockSystem) NextWake() time.Duration {
-	return m.nextWakeDuration
+func (m *mockSystem) PinFired(pin uint8) bool {
+	return m.firedPins[pin]
 }
 
 func (m *mockSystem) PowerOnSensorRails() {
@@ -82,12 +84,12 @@ func (m *mockSystem) PowerOnSensorRails() {
 }
 
 type mockSensor struct {
-	name          string
-	initErr       error
-	measurements  []sensor.Measurement
-	measureErr    error
-	initCalls     int
-	measureCalls  int
+	name         string
+	initErr      error
+	measurements []sensor.Measurement
+	measureErr   error
+	initCalls    int
+	measureCalls int
 }
 
 func (m *mockSensor) Name() string { return m.name }
@@ -104,8 +106,15 @@ func (m *mockSensor) Measure() ([]sensor.Measurement, error) {
 
 // --- helpers ---
 
-func fixedTime() (time.Time, error) {
-	return time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC), nil
+// fixedTimeFn returns a timeFn that always returns T.
+func fixedTimeFn() func() (time.Time, error) {
+	return func() (time.Time, error) { return T, nil }
+}
+
+// afterDeadlineSleep returns a sleepFn that ignores target and
+// returns wakeTime (simulating the MCU waking after the deadline).
+func afterDeadlineSleep(wakeTime time.Time) func(time.Time) (time.Time, error) {
+	return func(_ time.Time) (time.Time, error) { return wakeTime, nil }
 }
 
 func newTestManager(sys *mockSystem, groups []Group, recorders []sensor.Recorder) (*Manager, *mockOutput) {
@@ -118,7 +127,199 @@ func newTestManager(sys *mockSystem, groups []Group, recorders []sensor.Recorder
 	return man, mo
 }
 
-// --- tests ---
+// --- deadline tracking tests (migrated from hal_test.go) ---
+
+func TestEarliestDeadline(t *testing.T) {
+	sys := &mockSystem{
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
+	}
+	groups := []Group{
+		{Name: "a", Interval: 10 * time.Second},
+		{Name: "b", Interval: 5 * time.Second},
+	}
+	man, _ := newTestManager(sys, groups, nil)
+
+	// Initialize deadlines by running doSleep once up to the point where
+	// earliestDeadline is meaningful; set them manually for precision.
+	man.deadlines[0] = T.Add(10 * time.Second)
+	man.deadlines[1] = T.Add(5 * time.Second)
+
+	got, hasDeadlines := man.earliestDeadline()
+	want := T.Add(5 * time.Second)
+	if !hasDeadlines {
+		t.Error("earliestDeadline() hasDeadlines = false, want true")
+	}
+	if !got.Equal(want) {
+		t.Errorf("earliestDeadline() = %v, want %v", got, want)
+	}
+}
+
+func TestStep_SingleSlotFires(t *testing.T) {
+	sys := &mockSystem{
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
+	}
+	groups := []Group{{Name: "a", Interval: 10 * time.Second}}
+	man, _ := newTestManager(sys, groups, nil)
+	man.doSleep()
+
+	if !man.fired[0] {
+		t.Error("slot 0 should have fired")
+	}
+}
+
+func TestStep_MultiSlot_OnlyEarliestFires(t *testing.T) {
+	sys := &mockSystem{
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
+	}
+	groups := []Group{
+		{Name: "slow", Interval: time.Minute},
+		{Name: "fast", Interval: 5 * time.Second},
+	}
+	man, _ := newTestManager(sys, groups, nil)
+	man.doSleep()
+
+	if man.fired[0] {
+		t.Error("slot 0 (1m) should not have fired")
+	}
+	if !man.fired[1] {
+		t.Error("slot 1 (5s) should have fired")
+	}
+}
+
+func TestStep_SimultaneousFire(t *testing.T) {
+	sys := &mockSystem{
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
+	}
+	groups := []Group{
+		{Name: "a", Interval: 10 * time.Second},
+		{Name: "b", Interval: 10 * time.Second},
+	}
+	man, _ := newTestManager(sys, groups, nil)
+	man.doSleep()
+
+	if !man.fired[0] || !man.fired[1] {
+		t.Errorf("fired = %v, want [true true]", man.fired)
+	}
+
+	// Both deadlines should have advanced.
+	wantNext := T.Add(20 * time.Second)
+	if !man.deadlines[0].Equal(wantNext) {
+		t.Errorf("deadlines[0] = %v, want %v", man.deadlines[0], wantNext)
+	}
+	if !man.deadlines[1].Equal(wantNext) {
+		t.Errorf("deadlines[1] = %v, want %v", man.deadlines[1], wantNext)
+	}
+}
+
+func TestStep_DeadlineAdvances(t *testing.T) {
+	callCount := 0
+	times := []time.Time{T, T.Add(11 * time.Second)}
+	sys := &mockSystem{
+		timeFn: func() (time.Time, error) {
+			t := times[callCount%len(times)]
+			callCount++
+			return t, nil
+		},
+		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
+	}
+	groups := []Group{{Name: "a", Interval: 10 * time.Second}}
+	man, _ := newTestManager(sys, groups, nil)
+
+	man.doSleep()
+	if !man.fired[0] {
+		t.Fatal("first doSleep: slot 0 should have fired")
+	}
+	// Deadline advances from T+10s to T+20s.
+	want := T.Add(20 * time.Second)
+	if !man.deadlines[0].Equal(want) {
+		t.Errorf("deadline after first fire = %v, want %v", man.deadlines[0], want)
+	}
+}
+
+func TestStep_ExternalPinFires(t *testing.T) {
+	sys := &mockSystem{
+		timeFn:    fixedTimeFn(),
+		sleepFn:   afterDeadlineSleep(T.Add(time.Second)),
+		firedPins: map[uint8]bool{7: true},
+	}
+	// Group with no interval — fires only via ext pin.
+	groups := []Group{{Name: "ext", Interval: 0}}
+	man, _ := newTestManager(sys, groups, nil)
+	man.RegisterExternalPin(7, 0)
+	man.doSleep()
+
+	if !man.fired[0] {
+		t.Error("slot 0 should have fired via external pin")
+	}
+}
+
+func TestStep_PinSelectiveFire(t *testing.T) {
+	sys := &mockSystem{
+		timeFn:    fixedTimeFn(),
+		sleepFn:   afterDeadlineSleep(T.Add(time.Second)),
+		firedPins: map[uint8]bool{7: true}, // pin 8 did not fire
+	}
+	groups := []Group{
+		{Name: "a", Interval: 0},
+		{Name: "b", Interval: 0},
+		{Name: "c", Interval: 0},
+	}
+	man, _ := newTestManager(sys, groups, nil)
+	man.RegisterExternalPin(7, 0)
+	man.RegisterExternalPin(8, 2)
+	man.doSleep()
+
+	if !man.fired[0] || man.fired[1] || man.fired[2] {
+		t.Errorf("fired = %v, want [true false false]", man.fired)
+	}
+}
+
+func TestStep_DeadlineAndPinSimultaneous(t *testing.T) {
+	sys := &mockSystem{
+		timeFn:    fixedTimeFn(),
+		sleepFn:   afterDeadlineSleep(T.Add(11 * time.Second)),
+		firedPins: map[uint8]bool{7: true},
+	}
+	groups := []Group{
+		{Name: "timed", Interval: 10 * time.Second},
+		{Name: "ext", Interval: 0},
+	}
+	man, _ := newTestManager(sys, groups, nil)
+	man.RegisterExternalPin(7, 1)
+	man.doSleep()
+
+	if !man.fired[0] {
+		t.Error("slot 0 (timer) should have fired")
+	}
+	if !man.fired[1] {
+		t.Error("slot 1 (external) should have fired")
+	}
+}
+
+func TestDoSleep_TargetPassedToSleep(t *testing.T) {
+	var capturedTarget time.Time
+	sys := &mockSystem{
+		timeFn: fixedTimeFn(),
+		sleepFn: func(target time.Time) (time.Time, error) {
+			capturedTarget = target
+			return T.Add(6 * time.Second), nil
+		},
+	}
+	groups := []Group{{Name: "a", Interval: 5 * time.Second}}
+	man, _ := newTestManager(sys, groups, nil)
+	man.doSleep()
+
+	want := T.Add(5 * time.Second)
+	if !capturedTarget.Equal(want) {
+		t.Errorf("Sleep called with target %v, want %v", capturedTarget, want)
+	}
+}
+
+// --- existing step() tests (updated for new interface) ---
 
 func TestStep_GroupWithSensorsFires(t *testing.T) {
 	dev := &mockSensor{
@@ -130,13 +331,14 @@ func TestStep_GroupWithSensorsFires(t *testing.T) {
 	recorder := &mockOutput{name: "rec"}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{{
-		Name:    "weather",
-		Sensors: []sensor.Device{dev},
+		Name:     "weather",
+		Interval: 5 * time.Second,
+		Sensors:  []sensor.Device{dev},
 	}}
 
 	man, _ := newTestManager(sys, groups, []sensor.Recorder{recorder})
@@ -169,13 +371,13 @@ func TestStep_SharedSensorMeasuredOnce(t *testing.T) {
 	recorder := &mockOutput{name: "rec"}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true, true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{
-		{Name: "fast", Sensors: []sensor.Device{dev}},
-		{Name: "medium", Sensors: []sensor.Device{dev}},
+		{Name: "fast", Interval: 5 * time.Second, Sensors: []sensor.Device{dev}},
+		{Name: "medium", Interval: 5 * time.Second, Sensors: []sensor.Device{dev}},
 	}
 
 	man, mo := newTestManager(sys, groups, []sensor.Recorder{recorder})
@@ -207,13 +409,13 @@ func TestStep_DifferentSensorsBothMeasured(t *testing.T) {
 	recorder := &mockOutput{name: "rec"}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true, true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{
-		{Name: "fast", Sensors: []sensor.Device{temp}},
-		{Name: "medium", Sensors: []sensor.Device{humidity}},
+		{Name: "fast", Interval: 5 * time.Second, Sensors: []sensor.Device{temp}},
+		{Name: "medium", Interval: 5 * time.Second, Sensors: []sensor.Device{humidity}},
 	}
 
 	man, _ := newTestManager(sys, groups, []sensor.Recorder{recorder})
@@ -237,13 +439,14 @@ func TestStep_SharedSensorOnlyFiredGroupsCounted(t *testing.T) {
 	}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{false, true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
+	// Only "medium" has an interval — only medium fires.
 	groups := []Group{
-		{Name: "fast", Sensors: []sensor.Device{dev}},
-		{Name: "medium", Sensors: []sensor.Device{dev}},
+		{Name: "fast", Interval: 0, Sensors: []sensor.Device{dev}},
+		{Name: "medium", Interval: 5 * time.Second, Sensors: []sensor.Device{dev}},
 	}
 
 	man, mo := newTestManager(sys, groups, nil)
@@ -259,14 +462,15 @@ func TestStep_SharedSensorOnlyFiredGroupsCounted(t *testing.T) {
 
 func TestStep_GroupWithHostFires(t *testing.T) {
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{{
-		Name:    "heartbeat",
-		Host:    "http://localhost:4000",
-		Payload: config.PayloadFull,
+		Name:     "heartbeat",
+		Interval: 5 * time.Second,
+		Host:     "http://localhost:4000",
+		Payload:  config.PayloadFull,
 	}}
 
 	man, mo := newTestManager(sys, groups, nil)
@@ -288,19 +492,21 @@ func TestStep_MultipleGroups(t *testing.T) {
 	rec := &mockOutput{name: "rec"}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true, true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{
 		{
-			Name:    "weather",
-			Sensors: []sensor.Device{weatherSensor},
+			Name:     "weather",
+			Interval: 5 * time.Second,
+			Sensors:  []sensor.Device{weatherSensor},
 		},
 		{
-			Name:    "heartbeat",
-			Host:    "http://localhost",
-			Payload: config.PayloadMin,
+			Name:     "heartbeat",
+			Interval: 5 * time.Second,
+			Host:     "http://localhost",
+			Payload:  config.PayloadMin,
 		},
 	}
 
@@ -319,19 +525,21 @@ func TestStep_OnlyFiredGroupsRun(t *testing.T) {
 	weatherSensor := &mockSensor{name: "temp"}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{false, true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{
 		{
 			Name:    "weather",
+			// No Interval — weather does not fire via deadline.
 			Sensors: []sensor.Device{weatherSensor},
 		},
 		{
-			Name:    "heartbeat",
-			Host:    "http://localhost",
-			Payload: config.PayloadFull,
+			Name:     "heartbeat",
+			Interval: 5 * time.Second,
+			Host:     "http://localhost",
+			Payload:  config.PayloadFull,
 		},
 	}
 
@@ -348,8 +556,8 @@ func TestStep_OnlyFiredGroupsRun(t *testing.T) {
 
 func TestStep_ExternalWake(t *testing.T) {
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{false}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T),
 	}
 
 	groups := []Group{{Name: "weather"}}
@@ -368,13 +576,14 @@ func TestStep_SensorInitError(t *testing.T) {
 	}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{{
-		Name:    "weather",
-		Sensors: []sensor.Device{dev},
+		Name:     "weather",
+		Interval: 5 * time.Second,
+		Sensors:  []sensor.Device{dev},
 	}}
 
 	man, mo := newTestManager(sys, groups, nil)
@@ -398,13 +607,14 @@ func TestStep_SensorMeasureError(t *testing.T) {
 	}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{{
-		Name:    "weather",
-		Sensors: []sensor.Device{dev},
+		Name:     "weather",
+		Interval: 5 * time.Second,
+		Sensors:  []sensor.Device{dev},
 	}}
 
 	man, mo := newTestManager(sys, groups, nil)
@@ -422,11 +632,11 @@ func TestStep_LEDOnPulseLEDGroup(t *testing.T) {
 	var ledOnCalled, ledOffCalled bool
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	groups := []Group{{Name: "sample", PulseLED: true, Host: "http://x"}}
+	groups := []Group{{Name: "sample", Interval: 5 * time.Second, PulseLED: true, Host: "http://x"}}
 
 	man, _ := newTestManager(sys, groups, nil)
 	man.SetLED(func() { ledOnCalled = true }, func() { ledOffCalled = true })
@@ -444,11 +654,11 @@ func TestStep_NoLEDWhenPulseLEDFalse(t *testing.T) {
 	var ledOnCalled bool
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	groups := []Group{{Name: "hb", PulseLED: false, Host: "http://x"}}
+	groups := []Group{{Name: "hb", Interval: 5 * time.Second, PulseLED: false, Host: "http://x"}}
 
 	man, _ := newTestManager(sys, groups, nil)
 	man.SetLED(func() { ledOnCalled = true }, func() {})
@@ -463,10 +673,11 @@ func TestStep_NoLEDOnExternalWake(t *testing.T) {
 	var ledOnCalled bool
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{false}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T),
 	}
 
+	// Group with PulseLED but no Interval — never fires via deadline.
 	groups := []Group{{Name: "weather", PulseLED: true}}
 
 	man, _ := newTestManager(sys, groups, nil)
@@ -482,13 +693,14 @@ func TestStep_PowerOnSensorRailsCalledWhenNeeded(t *testing.T) {
 	dev := &mockSensor{name: "temp", measurements: []sensor.Measurement{{Label: "t", Value: "1", Unit: "C"}}}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{{
-		Name:    "weather",
-		Sensors: []sensor.Device{dev},
+		Name:     "weather",
+		Interval: 5 * time.Second,
+		Sensors:  []sensor.Device{dev},
 	}}
 
 	man, _ := newTestManager(sys, groups, nil)
@@ -501,11 +713,11 @@ func TestStep_PowerOnSensorRailsCalledWhenNeeded(t *testing.T) {
 
 func TestStep_NoSensorRailsForHostOnly(t *testing.T) {
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	groups := []Group{{Name: "hb", Host: "http://x", Payload: config.PayloadFull}}
+	groups := []Group{{Name: "hb", Interval: 5 * time.Second, Host: "http://x", Payload: config.PayloadFull}}
 
 	man, _ := newTestManager(sys, groups, nil)
 	man.step()
@@ -517,10 +729,10 @@ func TestStep_NoSensorRailsForHostOnly(t *testing.T) {
 
 func TestStep_ReadTimeError(t *testing.T) {
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{false}, nil },
 		timeFn: func() (time.Time, error) {
 			return time.Time{}, errors.New("rtc dead")
 		},
+		sleepFn: afterDeadlineSleep(T),
 	}
 
 	groups := []Group{{Name: "x", Host: "http://x"}}
@@ -534,10 +746,10 @@ func TestStep_ReadTimeError(t *testing.T) {
 
 func TestStep_SleepError(t *testing.T) {
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) {
-			return []bool{false}, errors.New("standby failed")
+		timeFn: fixedTimeFn(),
+		sleepFn: func(_ time.Time) (time.Time, error) {
+			return time.Time{}, errors.New("standby failed")
 		},
-		timeFn: fixedTime,
 	}
 
 	groups := []Group{{Name: "x", Host: "http://x"}}
@@ -551,12 +763,12 @@ func TestStep_SleepError(t *testing.T) {
 
 func TestStep_FlushBeforeSleep(t *testing.T) {
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	rec := &mockOutput{name: "rec"}
-	groups := []Group{{Name: "x", Host: "http://x"}}
+	groups := []Group{{Name: "x", Interval: 5 * time.Second, Host: "http://x"}}
 
 	man, mo := newTestManager(sys, groups, []sensor.Recorder{rec})
 	man.step()
@@ -580,13 +792,14 @@ func TestStep_MultipleMeasurements(t *testing.T) {
 	rec := &mockOutput{name: "rec"}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{true}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	groups := []Group{{
-		Name:    "weather",
-		Sensors: []sensor.Device{dev},
+		Name:     "weather",
+		Interval: 5 * time.Second,
+		Sensors:  []sensor.Device{dev},
 	}}
 
 	man, _ := newTestManager(sys, groups, []sensor.Recorder{rec})
@@ -602,8 +815,8 @@ func TestStep_MultipleMeasurements(t *testing.T) {
 
 func TestStep_NilCallbacks(t *testing.T) {
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{false}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T),
 	}
 
 	groups := []Group{{Name: "x", Host: "http://x"}}
@@ -620,8 +833,8 @@ func TestNew_DeduplicatesSensors(t *testing.T) {
 	}
 
 	sys := &mockSystem{
-		sleepFn: func() ([]bool, error) { return []bool{false, false}, nil },
-		timeFn:  fixedTime,
+		timeFn:  fixedTimeFn(),
+		sleepFn: afterDeadlineSleep(T),
 	}
 
 	man, _ := newTestManager(sys, groups, nil)
