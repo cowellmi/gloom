@@ -1,3 +1,5 @@
+//go:build tinygo
+
 // Reads voltage from an ADC pin behind a 2:1 voltage divider
 // (common on Adafruit Feather boards).
 package vbat

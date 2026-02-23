@@ -1,3 +1,5 @@
+//go:build tinygo
+
 // Package sdcard provides a high-level SD card interface backed by a
 // FAT filesystem. It wraps the TinyGo sdcard and fatfs drivers,
 // presenting file-level operations suitable for config loading, data

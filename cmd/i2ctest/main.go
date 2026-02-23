@@ -1,3 +1,5 @@
+//go:build tinygo
+
 // Command i2ctest verifies I2C bus recovery on Hypnos hardware.
 //
 // It hammers DS3231 ReadTime in a tight loop without petting the

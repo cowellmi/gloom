@@ -11,8 +11,6 @@ PORT		?= $(GLOOM_PORT)
 SERIAL_PORT ?= $(or $(GLOOM_SERIAL_PORT),$(PORT))
 TAGS		?= $(GLOOM_TAGS)
 
-TEST_PKGS := ./internal/config/ ./internal/hal/ ./internal/log/ ./internal/manager/ ./internal/sleeper/ ./internal/sink/...
-
 SOURCES := $(shell find cmd internal -name '*.go')
 
 $(BIN): $(SOURCES)
@@ -39,10 +37,10 @@ clean:
 	rm -f $(BIN) $(I2CBIN)
 
 test:
-	go test $(TEST_PKGS)
+	go test ./...
 
 vet:
-	go vet $(TEST_PKGS)
+	go vet ./...
 
 monitor:
 ifeq ($(SERIAL_PORT),)

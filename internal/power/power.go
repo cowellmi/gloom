@@ -1,3 +1,5 @@
+//go:build tinygo
+
 // Package power provides a generic hal.Rails implementation for
 // boards with MOSFET-switched power rails. Each rail is a GPIO pin
 // with a configurable polarity, an always flag, and a stabilization
