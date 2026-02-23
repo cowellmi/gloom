@@ -6,8 +6,8 @@ package vbat
 
 import (
 	"machine"
-	"strconv"
 
+	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
@@ -42,12 +42,12 @@ func (d *Device) Measure() ([]sensor.Measurement, error) {
 
 	var buf [8]byte
 	b := buf[:0]
-	b = strconv.AppendUint(b, uint64(whole), 10)
-	b = append(b, '.')
+	b = fmtbuf.AppendUint(b, uint64(whole), 10)
+	b = fmtbuf.AppendByte(b, '.')
 	if frac < 10 {
-		b = append(b, '0')
+		b = fmtbuf.AppendByte(b, '0')
 	}
-	b = strconv.AppendUint(b, uint64(frac), 10)
+	b = fmtbuf.AppendUint(b, uint64(frac), 10)
 
 	d.ms[0] = sensor.Measurement{
 		Label: "voltage",

@@ -3,10 +3,10 @@ package manager
 import (
 	"errors"
 	"runtime"
-	"strconv"
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
+	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
@@ -150,15 +150,15 @@ func (m *Manager) step() {
 	wantLED := false
 	anyFired := false
 	b := m.buf[:0]
-	b = append(b, "wake:"...)
+	b = fmtbuf.Append(b, "wake:")
 
 	for i, f := range fired {
 		if !f {
 			continue
 		}
 		anyFired = true
-		b = append(b, ' ')
-		b = append(b, m.groups[i].Name...)
+		b = fmtbuf.AppendByte(b, ' ')
+		b = fmtbuf.Append(b, m.groups[i].Name)
 		if m.groups[i].PulseLED {
 			wantLED = true
 		}
@@ -360,9 +360,9 @@ func (m *Manager) pulseLED() {
 
 func (m *Manager) logNextWake(d time.Duration) {
 	b := m.buf[:0]
-	b = append(b, "sleep: next wake in "...)
+	b = fmtbuf.Append(b, "sleep: next wake in ")
 	if d <= 0 {
-		b = append(b, "external"...)
+		b = fmtbuf.Append(b, "external")
 	} else {
 		b = appendDuration(b, d)
 	}
@@ -373,20 +373,20 @@ func appendDuration(b []byte, d time.Duration) []byte {
 	switch {
 	case d < time.Minute:
 		secs := (d + time.Second/2) / time.Second
-		b = strconv.AppendInt(b, int64(secs), 10)
-		return append(b, 's')
+		b = fmtbuf.AppendInt(b, int64(secs), 10)
+		return fmtbuf.AppendByte(b, 's')
 	case d < time.Hour:
 		mins := (d + time.Minute/2) / time.Minute
-		b = strconv.AppendInt(b, int64(mins), 10)
-		return append(b, 'm')
+		b = fmtbuf.AppendInt(b, int64(mins), 10)
+		return fmtbuf.AppendByte(b, 'm')
 	case d < 24*time.Hour:
 		hrs := (d + time.Hour/2) / time.Hour
-		b = strconv.AppendInt(b, int64(hrs), 10)
-		return append(b, 'h')
+		b = fmtbuf.AppendInt(b, int64(hrs), 10)
+		return fmtbuf.AppendByte(b, 'h')
 	default:
 		days := (d + 12*time.Hour) / (24 * time.Hour)
-		b = strconv.AppendInt(b, int64(days), 10)
-		return append(b, 'd')
+		b = fmtbuf.AppendInt(b, int64(days), 10)
+		return fmtbuf.AppendByte(b, 'd')
 	}
 }
 
@@ -394,13 +394,13 @@ func (m *Manager) logMem() {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	b := m.buf[:0]
-	b = append(b, "mem: heap_alloc="...)
-	b = strconv.AppendUint(b, ms.HeapAlloc, 10)
-	b = append(b, 'B')
+	b = fmtbuf.Append(b, "mem: heap_alloc=")
+	b = fmtbuf.AppendUint(b, ms.HeapAlloc, 10)
+	b = fmtbuf.AppendByte(b, 'B')
 	if m.stackUsed != nil {
-		b = append(b, " stack_alloc="...)
-		b = strconv.AppendUint(b, uint64(m.stackUsed()), 10)
-		b = append(b, 'B')
+		b = fmtbuf.Append(b, " stack_alloc=")
+		b = fmtbuf.AppendUint(b, uint64(m.stackUsed()), 10)
+		b = fmtbuf.AppendByte(b, 'B')
 	}
 	m.logger.Debug(string(b))
 }

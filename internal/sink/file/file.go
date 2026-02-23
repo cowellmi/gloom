@@ -16,6 +16,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
@@ -91,15 +92,15 @@ func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error
 	for _, m := range ms {
 		b := s.buf[:0]
 		b = appendTimestamp(b, t)
-		b = append(b, ',')
-		b = append(b, device...)
-		b = append(b, ',')
-		b = append(b, m.Label...)
-		b = append(b, ',')
-		b = append(b, m.Value...)
-		b = append(b, ',')
-		b = append(b, m.Unit...)
-		b = append(b, '\n')
+		b = fmtbuf.AppendByte(b, ',')
+		b = fmtbuf.Append(b, device)
+		b = fmtbuf.AppendByte(b, ',')
+		b = fmtbuf.Append(b, m.Label)
+		b = fmtbuf.AppendByte(b, ',')
+		b = fmtbuf.Append(b, m.Value)
+		b = fmtbuf.AppendByte(b, ',')
+		b = fmtbuf.Append(b, m.Unit)
+		b = fmtbuf.AppendByte(b, '\n')
 		if _, err := s.dataFile.Write(b); err != nil {
 			s.dataFile = nil
 			return err
@@ -121,11 +122,11 @@ func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
 
 	b := s.buf[:0]
 	b = appendTimestamp(b, t)
-	b = append(b, ' ')
+	b = fmtbuf.AppendByte(b, ' ')
 	b = log.AppendLevel(b, level)
-	b = append(b, ' ')
-	b = append(b, msg...)
-	b = append(b, '\n')
+	b = fmtbuf.AppendByte(b, ' ')
+	b = fmtbuf.Append(b, msg)
+	b = fmtbuf.AppendByte(b, '\n')
 	if _, err := s.logFile.Write(b); err != nil {
 		s.logFile = nil
 		return err
@@ -226,15 +227,15 @@ func appendTimestamp(buf []byte, t time.Time) []byte {
 	y, mon, d := t.Date()
 	h, min, sec := t.Clock()
 	buf = append4(buf, y)
-	buf = append(buf, '-')
+	buf = fmtbuf.AppendByte(buf, '-')
 	buf = append2(buf, int(mon))
-	buf = append(buf, '-')
+	buf = fmtbuf.AppendByte(buf, '-')
 	buf = append2(buf, d)
-	buf = append(buf, 'T')
+	buf = fmtbuf.AppendByte(buf, 'T')
 	buf = append2(buf, h)
-	buf = append(buf, ':')
+	buf = fmtbuf.AppendByte(buf, ':')
 	buf = append2(buf, min)
-	buf = append(buf, ':')
+	buf = fmtbuf.AppendByte(buf, ':')
 	buf = append2(buf, sec)
 	return buf
 }

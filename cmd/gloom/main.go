@@ -10,6 +10,7 @@ import (
 
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
+	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/drivers/ds3231"
 	"github.com/cowellmi/gloom/internal/drivers/pcf8523"
 	"github.com/cowellmi/gloom/internal/hal"
@@ -276,29 +277,34 @@ func main() {
 		logger.Debug("sd: NONE")
 	}
 
+	var bootBuf [256]byte
+
 	if len(cfg.Device.LogSinks) > 0 {
-		b := []byte("log sinks:")
+		b := bootBuf[:0]
+		b = fmtbuf.Append(b, "log sinks:")
 		for _, ls := range cfg.Device.LogSinks {
-			b = append(b, ' ')
-			b = append(b, ls.Name...)
+			b = fmtbuf.AppendByte(b, ' ')
+			b = fmtbuf.Append(b, ls.Name)
 		}
 		logger.Debug(string(b))
 	}
 
 	if len(cfg.Device.DataSinks) > 0 {
-		b := []byte("data sinks:")
+		b := bootBuf[:0]
+		b = fmtbuf.Append(b, "data sinks:")
 		for _, ds := range cfg.Device.DataSinks {
-			b = append(b, ' ')
-			b = append(b, ds...)
+			b = fmtbuf.AppendByte(b, ' ')
+			b = fmtbuf.Append(b, ds)
 		}
 		logger.Debug(string(b))
 	}
 
 	if len(cfg.Groups) > 0 {
-		b := []byte("groups:")
+		b := bootBuf[:0]
+		b = fmtbuf.Append(b, "groups:")
 		for _, g := range cfg.Groups {
-			b = append(b, ' ')
-			b = append(b, g.Name...)
+			b = fmtbuf.AppendByte(b, ' ')
+			b = fmtbuf.Append(b, g.Name)
 		}
 		logger.Debug(string(b))
 	} else {
@@ -307,13 +313,14 @@ func main() {
 
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	b := []byte("mem: heap_sys=")
-	b = strconv.AppendUint(b, ms.HeapSys/1024, 10)
-	b = append(b, "KB"...)
+	b := bootBuf[:0]
+	b = fmtbuf.Append(b, "mem: heap_sys=")
+	b = fmtbuf.AppendUint(b, ms.HeapSys/1024, 10)
+	b = fmtbuf.Append(b, "KB")
 	if ss := board.MCU.StackSize(); ss > 0 {
-		b = append(b, " stack_size="...)
-		b = strconv.AppendUint(b, uint64(ss/1024), 10)
-		b = append(b, "KB"...)
+		b = fmtbuf.Append(b, " stack_size=")
+		b = fmtbuf.AppendUint(b, uint64(ss/1024), 10)
+		b = fmtbuf.Append(b, "KB")
 	}
 	logger.Debug(string(b))
 

@@ -121,7 +121,8 @@ func TestAppendTimestamp(t *testing.T) {
 		{time.Date(2026, 1, 1, 23, 59, 59, 0, time.UTC), "[23:59:59] "},
 	}
 	for _, tt := range tests {
-		got := string(appendTimestamp(nil, tt.t))
+		var buf [32]byte
+		got := string(appendTimestamp(buf[:0], tt.t))
 		if got != tt.want {
 			t.Errorf("appendTimestamp(%v) = %q, want %q", tt.t, got, tt.want)
 		}
@@ -140,7 +141,8 @@ func TestAppendTwoDigits(t *testing.T) {
 		{59, "59"},
 	}
 	for _, tt := range tests {
-		got := string(appendTwoDigits(nil, tt.n))
+		var buf [4]byte
+		got := string(appendTwoDigits(buf[:0], tt.n))
 		if got != tt.want {
 			t.Errorf("appendTwoDigits(%d) = %q, want %q", tt.n, got, tt.want)
 		}

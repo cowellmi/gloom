@@ -7,9 +7,9 @@ package serial
 
 import (
 	"io"
-	"strconv"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
@@ -37,15 +37,16 @@ func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error
 	for _, m := range ms {
 		b := s.buf[:0]
 		b = appendTimestamp(b, t)
-		b = append(b, "SEN | "...)
-		b = append(b, device...)
-		b = append(b, ": "...)
-		b = append(b, m.Label...)
-		b = append(b, ": "...)
-		b = append(b, m.Value...)
-		b = append(b, ' ')
-		b = append(b, m.Unit...)
-		b = append(b, '\r', '\n')
+		b = fmtbuf.Append(b, "SEN | ")
+		b = fmtbuf.Append(b, device)
+		b = fmtbuf.Append(b, ": ")
+		b = fmtbuf.Append(b, m.Label)
+		b = fmtbuf.Append(b, ": ")
+		b = fmtbuf.Append(b, m.Value)
+		b = fmtbuf.AppendByte(b, ' ')
+		b = fmtbuf.Append(b, m.Unit)
+		b = fmtbuf.AppendByte(b, '\r')
+		b = fmtbuf.AppendByte(b, '\n')
 		_, _ = s.w.Write(b) // best-effort
 	}
 	return nil
@@ -58,9 +59,10 @@ func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
 	b := s.buf[:0]
 	b = appendTimestamp(b, t)
 	b = log.AppendLevel(b, level)
-	b = append(b, " | "...)
-	b = append(b, msg...)
-	b = append(b, '\r', '\n')
+	b = fmtbuf.Append(b, " | ")
+	b = fmtbuf.Append(b, msg)
+	b = fmtbuf.AppendByte(b, '\r')
+	b = fmtbuf.AppendByte(b, '\n')
 	_, _ = s.w.Write(b) // best-effort
 	return nil
 }
@@ -68,19 +70,20 @@ func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
 func (*Sink) Flush() error { return nil }
 
 func appendTimestamp(buf []byte, t time.Time) []byte {
-	buf = append(buf, '[')
+	buf = fmtbuf.AppendByte(buf, '[')
 	buf = appendTwoDigits(buf, t.Hour())
-	buf = append(buf, ':')
+	buf = fmtbuf.AppendByte(buf, ':')
 	buf = appendTwoDigits(buf, t.Minute())
-	buf = append(buf, ':')
+	buf = fmtbuf.AppendByte(buf, ':')
 	buf = appendTwoDigits(buf, t.Second())
-	buf = append(buf, ']', ' ')
+	buf = fmtbuf.AppendByte(buf, ']')
+	buf = fmtbuf.AppendByte(buf, ' ')
 	return buf
 }
 
 func appendTwoDigits(buf []byte, n int) []byte {
 	if n < 10 {
-		buf = append(buf, '0')
+		buf = fmtbuf.AppendByte(buf, '0')
 	}
-	return strconv.AppendInt(buf, int64(n), 10)
+	return fmtbuf.AppendInt(buf, int64(n), 10)
 }
