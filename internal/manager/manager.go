@@ -240,7 +240,9 @@ func (m *Manager) measureSensors(fired []bool) {
 			}
 
 			for _, r := range m.recorders {
-				r.Record(m.wakeTime, s.Name(), ms)
+				if err := r.Record(m.wakeTime, s.Name(), ms); err != nil {
+					m.logger.Error("failed to record: " + s.Name() + ": " + err.Error())
+				}
 			}
 		}
 	}
