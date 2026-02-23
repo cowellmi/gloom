@@ -337,8 +337,8 @@ func main() {
 
 	man := manager.New(hypnos, groups, recorders, logger)
 	for i, g := range cfg.Groups {
-		if g.ExternalIntPin > 0 {
-			pin := hal.Pin(g.ExternalIntPin)
+		if g.ExternalIntPin != hal.NoPin {
+			pin := g.ExternalIntPin
 			hypnos.AddWakePin(pin)
 			man.RegisterExternalPin(uint8(pin), i)
 		}

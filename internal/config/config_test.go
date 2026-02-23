@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 )
 
@@ -200,7 +201,7 @@ sensors = tipping_bucket
 	}
 
 	g := cfg.Groups[0]
-	if g.ExternalIntPin != 7 {
+	if g.ExternalIntPin != hal.Pin(7) {
 		t.Errorf("ExternalIntPin = %d, want 7", g.ExternalIntPin)
 	}
 	if g.Interval != 0 {
@@ -227,7 +228,7 @@ sensors = tipping_bucket
 	if g.Interval != 5*time.Minute {
 		t.Errorf("Interval = %v, want 5m", g.Interval)
 	}
-	if g.ExternalIntPin != 7 {
+	if g.ExternalIntPin != hal.Pin(7) {
 		t.Errorf("ExternalIntPin = %d, want 7", g.ExternalIntPin)
 	}
 }
@@ -590,7 +591,7 @@ payload = full
 
 	// Rain has ext pin, no pulse_led
 	r := cfg.Groups[1]
-	if r.ExternalIntPin != 7 {
+	if r.ExternalIntPin != hal.Pin(7) {
 		t.Errorf("rain ext pin = %d, want 7", r.ExternalIntPin)
 	}
 	if r.PulseLED {

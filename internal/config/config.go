@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 )
 
@@ -40,7 +41,7 @@ type Device struct {
 type Group struct {
 	Name           string
 	Interval       time.Duration
-	ExternalIntPin uint8
+	ExternalIntPin hal.Pin
 	PulseLED       bool
 	Sensors        []string
 	Host           string
@@ -64,10 +65,11 @@ func Default() Config {
 		},
 		Groups: []Group{
 			{
-				Name:     "sample",
-				Interval: 5 * time.Second,
-				Sensors:  []string{"vbat"},
-				PulseLED: true,
+				Name:           "sample",
+				Interval:       5 * time.Second,
+				ExternalIntPin: hal.NoPin,
+				Sensors:        []string{"vbat"},
+				PulseLED:       true,
 			},
 		},
 	}
@@ -99,7 +101,7 @@ func Parse(data []byte, cfg *Config) error {
 			if section != "device" {
 				if _, exists := groupIndex[section]; !exists {
 					groupIndex[section] = len(groups)
-					groups = append(groups, Group{Name: section})
+					groups = append(groups, Group{Name: section, ExternalIntPin: hal.NoPin})
 				}
 			}
 			continue
@@ -199,7 +201,7 @@ func parseGroupKey(g *Group, key, value string) error {
 
 func validateGroup(g *Group, dev *Device) error {
 	var errs []error
-	if g.Interval <= 0 && g.ExternalIntPin == 0 {
+	if g.Interval <= 0 && g.ExternalIntPin == hal.NoPin {
 		errs = append(errs, errors.New("["+g.Name+"] must have interval or external_int_pin"))
 	}
 	if len(g.Sensors) > 0 && len(dev.DataSinks) == 0 {
@@ -321,10 +323,10 @@ func parseDuration(key, value string) (time.Duration, error) {
 	return d, nil
 }
 
-func parsePin(key, value string) (uint8, error) {
+func parsePin(key, value string) (hal.Pin, error) {
 	n, err := strconv.ParseUint(value, 10, 8)
 	if err != nil {
-		return 0, errors.New(key + ": invalid pin number: " + value)
+		return hal.NoPin, errors.New(key + ": invalid pin number: " + value)
 	}
-	return uint8(n), nil
+	return hal.Pin(n), nil
 }

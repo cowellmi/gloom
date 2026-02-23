@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 )
 
@@ -92,8 +93,9 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 	cfg := Config{
 		Groups: []Group{
 			{
-				Name:     "minimal",
-				Interval: 5 * time.Second,
+				Name:           "minimal",
+				Interval:       5 * time.Second,
+				ExternalIntPin: hal.NoPin,
 			},
 		},
 	}
@@ -117,7 +119,7 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 func TestMarshal_ExternalIntPin(t *testing.T) {
 	cfg := Config{
 		Groups: []Group{
-			{Name: "rain", ExternalIntPin: 7, Sensors: []string{"bucket"}},
+			{Name: "rain", ExternalIntPin: hal.Pin(7), Sensors: []string{"bucket"}},
 		},
 	}
 

@@ -9,3 +9,7 @@ package hal
 // Pin is a GPIO pin number. It mirrors the underlying type of
 // machine.Pin so conversions between the two are trivial.
 type Pin uint8
+
+// NoPin is the sentinel value meaning "no pin configured".
+// It is intentionally distinct from any valid GPIO pin number.
+const NoPin = Pin(0xff)

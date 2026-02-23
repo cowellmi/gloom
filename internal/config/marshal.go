@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 )
 
@@ -80,7 +81,7 @@ func appendGroup(buf []byte, g *Group) ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if g.ExternalIntPin != 0 {
+	if g.ExternalIntPin != hal.NoPin {
 		buf = append(buf, "external_int_pin = "...)
 		buf = strconv.AppendUint(buf, uint64(g.ExternalIntPin), 10)
 		buf = append(buf, '\n')
