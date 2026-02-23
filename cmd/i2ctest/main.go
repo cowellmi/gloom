@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/debug"
-	"github.com/cowellmi/gloom/internal/drivers/ds3231"
 	"github.com/cowellmi/gloom/internal/hal"
+	"github.com/cowellmi/gloom/internal/rtc/ds3231"
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
