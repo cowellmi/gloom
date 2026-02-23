@@ -1,6 +1,7 @@
 package sleeper
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -85,6 +86,26 @@ type mockRails struct {
 
 func (m *mockRails) Power(state hal.RailState) {
 	m.powerCalls = append(m.powerCalls, state)
+}
+
+// mockMCUWithArmError wraps mockMCU and returns an error from ArmWake
+// on the call at index failAt (0-based). All other methods are promoted
+// from the embedded mockMCU so the interface is fully satisfied.
+type mockMCUWithArmError struct {
+	mockMCU
+	failAt   int
+	armCount int
+}
+
+func (m *mockMCUWithArmError) ArmWake(pin hal.Pin) error {
+	m.calls = append(m.calls, "ArmWake")
+	m.armCalls = append(m.armCalls, pin)
+	idx := m.armCount
+	m.armCount++
+	if idx == m.failAt {
+		return errors.New("mock ArmWake failure")
+	}
+	return nil
 }
 
 // --- helpers ---
@@ -328,6 +349,51 @@ func TestSleep_InsufficientRemaining_NoDeepSleep(t *testing.T) {
 
 	if callIndex(mcu.calls, "Standby") >= 0 {
 		t.Error("Standby should not be called when remaining < minDeepSleep")
+	}
+}
+
+func TestSleep_DeepSleepFallbackToIdle(t *testing.T) {
+	// failAt:1 — first ArmWake (RTC pin 12) succeeds; second (ext pin 7) fails.
+	// deepSleep rolls back by disarming pin 12, then returns the error.
+	// Sleep must fall back to idleSleep and ultimately restore RailsCore.
+	mcu := &mockMCUWithArmError{failAt: 1}
+	rtc := &mockRTC{
+		// Call 1: Sleep guard (T, remaining=10s → tries deep sleep).
+		// Call 2: idleSleep initial read (T+11s ≥ target, loop exits immediately).
+		// Call 3: final wake-time read (mock clamps to last value).
+		times: []time.Time{T, T.Add(11 * time.Second)},
+		pin:   12,
+	}
+	rails := &mockRails{}
+	s := New(mcu, rtc, rails)
+	s.AddWakePin(7) // wakePins = [12, 7]
+
+	_, err := s.Sleep(T.Add(10 * time.Second))
+	if err != nil {
+		t.Fatalf("Sleep() returned error: %v", err)
+	}
+
+	// Standby must NOT be called — deep sleep was aborted before entering Standby.
+	if callIndex(mcu.calls, "Standby") >= 0 {
+		t.Error("Standby should not be called after ArmWake failure")
+	}
+
+	// Rails must be restored to RailsCore as the last Power call.
+	if len(rails.powerCalls) == 0 {
+		t.Fatal("no Power calls recorded")
+	}
+	if last := rails.powerCalls[len(rails.powerCalls)-1]; last != hal.RailsCore {
+		t.Errorf("last Power call = %v, want RailsCore", last)
+	}
+
+	// Rollback must disarm exactly the pins that were successfully armed before
+	// the failure. Pin 12 (index 0) was armed; pin 7 (index 1) was not.
+	// This verifies the j < i bound in the rollback loop is correct.
+	if len(mcu.disarmCalls) != 1 {
+		t.Fatalf("disarmCalls = %v, want [12] (rollback of first armed pin only)", mcu.disarmCalls)
+	}
+	if mcu.disarmCalls[0] != 12 {
+		t.Errorf("disarmCalls[0] = %v, want 12", mcu.disarmCalls[0])
 	}
 }
 
