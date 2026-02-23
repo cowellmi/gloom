@@ -28,7 +28,7 @@ func main() {
 	var initErrs []error
 	var initWarns []error
 
-	// --- Board ---
+	// Board
 	board := initBoard()
 	board.LED.On()
 	board.MCU.PaintStack()
@@ -38,7 +38,7 @@ func main() {
 	board.MCU.PetWatchdog()
 	debug.Log("powering rails...")
 
-	// --- Power rails ---
+	// Power rails
 	rails := initRails()
 	if rails != nil {
 		rails.Power(hal.RailsOff)
@@ -59,7 +59,7 @@ func main() {
 	board.MCU.PetWatchdog()
 	debug.Log("probing rtc...")
 
-	// --- RTC ---
+	// RTC
 	var clock hal.RTC
 	ds, err := ds3231.Probe(board.I2C.Bus, board.RTCWakePin)
 	if err != nil {
@@ -88,7 +88,7 @@ func main() {
 	board.MCU.PetWatchdog()
 	debug.Log("probing sd...")
 
-	// --- SD Card ---
+	// SD Card
 	type sdEntry struct {
 		card *sdcard.Card
 		cs   hal.Pin
@@ -112,7 +112,7 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- Sensors ---
+	// Sensors
 	sensorRegistry := make(map[string]func() sensor.Device)
 
 	if board.ADCPin != 0 {
@@ -124,7 +124,7 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- Config ---
+	// Config
 	cfg := config.Default()
 
 	if card != nil {
@@ -152,7 +152,7 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- Log sinks ---
+	// Log sinks
 	serialSink := serial.NewSink(board.Serial)
 
 	var sdCardFileSink *file.Sink
@@ -179,7 +179,7 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- Logger ---
+	// Logger
 	logger := log.NewLogger(now)
 
 	for _, ls := range cfg.Device.LogSinks {
@@ -190,14 +190,14 @@ func main() {
 			if sdCardFileSink != nil {
 				logger.AddSink(sdCardFileSink, ls.Level)
 			} else {
-				initWarns = append(initWarns, errors.New(""))
+				initWarns = append(initWarns, errors.New("log sink 'sd' configured but no SD card"))
 			}
 		}
 	}
 
 	board.MCU.PetWatchdog()
 
-	// --- Sensor data sinks ---
+	// Sensor data sinks
 
 	var recorders []sensor.Recorder
 	for _, name := range cfg.Device.DataSinks {
@@ -211,7 +211,7 @@ func main() {
 		}
 	}
 
-	// --- Resolve groups ---
+	// Resolve groups
 
 	sensorPool := make(map[string]sensor.Device)
 	var groups []manager.Group
@@ -244,7 +244,7 @@ func main() {
 
 	board.LED.Off()
 
-	// --- Report init warnings and errors ---
+	// Report init warnings and errors
 
 	for _, w := range initWarns {
 		logger.Warn("init: " + w.Error())
@@ -253,7 +253,7 @@ func main() {
 		logger.Error("init: " + e.Error())
 	}
 
-	// --- Boot banner ---
+	// Boot banner
 
 	logger.Debug("mcu: " + board.MCU.Identifier())
 
@@ -329,19 +329,32 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// --- System ---
+	// Manager
 
-	hypnos := sleeper.New(board.MCU, clock, rails)
+	sleeper := sleeper.New(board.MCU, clock, rails)
+	man := manager.New(sleeper, groups, recorders, logger)
 
-	// --- Register external interrupt pins ---
-
-	man := manager.New(hypnos, groups, recorders, logger)
+	// Validate if there is any way to wake from sleep.
+	hasExtPins := false
 	for i, g := range cfg.Groups {
 		if g.ExternalIntPin != hal.NoPin {
+			hasExtPins = true
 			pin := g.ExternalIntPin
-			hypnos.AddWakePin(pin)
+			sleeper.AddWakePin(pin)
 			man.RegisterExternalPin(uint8(pin), i)
 		}
+	}
+	hasTimedGroups := false
+	for _, g := range cfg.Groups {
+		if g.Interval > 0 {
+			hasTimedGroups = true
+			break
+		}
+	}
+	if !hasTimedGroups && !hasExtPins {
+		err := errors.New("config: no wake sources configured (at least one group needs interval > 0 or external_int_pin)")
+		logger.Error(err.Error())
+		fatal(err, board.LED)
 	}
 
 	man.SetLED(board.LED)
