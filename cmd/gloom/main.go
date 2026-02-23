@@ -41,9 +41,9 @@ func main() {
 	// --- Power rails ---
 	rails := initRails()
 	if rails != nil {
-		rails.PowerOff()
+		rails.Power(hal.RailsOff)
 		wait.For(250 * time.Millisecond)
-		rails.PowerOn(false)
+		rails.Power(hal.RailsCore)
 		board.MCU.PetWatchdog()
 		wait.For(2 * time.Second)
 	}
@@ -309,11 +309,11 @@ func main() {
 	runtime.ReadMemStats(&ms)
 	b := []byte("mem: heap_sys=")
 	b = strconv.AppendUint(b, ms.HeapSys/1024, 10)
-	b = append(b, "kb"...)
+	b = append(b, "KB"...)
 	if ss := board.MCU.StackSize(); ss > 0 {
 		b = append(b, " stack_size="...)
 		b = strconv.AppendUint(b, uint64(ss/1024), 10)
-		b = append(b, "kb"...)
+		b = append(b, "KB"...)
 	}
 	logger.Debug(string(b))
 

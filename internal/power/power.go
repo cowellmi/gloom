@@ -69,6 +69,11 @@ type Controller struct {
 // compile-time check
 var _ hal.Rails = (*Controller)(nil)
 
+// compile-time check that RailState values match expected behavior
+var _ = hal.RailsOff
+var _ = hal.RailsCore
+var _ = hal.RailsFull
+
 // NewController creates a Controller and configures each rail pin as
 // an output. All rails start in the off state.
 func NewController(rails ...Rail) *Controller {
@@ -84,30 +89,49 @@ func NewController(rails ...Rail) *Controller {
 	return m
 }
 
-// PowerOn enables rails. When sensors is false, only always-rails are
-// enabled. When true, all rails (always + on-demand) are enabled.
-// After switching, waits for the longest delay among newly-enabled
-// rails.
-func (m *Controller) PowerOn(sensors bool) {
-	var maxDelay time.Duration
-	for i, r := range m.rails {
-		if (r.always || sensors) && !m.on[i] {
-			r.on()
-			m.on[i] = true
-			if r.delay > maxDelay {
-				maxDelay = r.delay
+// Power sets the power rail state. For RailsCore and RailsFull,
+// waits for the stabilization delay of any newly-enabled rails.
+func (m *Controller) Power(state hal.RailState) {
+	switch state {
+	case hal.RailsOff:
+		for i, r := range m.rails {
+			r.off()
+			m.on[i] = false
+		}
+	case hal.RailsCore:
+		var maxDelay time.Duration
+		for i, r := range m.rails {
+			if r.always {
+				if !m.on[i] {
+					r.on()
+					m.on[i] = true
+					if r.delay > maxDelay {
+						maxDelay = r.delay
+					}
+				}
+			} else {
+				if m.on[i] {
+					r.off()
+					m.on[i] = false
+				}
 			}
 		}
-	}
-	if maxDelay > 0 {
-		wait.For(maxDelay)
-	}
-}
-
-// PowerOff disables all power rails.
-func (m *Controller) PowerOff() {
-	for i, r := range m.rails {
-		r.off()
-		m.on[i] = false
+		if maxDelay > 0 {
+			wait.For(maxDelay)
+		}
+	case hal.RailsFull:
+		var maxDelay time.Duration
+		for i, r := range m.rails {
+			if !m.on[i] {
+				r.on()
+				m.on[i] = true
+				if r.delay > maxDelay {
+					maxDelay = r.delay
+				}
+			}
+		}
+		if maxDelay > 0 {
+			wait.For(maxDelay)
+		}
 	}
 }

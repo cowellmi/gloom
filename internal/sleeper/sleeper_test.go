@@ -75,15 +75,12 @@ func (m *mockRTC) ClearWake() error {
 func (m *mockRTC) WakePin() hal.Pin { return m.pin }
 
 type mockRails struct {
-	powerOnCalls  []bool
-	powerOffCount int
+	powerCalls []hal.RailState
 }
 
-func (m *mockRails) PowerOn(sensors bool) {
-	m.powerOnCalls = append(m.powerOnCalls, sensors)
+func (m *mockRails) Power(state hal.RailState) {
+	m.powerCalls = append(m.powerCalls, state)
 }
-
-func (m *mockRails) PowerOff() { m.powerOffCount++ }
 
 // --- helpers ---
 
@@ -225,12 +222,10 @@ func TestSleep_RailSequencing(t *testing.T) {
 		t.Fatalf("Sleep() error: %v", err)
 	}
 
-	if rails.powerOffCount != 1 {
-		t.Errorf("PowerOff called %d times, want 1", rails.powerOffCount)
-	}
-	// Always-rails restored after wake.
-	if len(rails.powerOnCalls) != 1 || rails.powerOnCalls[0] != false {
-		t.Errorf("PowerOn calls = %v, want [false]", rails.powerOnCalls)
+	// Expect RailsOff before deep sleep, then RailsCore after wake.
+	wantCalls := []hal.RailState{hal.RailsOff, hal.RailsCore}
+	if len(rails.powerCalls) != 2 || rails.powerCalls[0] != hal.RailsOff || rails.powerCalls[1] != hal.RailsCore {
+		t.Errorf("Power calls = %v, want %v", rails.powerCalls, wantCalls)
 	}
 }
 
@@ -339,8 +334,8 @@ func TestPowerOnSensorRails(t *testing.T) {
 
 	s.PowerOnSensorRails()
 
-	if len(rails.powerOnCalls) != 1 || rails.powerOnCalls[0] != true {
-		t.Errorf("PowerOn calls = %v, want [true]", rails.powerOnCalls)
+	if len(rails.powerCalls) != 1 || rails.powerCalls[0] != hal.RailsFull {
+		t.Errorf("Power calls = %v, want [RailsFull]", rails.powerCalls)
 	}
 }
 

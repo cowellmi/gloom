@@ -79,7 +79,7 @@ func (s *Device) PinFired(pin uint8) bool {
 // rails). No-op if rails is nil.
 func (s *Device) PowerOnSensorRails() {
 	if s.rails != nil {
-		s.rails.PowerOn(true)
+		s.rails.Power(hal.RailsFull)
 	}
 }
 
@@ -130,7 +130,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 
 		// Restore always-rails so the RTC and SD card are reachable.
 		if s.rails != nil {
-			s.rails.PowerOn(false)
+			s.rails.Power(hal.RailsCore)
 		}
 
 		if s.rtc != nil {
@@ -158,7 +158,7 @@ func (s *Device) deepSleep(target time.Time) error {
 	s.mcu.PetWatchdog()
 
 	if s.rails != nil {
-		s.rails.PowerOff()
+		s.rails.Power(hal.RailsOff)
 	}
 
 	for i, pin := range s.wakePins {
@@ -187,13 +187,29 @@ func (s *Device) deepSleep(target time.Time) error {
 // between each, until target is reached. The tick duration is chosen
 // so the watchdog is petted well within its ~8s timeout window.
 // A zero target means external-interrupt-only: loop indefinitely.
+//
+// For indefinite or long waits, on-demand rails are powered off to
+// save power while keeping always-rails up for RTC/SD access.
 func (s *Device) idleSleep(target time.Time) {
 	const tick = 4 * time.Second
 
+	// For indefinite waits (zero target) or long waits, cut on-demand
+	// rails to save power. Always-rails stay up for RTC/SD.
 	if target.IsZero() {
+		if s.rails != nil {
+			s.rails.Power(hal.RailsCore)
+		}
 		for {
 			s.mcu.PetWatchdog()
 			wait.For(tick)
+		}
+	}
+
+	// For timed waits, cut on-demand rails if the remaining time is
+	// long enough to justify the power savings.
+	if remaining := time.Until(target); remaining > minDeepSleep {
+		if s.rails != nil {
+			s.rails.Power(hal.RailsCore)
 		}
 	}
 
