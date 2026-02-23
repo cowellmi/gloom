@@ -2,9 +2,9 @@
 
 // Package power provides a generic hal.Rails implementation for
 // boards with MOSFET-switched power rails. Each rail is a GPIO pin
-// with a configurable polarity, an always flag, and a stabilization
-// delay. The controller tracks per-rail on/off state so PowerOn only
-// waits for the delay of newly-enabled rails.
+// with a configurable polarity, a minimum activation threshold, and a
+// stabilization delay. The controller tracks per-rail on/off state so
+// Power only waits for the delay of newly-enabled rails.
 package power
 
 import (
@@ -26,21 +26,20 @@ const (
 
 // Rail describes a single MOSFET-switched power rail.
 type Rail struct {
-	pin      machine.Pin
-	polarity Polarity
-	always   bool
-	delay    time.Duration
+	pin       machine.Pin
+	polarity  Polarity
+	threshold hal.RailState
+	delay     time.Duration
 }
 
 // NewRail creates a Rail. pin is the GPIO number (converted to
 // machine.Pin internally). polarity sets whether the rail is enabled
-// by driving the pin High or Low. always marks the rail as always-on
-// after wake (core infrastructure like RTC and SD card). Non-always
-// rails are on-demand and only enabled when fired groups need sensor
-// power. delay is the stabilization time to wait after switching this
-// rail on.
-func NewRail(pin hal.Pin, polarity Polarity, always bool, delay time.Duration) Rail {
-	return Rail{pin: machine.Pin(pin), polarity: polarity, always: always, delay: delay}
+// by driving the pin High or Low. threshold is the minimum RailState
+// at which this rail is enabled — the rail is on when
+// Power(state) is called with state >= threshold, and off otherwise.
+// delay is the stabilization time to wait after switching this rail on.
+func NewRail(pin hal.Pin, polarity Polarity, threshold hal.RailState, delay time.Duration) Rail {
+	return Rail{pin: machine.Pin(pin), polarity: polarity, threshold: threshold, delay: delay}
 }
 
 func (r Rail) on() {
@@ -69,11 +68,6 @@ type Controller struct {
 // compile-time check
 var _ hal.Rails = (*Controller)(nil)
 
-// compile-time check that RailState values match expected behavior
-var _ = hal.RailsOff
-var _ = hal.RailsCore
-var _ = hal.RailsFull
-
 // NewController creates a Controller and configures each rail pin as
 // an output. All rails start in the off state.
 func NewController(rails ...Rail) *Controller {
@@ -89,39 +83,13 @@ func NewController(rails ...Rail) *Controller {
 	return m
 }
 
-// Power sets the power rail state. For RailsCore and RailsFull,
-// waits for the stabilization delay of any newly-enabled rails.
+// Power sets the power rail state. A rail is enabled when
+// state >= rail.threshold, and disabled otherwise. Waits for the
+// stabilization delay of any newly-enabled rails before returning.
 func (m *Controller) Power(state hal.RailState) {
-	switch state {
-	case hal.RailsOff:
-		for i, r := range m.rails {
-			r.off()
-			m.on[i] = false
-		}
-	case hal.RailsCore:
-		var maxDelay time.Duration
-		for i, r := range m.rails {
-			if r.always {
-				if !m.on[i] {
-					r.on()
-					m.on[i] = true
-					if r.delay > maxDelay {
-						maxDelay = r.delay
-					}
-				}
-			} else {
-				if m.on[i] {
-					r.off()
-					m.on[i] = false
-				}
-			}
-		}
-		if maxDelay > 0 {
-			wait.For(maxDelay)
-		}
-	case hal.RailsFull:
-		var maxDelay time.Duration
-		for i, r := range m.rails {
+	var maxDelay time.Duration
+	for i, r := range m.rails {
+		if state >= r.threshold {
 			if !m.on[i] {
 				r.on()
 				m.on[i] = true
@@ -129,9 +97,14 @@ func (m *Controller) Power(state hal.RailState) {
 					maxDelay = r.delay
 				}
 			}
+		} else {
+			if m.on[i] {
+				r.off()
+				m.on[i] = false
+			}
 		}
-		if maxDelay > 0 {
-			wait.For(maxDelay)
-		}
+	}
+	if maxDelay > 0 {
+		wait.For(maxDelay)
 	}
 }

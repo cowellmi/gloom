@@ -147,7 +147,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 
 		s.mcu.PetWatchdog()
 
-		// Restore always-rails so the RTC and SD card are reachable.
+		// Restore core rails so the RTC and SD card are reachable.
 		if s.rails != nil {
 			s.rails.Power(hal.RailsCore)
 		}
@@ -210,13 +210,13 @@ func (s *Device) deepSleep(target time.Time) error {
 // petted well within its ~8s timeout window.
 // A zero target means external-interrupt-only: loop indefinitely.
 //
-// For indefinite or long waits, on-demand rails are powered off to
-// save power while keeping always-rails up for RTC/SD access.
+// For indefinite or long waits, sensor rails are powered off to
+// save power while keeping core rails up for RTC/SD access.
 func (s *Device) idleSleep(target time.Time) error {
 	const tick = 4 * time.Second
 
-	// For indefinite waits (zero target) or long waits, cut on-demand
-	// rails to save power. Always-rails stay up for RTC/SD.
+	// For indefinite waits (zero target) or long waits, cut sensor
+	// rails to save power. Core rails stay up for RTC/SD.
 	if target.IsZero() {
 		if s.rails != nil {
 			s.rails.Power(hal.RailsCore)

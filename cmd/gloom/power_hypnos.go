@@ -12,15 +12,14 @@ import (
 
 // initRails returns the Hypnos FeatherWing power rail controller:
 //
-//   - D5: 3.3V core rail (active-low), always on after wake so the
-//     RTC and SD card are reachable. Delay 0 — it's already up
-//     before sensor rails are needed.
-//   - D6: 5V sensor rail (active-high), only powered when at least
-//     one fired group has sensors. 250ms delay for MOSFET switching
-//     and sensor power-on.
+//   - D5: 3.3V core rail (active-low), enabled at RailsCore so the
+//     RTC and SD card are reachable after every wake. Delay 0.
+//   - D6: 5V sensor rail (active-high), enabled at RailsFull only
+//     when sensors are active. 250ms delay for MOSFET switching and
+//     sensor power-on.
 func initRails() hal.Rails {
 	return power.NewController(
-		power.NewRail(hal.Pin(machine.D5), power.ActiveLow, true, 0),
-		power.NewRail(hal.Pin(machine.D6), power.ActiveHigh, false, 250*time.Millisecond),
+		power.NewRail(hal.Pin(machine.D5), power.ActiveLow, hal.RailsCore, 0),
+		power.NewRail(hal.Pin(machine.D6), power.ActiveHigh, hal.RailsFull, 250*time.Millisecond),
 	)
 }

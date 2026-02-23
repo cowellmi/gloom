@@ -6,16 +6,17 @@ type RailState uint8
 const (
 	// RailsOff means all rails disabled. Used before deep sleep.
 	RailsOff RailState = iota
-	// RailsCore means always-rails enabled, on-demand rails disabled.
-	// Used after wake to enable RTC/SD, and during idle sleep.
+	// RailsCore enables rails with threshold <= RailsCore (core
+	// infrastructure like RTC and SD card). Used after wake and
+	// during idle sleep.
 	RailsCore
-	// RailsFull means all rails enabled. Used when sensors are active.
+	// RailsFull enables all rails. Used when sensors are active.
 	RailsFull
 )
 
-// Rails abstracts board-level power rail control. Each rail is either
-// "always" (powered every wake for core infrastructure like RTC and
-// SD card) or on-demand (powered only when fired groups need sensors).
+// Rails abstracts board-level power rail control. Each rail has a
+// threshold: it is enabled when Power(state) is called with
+// state >= threshold, and disabled otherwise.
 //
 // The implementation handles per-rail stabilization delays internally
 // when rails are being enabled.
