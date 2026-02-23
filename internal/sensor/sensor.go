@@ -25,7 +25,6 @@ type Sensor interface {
 // serialization format (CSV, text, JSON, etc) and manage their own
 // scratch buffers internally to avoid per-call heap allocations.
 type Recorder interface {
-	Name() string
 	Record(t time.Time, id string, readings []Reading) error
 	Flush() error
 }

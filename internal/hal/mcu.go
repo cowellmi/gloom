@@ -42,6 +42,14 @@ type MCU interface {
 	// after Standby returns.
 	PinFired(pin Pin) bool
 
+	// PinActive reports whether pin is currently in its asserted state.
+	// For all wake sources in this system, asserted means the pin is
+	// driven low (active-low: RTC INT, sensor DRDY, etc.).
+	// Can be polled without entering Standby. Only meaningful while
+	// ArmWake has been called for the pin (which configures it as
+	// PinInputPullup so the idle state is high).
+	PinActive(pin Pin) bool
+
 	// ConfigureI2C performs a bit-banged bus recovery sequence on
 	// the given SDA/SCL pins to release a stuck slave, then
 	// configures the I2C peripheral for normal operation.

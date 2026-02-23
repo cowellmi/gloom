@@ -34,15 +34,21 @@ type Device struct {
 	rails      hal.Rails
 	wakePins   []hal.Pin
 	hasExtPins bool // true when any non-RTC wake pin has been added
+
+	// idleFiredPins holds pins detected as active during idle-sleep
+	// polling (when Standby was not entered). Read by PinFired.
+	// Reset at the start of each idle-sleep entry.
+	idleFiredPins []hal.Pin
 }
 
 // New creates a Device. mcu is required. rtc and rails may be nil.
 // If an RTC is provided its wake pin is registered automatically.
 func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails) *Device {
 	s := &Device{
-		mcu:   mcu,
-		rtc:   rtc,
-		rails: rails,
+		mcu:           mcu,
+		rtc:           rtc,
+		rails:         rails,
+		idleFiredPins: make([]hal.Pin, 0, 4),
 	}
 	if rtc != nil {
 		s.wakePins = append(s.wakePins, rtc.WakePin())
@@ -76,11 +82,18 @@ func (s *Device) readTime() (time.Time, error) {
 	}
 }
 
-// PinFired reports whether the given pin's interrupt flag was set
-// when the MCU last woke from Standby. Uses uint8 so the caller
+// PinFired reports whether the given pin fired in the most recent
+// sleep cycle — either via the Standby interrupt-flag snapshot or
+// via idle-sleep polling (PinActive). Uses uint8 so the caller
 // (manager) does not need to import hal.
 func (s *Device) PinFired(pin uint8) bool {
-	return s.mcu.PinFired(hal.Pin(pin))
+	p := hal.Pin(pin)
+	for _, fp := range s.idleFiredPins {
+		if fp == p {
+			return true
+		}
+	}
+	return s.mcu.PinFired(p)
 }
 
 // PowerOnSensorRails powers on sensor-specific rails (on-demand
@@ -208,22 +221,41 @@ func (s *Device) deepSleep(target time.Time) error {
 // between each, until target is reached. Returns all RTC read errors
 // joined, or nil. The tick duration is chosen so the watchdog is
 // petted well within its ~8s timeout window.
-// A zero target means external-interrupt-only: loop indefinitely.
+//
+// A zero target means external-interrupt-only: arm wake pins and
+// poll PinActive each tick until at least one pin is asserted. The
+// fired pins are recorded in idleFiredPins so PinFired returns true
+// for them. This is the fallback path when deepSleep fails; all wake
+// sources are level-sensitive (active-low) so polling is reliable.
 //
 // For indefinite or long waits, sensor rails are powered off to
 // save power while keeping core rails up for RTC/SD access.
 func (s *Device) idleSleep(target time.Time) error {
 	const tick = 4 * time.Second
 
-	// For indefinite waits (zero target) or long waits, cut sensor
-	// rails to save power. Core rails stay up for RTC/SD.
 	if target.IsZero() {
 		if s.rails != nil {
 			s.rails.Power(hal.RailsCore)
 		}
+		// Arm pins so PinInputPullup is configured and we can poll.
+		for _, pin := range s.wakePins {
+			_ = s.mcu.ArmWake(pin)
+		}
+		s.idleFiredPins = s.idleFiredPins[:0]
 		for {
 			s.mcu.PetWatchdog()
 			wait.For(tick)
+			for _, pin := range s.wakePins {
+				if s.mcu.PinActive(pin) {
+					s.idleFiredPins = append(s.idleFiredPins, pin)
+				}
+			}
+			if len(s.idleFiredPins) > 0 {
+				for _, pin := range s.wakePins {
+					s.mcu.DisarmWake(pin)
+				}
+				return nil
+			}
 		}
 	}
 

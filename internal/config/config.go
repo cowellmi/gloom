@@ -198,11 +198,10 @@ func parseGroupKey(g *Group, key, value string) error {
 }
 
 func validateGroup(g *Group) error {
-	var errs []error
 	if g.Interval <= 0 && g.ExternalIntPin == hal.NoPin {
-		errs = append(errs, errors.New("["+g.Name+"] must have interval or external_int_pin"))
+		return errors.New("[" + g.Name + "] must have interval or external_int_pin")
 	}
-	return errors.Join(errs...)
+	return nil
 }
 
 // --- parse helpers ---

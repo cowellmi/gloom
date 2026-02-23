@@ -76,16 +76,6 @@ func main() {
 		clock = ds
 	}
 
-	now := time.Now()
-	if clock != nil {
-		t, err := clock.ReadTime()
-		if err != nil {
-			initErrs = append(initErrs, errors.New("rtc: "+err.Error()))
-		} else {
-			now = t
-		}
-	}
-
 	board.MCU.PetWatchdog()
 	debug.Log("probing sd...")
 
@@ -158,6 +148,17 @@ func main() {
 	// Log sinks
 	serialSink := serial.NewSink(board.Serial)
 
+	// Read the current time once — used for both the file sink
+	// (daily rotation key) and the logger's initial timestamp.
+	now := time.Now()
+	if clock != nil {
+		if t, err := clock.ReadTime(); err != nil {
+			initErrs = append(initErrs, errors.New("rtc: "+err.Error()))
+		} else {
+			now = t
+		}
+	}
+
 	var sdCardFileSink *file.Sink
 	if card != nil && needsSDSink(&cfg) {
 		if err := card.Mkdir("GLOOM"); err != nil {
@@ -183,14 +184,6 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// Logger
-	now = time.Now()
-	if clock != nil {
-		if t, err := clock.ReadTime(); err != nil {
-			initErrs = append(initErrs, err)
-		} else {
-			now = t
-		}
-	}
 	logger := log.NewLogger(now)
 
 	logger.AddSink(serialSink, log.LevelDebug)

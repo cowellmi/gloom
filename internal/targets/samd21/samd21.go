@@ -166,6 +166,13 @@ func (m *MCU) PinFired(pin hal.Pin) bool {
 	return m.wakeFlags&(1<<ch) != 0
 }
 
+// PinActive reports whether pin is currently being driven low.
+// Wake pins are configured as PinInputPullup by ArmWake, so the
+// idle state is high and active (asserted) state is low.
+func (m *MCU) PinActive(pin hal.Pin) bool {
+	return !machine.Pin(pin).Get()
+}
+
 // prepareStandby performs one-time clock reconfiguration so that
 // external interrupts can wake the processor from standby sleep.
 //

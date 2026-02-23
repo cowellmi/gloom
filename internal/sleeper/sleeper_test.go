@@ -16,6 +16,7 @@ type mockMCU struct {
 	armCalls    []hal.Pin
 	disarmCalls []hal.Pin
 	firedPins   map[hal.Pin]bool
+	activePins  map[hal.Pin]bool
 }
 
 func (m *mockMCU) Identifier() string              { return "mock-mcu" }
@@ -41,6 +42,10 @@ func (m *mockMCU) DisarmWake(pin hal.Pin) {
 
 func (m *mockMCU) PinFired(pin hal.Pin) bool {
 	return m.firedPins[pin]
+}
+
+func (m *mockMCU) PinActive(pin hal.Pin) bool {
+	return m.activePins[pin]
 }
 
 type mockRTC struct {
