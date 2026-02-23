@@ -74,10 +74,30 @@
             git
             gnumake
             go
+            jq
             tinygo-fork
             tio
             bossac-adafruit
           ];
+
+          shellHook = ''
+            VSCODE_SETTINGS=".vscode/settings.json"
+            if [ -f "$VSCODE_SETTINGS" ]; then
+              tmp=$(jq '
+                .["go.toolsEnvVars"] |= ({"GOTOOLCHAIN":"local","GOSUMDB":"off"} + (. // {}))
+              ' "$VSCODE_SETTINGS") && echo "$tmp" > "$VSCODE_SETTINGS"
+            else
+              mkdir -p .vscode
+              cat > "$VSCODE_SETTINGS" <<'EOF'
+{
+  "go.toolsEnvVars": {
+    "GOTOOLCHAIN": "local",
+    "GOSUMDB": "off"
+  }
+}
+EOF
+            fi
+          '';
         };
       });
 }
