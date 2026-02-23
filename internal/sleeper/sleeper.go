@@ -84,16 +84,14 @@ func (s *Device) readTime() (time.Time, error) {
 
 // PinFired reports whether the given pin fired in the most recent
 // sleep cycle — either via the Standby interrupt-flag snapshot or
-// via idle-sleep polling (PinActive). Uses uint8 so the caller
-// (manager) does not need to import hal.
-func (s *Device) PinFired(pin uint8) bool {
-	p := hal.Pin(pin)
+// via idle-sleep polling (PinActive).
+func (s *Device) PinFired(pin hal.Pin) bool {
 	for _, fp := range s.idleFiredPins {
-		if fp == p {
+		if fp == pin {
 			return true
 		}
 	}
-	return s.mcu.PinFired(p)
+	return s.mcu.PinFired(pin)
 }
 
 // PowerOnSensorRails powers on sensor-specific rails (on-demand

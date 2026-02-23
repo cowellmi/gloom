@@ -33,6 +33,7 @@ type LogSinkEntry struct {
 type Device struct {
 	LogSinks  []LogSinkEntry
 	DataSinks []string
+	LedPin    hal.Pin
 }
 
 // Group defines a scheduled task with its own sensors and optional
@@ -60,6 +61,7 @@ func Default() Config {
 		Device: Device{
 			LogSinks:  []LogSinkEntry{},
 			DataSinks: []string{},
+			LedPin:    hal.NoPin,
 		},
 		Groups: []Group{
 			{
@@ -159,6 +161,12 @@ func parseDeviceKey(dev *Device, key, value string) error {
 			return err
 		}
 		dev.DataSinks = names
+	case "led_pin":
+		pin, err := parsePin(key, value)
+		if err != nil {
+			return err
+		}
+		dev.LedPin = pin
 	default:
 		return errors.New("[device] unknown key: " + key)
 	}

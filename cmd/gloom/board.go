@@ -4,7 +4,6 @@ package main
 
 import (
 	"io"
-	"machine"
 
 	"github.com/cowellmi/gloom/internal/hal"
 )
@@ -39,24 +38,3 @@ type Board struct {
 
 	SDCSPins []hal.Pin
 }
-
-// ConfigureLED reassigns the board LED to a different GPIO pin.
-// Called from main after loading config when the user specifies a
-// non-default LED pin.
-func (b *Board) ConfigureLED(pin hal.Pin) {
-	b.LED = newLED(machine.Pin(pin))
-}
-
-type LED struct {
-	pin machine.Pin
-}
-
-func newLED(pin machine.Pin) *LED {
-	l := &LED{pin: pin}
-	l.pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	return l
-}
-
-func (l *LED) On() { l.pin.High() }
-
-func (l *LED) Off() { l.pin.Low() }

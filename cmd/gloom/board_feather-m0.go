@@ -7,6 +7,7 @@ import (
 	"machine"
 
 	"github.com/cowellmi/gloom/internal/hal"
+	"github.com/cowellmi/gloom/internal/led"
 	"github.com/cowellmi/gloom/internal/targets/samd21"
 )
 
@@ -28,7 +29,8 @@ func initBoard() Board {
 	board.Serial = io.MultiWriter(machine.UART0, machine.Serial)
 
 	// LED
-	board.LED = newLED(machine.LED)
+	led.Configure(hal.Pin(machine.LED))
+	board.LED = led.NewLED(hal.Pin(machine.LED))
 
 	// I2C
 	board.I2C.Bus = machine.I2C0

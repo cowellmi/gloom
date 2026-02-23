@@ -12,6 +12,7 @@ import (
 	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/hal"
+	"github.com/cowellmi/gloom/internal/led"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/rtc/ds3231"
@@ -141,6 +142,12 @@ func main() {
 				}
 			}
 		}
+	}
+
+	// Apply runtime LED pin override from config.
+	if cfg.Device.LedPin != hal.NoPin {
+		led.Configure(cfg.Device.LedPin)
+		board.LED = led.NewLED(cfg.Device.LedPin)
 	}
 
 	board.MCU.PetWatchdog()
@@ -338,7 +345,7 @@ func main() {
 			hasExtPins = true
 			pin := g.ExternalIntPin
 			sleeper.AddWakePin(pin)
-			man.RegisterExternalPin(uint8(pin), i)
+			man.RegisterExternalPin(pin, i)
 		}
 	}
 	hasTimedGroups := false

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
@@ -62,7 +63,7 @@ func (m *mockOutput) countLog(substr string) int {
 
 type mockSystem struct {
 	sleepFn                 func(target time.Time) (time.Time, error)
-	firedPins               map[uint8]bool
+	firedPins               map[hal.Pin]bool
 	powerOnSensorRailsCalls int
 }
 
@@ -70,7 +71,7 @@ func (m *mockSystem) Sleep(target time.Time) (time.Time, error) {
 	return m.sleepFn(target)
 }
 
-func (m *mockSystem) PinFired(pin uint8) bool {
+func (m *mockSystem) PinFired(pin hal.Pin) bool {
 	return m.firedPins[pin]
 }
 
@@ -221,7 +222,7 @@ func TestStep_DeadlineAdvances(t *testing.T) {
 func TestStep_ExternalPinFires(t *testing.T) {
 	sys := &mockSystem{
 		sleepFn:   afterDeadlineSleep(T.Add(time.Second)),
-		firedPins: map[uint8]bool{7: true},
+		firedPins: map[hal.Pin]bool{7: true},
 	}
 	// Group with no interval — fires only via ext pin.
 	groups := []Group{{Name: "ext", Interval: 0}}
@@ -237,7 +238,7 @@ func TestStep_ExternalPinFires(t *testing.T) {
 func TestStep_PinSelectiveFire(t *testing.T) {
 	sys := &mockSystem{
 		sleepFn:   afterDeadlineSleep(T.Add(time.Second)),
-		firedPins: map[uint8]bool{7: true}, // pin 8 did not fire
+		firedPins: map[hal.Pin]bool{7: true}, // pin 8 did not fire
 	}
 	groups := []Group{
 		{Name: "a", Interval: 0},
@@ -257,7 +258,7 @@ func TestStep_PinSelectiveFire(t *testing.T) {
 func TestStep_DeadlineAndPinSimultaneous(t *testing.T) {
 	sys := &mockSystem{
 		sleepFn:   afterDeadlineSleep(T.Add(11 * time.Second)),
-		firedPins: map[uint8]bool{7: true},
+		firedPins: map[hal.Pin]bool{7: true},
 	}
 	groups := []Group{
 		{Name: "timed", Interval: 10 * time.Second},

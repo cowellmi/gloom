@@ -66,6 +66,12 @@ func appendDevice(buf []byte, dev *Device) ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
+	if dev.LedPin != hal.NoPin {
+		buf = append(buf, "led_pin = "...)
+		buf = strconv.AppendUint(buf, uint64(dev.LedPin), 10)
+		buf = append(buf, '\n')
+	}
+
 	return buf, nil
 }
 

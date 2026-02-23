@@ -21,11 +21,10 @@ func (noopLED) Off() {}
 
 // sleeper is the interface the manager needs from the hardware layer.
 // It is satisfied by *sleeper.Device and by test mocks.
-// Uses uint8 for pin numbers so Manager does not import hal.
 type sleeper interface {
 	Sleep(target time.Time) (time.Time, error)
 	PowerOnSensorRails()
-	PinFired(pin uint8) bool
+	PinFired(pin hal.Pin) bool
 }
 
 // Group is a resolved runtime group with sensors already wired up.
@@ -42,7 +41,7 @@ type Group struct {
 
 // extPin associates an external interrupt pin with a group slot.
 type extPin struct {
-	pin  uint8
+	pin  hal.Pin
 	slot int
 }
 
@@ -103,10 +102,10 @@ func New(sleeper sleeper, groups []Group, recorders []sensor.Recorder, logger *l
 	}
 }
 
-// RegisterExternalPin records that pin (as uint8) maps to group slot.
+// RegisterExternalPin records that pin maps to group slot.
 // Called from main.go before Run. Manager checks sys.PinFired(pin)
 // after each wake to determine whether to fire that group.
-func (m *Manager) RegisterExternalPin(pin uint8, slot int) {
+func (m *Manager) RegisterExternalPin(pin hal.Pin, slot int) {
 	m.extPins = append(m.extPins, extPin{pin: pin, slot: slot})
 }
 
