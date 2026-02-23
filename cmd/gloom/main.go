@@ -37,11 +37,11 @@ func main() {
 	debug.W = board.Serial
 
 	board.MCU.PetWatchdog()
-	debug.Log("powering rails...")
 
 	// Power rails
 	rails := initRails()
 	if rails != nil {
+		debug.Log("power cycling rails...")
 		rails.Power(hal.RailsOff)
 		wait.For(250 * time.Millisecond)
 		rails.Power(hal.RailsCore)
@@ -100,7 +100,9 @@ func main() {
 		pin := strconv.Itoa(int(cs))
 		c, err := sdcard.NewCard(board.SPI.Bus, board.SPI.SCK, board.SPI.SDO, board.SPI.SDI, cs)
 		if err != nil {
-			initWarns = append(initWarns, errors.New("CS "+pin+": "+err.Error()))
+			if len(cards) == 0 {
+				initWarns = append(initWarns, errors.New("CS "+pin+": "+err.Error()))
+			}
 			continue
 		}
 		cards = append(cards, sdEntry{card: c, cs: cs})
@@ -116,7 +118,7 @@ func main() {
 	// Sensors
 	sensorRegistry := make(map[string]func() sensor.Sensor)
 
-	if board.ADCPin != 0 {
+	if board.ADCPin != hal.NoPin {
 		sensorRegistry["vbat"] = func() sensor.Sensor {
 			return vbat.NewDevice(board.ADCPin)
 		}
@@ -278,7 +280,7 @@ func main() {
 		}
 		logger.Debug(sd)
 		if !needsSDSink(&cfg) {
-			logger.Warn("sd: Card detected but not configured as a sink.")
+			logger.Warn("sd: card detected but not configured as a sink.")
 		}
 	} else {
 		logger.Debug("sd: NONE")

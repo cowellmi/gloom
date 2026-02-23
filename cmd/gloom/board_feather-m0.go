@@ -19,12 +19,12 @@ func initBoard() Board {
 	board.MCU = samd21.New()
 
 	// Serial
-	machine.UART0.Configure(machine.UARTConfig{
+	_ = machine.UART0.Configure(machine.UARTConfig{
 		BaudRate: 115200,
 		TX:       machine.UART0_TX_PIN,
 		RX:       machine.UART0_RX_PIN,
 	})
-	machine.Serial.Configure(machine.UARTConfig{BaudRate: 115200})
+	_ = machine.Serial.Configure(machine.UARTConfig{BaudRate: 115200})
 	board.Serial = io.MultiWriter(machine.UART0, machine.Serial)
 
 	// LED

@@ -281,7 +281,7 @@ func (m *Manager) doSleep() []bool {
 	m.logger.SetTime(wakeTime)
 
 	if sleepErr != nil {
-		m.logger.Error("sleep: " + sleepErr.Error())
+		m.logger.Warn("sleep: " + sleepErr.Error())
 	}
 
 	// Determine which slots fired. Deadline and ext-pin slots are

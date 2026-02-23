@@ -6,6 +6,7 @@
 package sleeper
 
 import (
+	"errors"
 	"slices"
 	"time"
 
@@ -59,13 +60,20 @@ func (s *Device) AddWakePin(pin hal.Pin) {
 	}
 }
 
-// readTime returns the current time from the RTC, or time.Now() if
-// no RTC is attached.
+// readTime returns the current time from the RTC, falling back to
+// time.Now() if no RTC is attached or if the read fails.
 func (s *Device) readTime() (time.Time, error) {
 	if s.rtc != nil {
-		return s.rtc.ReadTime()
+		t, err := s.rtc.ReadTime()
+		if err != nil {
+			// Falling back to system time and reporting error.
+			return time.Now(), err
+		}
+		return t, nil
+	} else {
+		// No RTC; using system time.
+		return time.Now(), nil
 	}
-	return time.Now(), nil
 }
 
 // PinFired reports whether the given pin's interrupt flag was set
@@ -84,7 +92,9 @@ func (s *Device) PowerOnSensorRails() {
 }
 
 // Sleep enters deep or idle sleep until target, then returns the
-// actual wake time from the RTC (or time.Now() if no RTC).
+// actual wake time from the RTC (or time.Now() on read failure).
+// Any RTC read errors encountered during the cycle are joined and
+// returned so the caller can log them as warnings.
 //
 // target == zero means external-interrupt-only: no RTC alarm is set.
 // If target is non-zero but already in the past, Sleep returns the
@@ -96,11 +106,12 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 	// is an external-interrupt-only configuration (target is zero).
 	// Use ReadTime (not wall clock) so the RTC is the authoritative
 	// time source for the remaining-time calculation.
+	var errs []error
 	var remaining time.Duration
 	shouldSleep := target.IsZero()
 	if !target.IsZero() {
-		// TODO: short explaination of skip err
-		now, _ := s.readTime()
+		now, err := s.readTime()
+		errs = append(errs, err)
 		remaining = target.Sub(now)
 		shouldSleep = remaining > 0
 	}
@@ -120,10 +131,15 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 			// before Standby is called. Fall back to idleSleep for the full
 			// remaining interval using the same absolute target.
 			if err := s.deepSleep(target); err != nil {
-				s.idleSleep(target)
+				// deepSleep may have cut rails before failing. Restore core
+				// rails so idleSleep can reach the RTC via I2C.
+				if s.rails != nil {
+					s.rails.Power(hal.RailsCore)
+				}
+				errs = append(errs, s.idleSleep(target))
 			}
 		} else {
-			s.idleSleep(target)
+			errs = append(errs, s.idleSleep(target))
 		}
 
 		s.mcu.PetWatchdog()
@@ -140,7 +156,9 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		s.mcu.PetWatchdog()
 	}
 
-	return s.readTime() // actual wake time
+	wakeTime, err := s.readTime()
+	errs = append(errs, err)
+	return wakeTime, errors.Join(errs...)
 }
 
 // deepSleep sets the RTC alarm (if present), arms all wake pins,
@@ -163,7 +181,7 @@ func (s *Device) deepSleep(target time.Time) error {
 
 	for i, pin := range s.wakePins {
 		if err := s.mcu.ArmWake(pin); err != nil {
-			for j := 0; j <= i; j++ {
+			for j := 0; j < i; j++ {
 				s.mcu.DisarmWake(s.wakePins[j])
 			}
 			return err
@@ -184,13 +202,14 @@ func (s *Device) deepSleep(target time.Time) error {
 }
 
 // idleSleep busy-waits in short intervals, petting the watchdog
-// between each, until target is reached. The tick duration is chosen
-// so the watchdog is petted well within its ~8s timeout window.
+// between each, until target is reached. Returns all RTC read errors
+// joined, or nil. The tick duration is chosen so the watchdog is
+// petted well within its ~8s timeout window.
 // A zero target means external-interrupt-only: loop indefinitely.
 //
 // For indefinite or long waits, on-demand rails are powered off to
 // save power while keeping always-rails up for RTC/SD access.
-func (s *Device) idleSleep(target time.Time) {
+func (s *Device) idleSleep(target time.Time) error {
 	const tick = 4 * time.Second
 
 	// For indefinite waits (zero target) or long waits, cut on-demand
@@ -207,7 +226,9 @@ func (s *Device) idleSleep(target time.Time) {
 
 	// For timed waits, cut on-demand rails if the remaining time is
 	// long enough to justify the power savings.
-	now, _ := s.readTime()
+	var errs []error
+	now, err := s.readTime()
+	errs = append(errs, err)
 	if target.Sub(now) > minDeepSleep {
 		if s.rails != nil {
 			s.rails.Power(hal.RailsCore)
@@ -218,6 +239,8 @@ func (s *Device) idleSleep(target time.Time) {
 		s.mcu.PetWatchdog()
 		remaining := min(target.Sub(now), tick)
 		wait.For(remaining)
-		now, _ = s.readTime()
+		now, err = s.readTime()
+		errs = append(errs, err)
 	}
+	return errors.Join(errs...)
 }
