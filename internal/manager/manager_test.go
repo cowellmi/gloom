@@ -132,6 +132,7 @@ func newTestManager(sys *mockSystem, groups []Group, recorders []sensor.Recorder
 	logger.AddSink(mo, log.LevelDebug)
 
 	man := New(sys, groups, recorders, logger)
+	man.wakeTime = T // seed initial time, as boot() would via ReadTime
 	return man, mo
 }
 
@@ -153,11 +154,8 @@ func TestEarliestDeadline(t *testing.T) {
 	man.deadlines[0] = T.Add(10 * time.Second)
 	man.deadlines[1] = T.Add(5 * time.Second)
 
-	got, hasDeadlines := man.earliestDeadline()
+	got := man.earliestDeadline()
 	want := T.Add(5 * time.Second)
-	if !hasDeadlines {
-		t.Error("earliestDeadline() hasDeadlines = false, want true")
-	}
 	if !got.Equal(want) {
 		t.Errorf("earliestDeadline() = %v, want %v", got, want)
 	}
@@ -735,22 +733,6 @@ func TestStep_NoSensorRailsForHostOnly(t *testing.T) {
 	}
 }
 
-func TestStep_ReadTimeError(t *testing.T) {
-	sys := &mockSystem{
-		timeFn: func() (time.Time, error) {
-			return time.Time{}, errors.New("rtc dead")
-		},
-		sleepFn: afterDeadlineSleep(T),
-	}
-
-	groups := []Group{{Name: "x", Host: "http://x"}}
-	man, mo := newTestManager(sys, groups, nil)
-	man.step()
-
-	if !mo.hasLog("rtc:") {
-		t.Errorf("expected rtc error in logs, got: %v", mo.logEntries)
-	}
-}
 
 func TestStep_SleepError(t *testing.T) {
 	sys := &mockSystem{

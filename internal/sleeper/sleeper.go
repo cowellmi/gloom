@@ -207,15 +207,17 @@ func (s *Device) idleSleep(target time.Time) {
 
 	// For timed waits, cut on-demand rails if the remaining time is
 	// long enough to justify the power savings.
-	if remaining := time.Until(target); remaining > minDeepSleep {
+	now, _ := s.ReadTime()
+	if target.Sub(now) > minDeepSleep {
 		if s.rails != nil {
 			s.rails.Power(hal.RailsCore)
 		}
 	}
 
-	for time.Now().Before(target) {
+	for now.Before(target) {
 		s.mcu.PetWatchdog()
-		remaining := min(time.Until(target), tick)
+		remaining := min(target.Sub(now), tick)
 		wait.For(remaining)
+		now, _ = s.ReadTime()
 	}
 }

@@ -136,6 +136,12 @@ func (m *Manager) SetStackMonitor(used func() uint) {
 // transient boot allocations before the first sleep.
 func (m *Manager) Run() {
 	runtime.GC()
+	now, err := m.sleeper.ReadTime()
+	if err != nil {
+		m.logger.Error("rtc: " + err.Error())
+		now = time.Now() // best effort: RTC failed, fall back to system clock
+	}
+	m.wakeTime = now
 	for {
 		m.step()
 	}
@@ -258,48 +264,38 @@ func (m *Manager) sensorIndex(s sensor.Device) int {
 }
 
 func (m *Manager) doSleep() []bool {
-	// 1. Read time for deadline initialization and next-wake logging.
-	now, rtcErr := m.sleeper.ReadTime()
-	if rtcErr != nil {
-		now = time.Now()
-	}
+	now := m.wakeTime
 
-	// 2. Initialize zero deadlines on first call.
+	// First call: deadlines start at zero and are initialized here.
 	for i, g := range m.groups {
 		if g.Interval > 0 && m.deadlines[i].IsZero() {
 			m.deadlines[i] = now.Add(g.Interval)
 		}
 	}
 
-	// 3. Compute the earliest deadline and log the upcoming sleep.
-	target, _ := m.earliestDeadline()
+	target := m.earliestDeadline()
 	var nextWake time.Duration
 	if !target.IsZero() {
 		nextWake = target.Sub(now)
 	}
 	m.logNextWake(nextWake)
 
-	// 4. Flush before sleeping.
 	m.pet()
 	if err := m.flush(); err != nil {
 		m.logger.Error("flush: " + err.Error())
 	}
 	m.pet()
 
-	// 5. Sleep — wakeTime comes back directly; no additional ReadTime call.
 	wakeTime, sleepErr := m.sleeper.Sleep(target)
 	m.wakeTime = wakeTime
 	m.logger.SetTime(wakeTime)
 
-	// 6. Log errors.
 	if sleepErr != nil {
 		m.logger.Error("sleep: " + sleepErr.Error())
 	}
-	if rtcErr != nil {
-		m.logger.Error("rtc: " + rtcErr.Error())
-	}
 
-	// 7. Resolve which deadline slots fired.
+	// Determine which slots fired. Deadline and ext-pin slots are
+	// independent — both can trigger in the same cycle.
 	for i := range m.fired {
 		m.fired[i] = false
 	}
@@ -311,9 +307,6 @@ func (m *Manager) doSleep() []bool {
 			}
 		}
 	}
-
-	// 8. Resolve ext-pin slots. Checked independently of deadlines
-	// since both can trigger during the same sleep cycle.
 	for _, ep := range m.extPins {
 		if m.sleeper.PinFired(ep.pin) {
 			m.fired[ep.slot] = true
@@ -323,9 +316,9 @@ func (m *Manager) doSleep() []bool {
 	return m.fired
 }
 
-// earliestDeadline returns the earliest non-zero deadline entry and
-// whether any interval-based deadlines exist at all.
-func (m *Manager) earliestDeadline() (time.Time, bool) {
+// earliestDeadline returns the earliest non-zero deadline, or the
+// zero time if no interval-based deadlines are set.
+func (m *Manager) earliestDeadline() time.Time {
 	var best time.Time
 	for i, g := range m.groups {
 		if g.Interval <= 0 {
@@ -339,7 +332,7 @@ func (m *Manager) earliestDeadline() (time.Time, bool) {
 			best = t
 		}
 	}
-	return best, !best.IsZero()
+	return best
 }
 
 func (m *Manager) pet() {
