@@ -128,12 +128,14 @@ func main() {
 	if card != nil {
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
+			// No CONFIG.INI on SD card; attempt to make one.
 			if ini, mErr := cfg.Marshal(); mErr != nil {
 				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
 			} else if wErr := card.WriteFile("CONFIG.INI", ini); wErr != nil {
 				initErrs = append(initErrs, errors.New("sd: "+wErr.Error()))
 			}
 		} else if raw != nil {
+			// Found CONFIG.INI on SD card; attempt to parse it.
 			if err := config.Parse(raw, &cfg); err != nil {
 				if joined, ok := err.(interface{ Unwrap() []error }); ok {
 					for _, e := range joined.Unwrap() {
@@ -313,10 +315,6 @@ func main() {
 	}
 	logger.Debug(string(b))
 
-	board.MCU.PetWatchdog()
-
-	// --- System ---
-
 	if clock == nil {
 		for _, g := range cfg.Groups {
 			if g.Interval > 0 {
@@ -327,23 +325,26 @@ func main() {
 		}
 	}
 
-	sys := sleeper.New(board.MCU, clock, rails)
+	board.MCU.PetWatchdog()
+
+	// --- System ---
+
+	hypnos := sleeper.New(board.MCU, clock, rails)
 
 	// --- Register external interrupt pins ---
-	// AGENT: can we just do register groups in manager.New if we pass config?
 
-	man := manager.New(sys, groups, recorders, logger)
+	man := manager.New(hypnos, groups, recorders, logger)
 	for i, g := range cfg.Groups {
 		if g.ExternalIntPin > 0 {
 			pin := hal.Pin(g.ExternalIntPin)
-			sys.AddWakePin(pin)
+			hypnos.AddWakePin(pin)
 			man.RegisterExternalPin(uint8(pin), i)
 		}
 	}
 
-	man.SetLED(board.LED.On, board.LED.Off)
+	man.SetLED(board.LED)
 	man.EnableWatchdog(board.MCU.PetWatchdog)
-	man.SetStackMonitor(board.MCU.StackFree)
+	man.SetStackMonitor(board.MCU.StackUsed)
 
 	man.Run()
 }

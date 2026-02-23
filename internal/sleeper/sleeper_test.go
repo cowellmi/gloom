@@ -26,7 +26,7 @@ func (m *mockMCU) ConfigureI2C(_, _ hal.Pin) error { return nil }
 func (m *mockMCU) Standby()                        { m.calls = append(m.calls, "Standby") }
 func (m *mockMCU) PaintStack()                     {}
 func (m *mockMCU) StackSize() uint                 { return 0 }
-func (m *mockMCU) StackFree() uint                 { return 0 }
+func (m *mockMCU) StackUsed() uint                 { return 0 }
 
 func (m *mockMCU) ArmWake(pin hal.Pin) error {
 	m.calls = append(m.calls, "ArmWake")

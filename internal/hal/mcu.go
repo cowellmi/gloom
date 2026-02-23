@@ -61,8 +61,8 @@ type MCU interface {
 	// target does not expose the linker symbol.
 	StackSize() uint
 
-	// StackFree returns the number of stack bytes that still contain
-	// the sentinel pattern, i.e. the remaining headroom. Returns 0
-	// if PaintStack was never called or the entire stack was used.
-	StackFree() uint
+	// StackUsed returns the number of stack bytes that have been touched
+	// since PaintStack was called (size minus remaining sentinel words).
+	// Returns 0 if PaintStack was never called.
+	StackUsed() uint
 }

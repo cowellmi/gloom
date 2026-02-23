@@ -283,10 +283,11 @@ func (m *MCU) StackSize() uint {
 	return uint(uintptr(unsafe.Pointer(&_stackSize)))
 }
 
-// StackFree scans upward from the stack region base and counts
-// consecutive sentinel words. Returns the number of bytes that have
-// never been touched — the remaining headroom.
-func (m *MCU) StackFree() uint {
+// StackUsed scans upward from the stack region base and counts
+// consecutive sentinel words to find the high-water mark, then
+// returns size minus that free count. Returns 0 if PaintStack
+// was never called.
+func (m *MCU) StackUsed() uint {
 	if !m.stackPainted {
 		return 0
 	}
@@ -302,7 +303,7 @@ func (m *MCU) StackFree() uint {
 		}
 		free += 4
 	}
-	return free
+	return uint(size) - free
 }
 
 // --- clock configuration ---

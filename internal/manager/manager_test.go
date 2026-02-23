@@ -83,6 +83,14 @@ func (m *mockSystem) PowerOnSensorRails() {
 	m.powerOnSensorRailsCalls++
 }
 
+type mockLED struct {
+	onCalled  bool
+	offCalled bool
+}
+
+func (l *mockLED) On()  { l.onCalled = true }
+func (l *mockLED) Off() { l.offCalled = true }
+
 type mockSensor struct {
 	name         string
 	initErr      error
@@ -629,7 +637,7 @@ func TestStep_SensorMeasureError(t *testing.T) {
 }
 
 func TestStep_LEDOnPulseLEDGroup(t *testing.T) {
-	var ledOnCalled, ledOffCalled bool
+	led := &mockLED{}
 
 	sys := &mockSystem{
 		timeFn:  fixedTimeFn(),
@@ -639,19 +647,19 @@ func TestStep_LEDOnPulseLEDGroup(t *testing.T) {
 	groups := []Group{{Name: "sample", Interval: 5 * time.Second, PulseLED: true, Host: "http://x"}}
 
 	man, _ := newTestManager(sys, groups, nil)
-	man.SetLED(func() { ledOnCalled = true }, func() { ledOffCalled = true })
+	man.SetLED(led)
 	man.step()
 
-	if !ledOnCalled {
-		t.Error("LEDOn callback was not called")
+	if !led.onCalled {
+		t.Error("LED.On was not called")
 	}
-	if !ledOffCalled {
-		t.Error("LEDOff callback was not called")
+	if !led.offCalled {
+		t.Error("LED.Off was not called")
 	}
 }
 
 func TestStep_NoLEDWhenPulseLEDFalse(t *testing.T) {
-	var ledOnCalled bool
+	led := &mockLED{}
 
 	sys := &mockSystem{
 		timeFn:  fixedTimeFn(),
@@ -661,16 +669,16 @@ func TestStep_NoLEDWhenPulseLEDFalse(t *testing.T) {
 	groups := []Group{{Name: "hb", Interval: 5 * time.Second, PulseLED: false, Host: "http://x"}}
 
 	man, _ := newTestManager(sys, groups, nil)
-	man.SetLED(func() { ledOnCalled = true }, func() {})
+	man.SetLED(led)
 	man.step()
 
-	if ledOnCalled {
+	if led.onCalled {
 		t.Error("LED should not pulse when PulseLED is false")
 	}
 }
 
 func TestStep_NoLEDOnExternalWake(t *testing.T) {
-	var ledOnCalled bool
+	led := &mockLED{}
 
 	sys := &mockSystem{
 		timeFn:  fixedTimeFn(),
@@ -681,10 +689,10 @@ func TestStep_NoLEDOnExternalWake(t *testing.T) {
 	groups := []Group{{Name: "weather", PulseLED: true}}
 
 	man, _ := newTestManager(sys, groups, nil)
-	man.SetLED(func() { ledOnCalled = true }, func() {})
+	man.SetLED(led)
 	man.step()
 
-	if ledOnCalled {
+	if led.onCalled {
 		t.Error("LED should not pulse on external wake (no groups fired)")
 	}
 }

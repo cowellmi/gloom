@@ -7,15 +7,22 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
-// system is the interface the manager needs from the hardware layer.
+// noopLED is the default LED implementation that does nothing.
+type noopLED struct{}
+
+func (noopLED) On()  {}
+func (noopLED) Off() {}
+
+// sleeper is the interface the manager needs from the hardware layer.
 // It is satisfied by *sleeper.Sleeper and by test mocks.
 // Uses uint8 for pin numbers so Manager does not import hal.
-type system interface {
+type sleeper interface {
 	ReadTime() (time.Time, error)
 	Sleep(target time.Time) (time.Time, error)
 	PowerOnSensorRails()
@@ -41,15 +48,14 @@ type extPin struct {
 }
 
 type Manager struct {
-	sys       system
+	sleeper   sleeper
 	groups    []Group
 	recorders []sensor.Recorder
 	logger    *log.Logger
 	wakeTime  time.Time
-	ledOn     func()
-	ledOff    func()
+	led       hal.LED
 	petWDT    func()
-	stackFree func() uint
+	stackUsed func() uint
 	buf       [64]byte
 
 	// Deduplicated sensor list built at construction. measured is a
@@ -67,7 +73,7 @@ type Manager struct {
 	extPins []extPin
 }
 
-func New(sys system, groups []Group, recorders []sensor.Recorder, logger *log.Logger) *Manager {
+func New(sleeper sleeper, groups []Group, recorders []sensor.Recorder, logger *log.Logger) *Manager {
 	var allSensors []sensor.Device
 	for _, g := range groups {
 		for _, s := range g.Sensors {
@@ -86,12 +92,11 @@ func New(sys system, groups []Group, recorders []sensor.Recorder, logger *log.Lo
 
 	n := len(groups)
 	return &Manager{
-		sys:        sys,
+		sleeper:    sleeper,
 		groups:     groups,
 		recorders:  recorders,
 		logger:     logger,
-		ledOn:      func() {},
-		ledOff:     func() {},
+		led:        noopLED{},
 		allSensors: allSensors,
 		measured:   make([]bool, len(allSensors)),
 		deadlines:  make([]time.Time, n),
@@ -112,20 +117,19 @@ func (m *Manager) EnableWatchdog(pet func()) {
 	m.petWDT = pet
 }
 
-// SetLED sets callbacks the manager uses to pulse the LED for groups
-// that have pulse_led enabled. Both callbacks must be non-nil.
-func (m *Manager) SetLED(on, off func()) {
-	if on == nil || off == nil {
+// SetLED sets the LED the manager pulses for groups that have
+// pulse_led enabled. No-op if l is nil.
+func (m *Manager) SetLED(l hal.LED) {
+	if l == nil {
 		return
 	}
-	m.ledOn = on
-	m.ledOff = off
+	m.led = l
 }
 
 // SetStackMonitor sets a callback the manager calls each cycle to
-// report remaining stack headroom alongside heap stats.
-func (m *Manager) SetStackMonitor(fn func() uint) {
-	m.stackFree = fn
+// report stack usage alongside heap stats.
+func (m *Manager) SetStackMonitor(used func() uint) {
+	m.stackUsed = used
 }
 
 // Run enters the main loop. A GC pass runs first to reclaim
@@ -164,7 +168,7 @@ func (m *Manager) step() {
 	}
 
 	if needsSensors {
-		m.sys.PowerOnSensorRails()
+		m.sleeper.PowerOnSensorRails()
 	}
 
 	if anyFired {
@@ -253,7 +257,7 @@ func (m *Manager) sensorIndex(s sensor.Device) int {
 
 func (m *Manager) doSleep() []bool {
 	// 1. Read time for deadline initialization and next-wake logging.
-	now, rtcErr := m.sys.ReadTime()
+	now, rtcErr := m.sleeper.ReadTime()
 	if rtcErr != nil {
 		now = time.Now()
 	}
@@ -281,7 +285,7 @@ func (m *Manager) doSleep() []bool {
 	m.pet()
 
 	// 5. Sleep — wakeTime comes back directly; no additional ReadTime call.
-	wakeTime, sleepErr := m.sys.Sleep(target)
+	wakeTime, sleepErr := m.sleeper.Sleep(target)
 	m.wakeTime = wakeTime
 	m.logger.SetTime(wakeTime)
 
@@ -309,7 +313,7 @@ func (m *Manager) doSleep() []bool {
 	// 8. Resolve ext-pin slots. Checked independently of deadlines
 	// since both can trigger during the same sleep cycle.
 	for _, ep := range m.extPins {
-		if m.sys.PinFired(ep.pin) {
+		if m.sleeper.PinFired(ep.pin) {
 			m.fired[ep.slot] = true
 		}
 	}
@@ -343,13 +347,13 @@ func (m *Manager) pet() {
 }
 
 func (m *Manager) pulseLED() {
-	m.ledOn()
+	m.led.On()
 	wait.For(50 * time.Millisecond)
-	m.ledOff()
+	m.led.Off()
 	wait.For(100 * time.Millisecond)
-	m.ledOn()
+	m.led.On()
 	wait.For(50 * time.Millisecond)
-	m.ledOff()
+	m.led.Off()
 }
 
 func (m *Manager) logNextWake(d time.Duration) {
@@ -389,12 +393,12 @@ func (m *Manager) logMem() {
 	runtime.ReadMemStats(&ms)
 	b := m.buf[:0]
 	b = append(b, "mem: heap_alloc="...)
-	b = strconv.AppendUint(b, ms.HeapAlloc/1024, 10)
-	b = append(b, "kb"...)
-	if m.stackFree != nil {
-		b = append(b, " stack_free="...)
-		b = strconv.AppendUint(b, uint64(m.stackFree()), 10)
-		b = append(b, 'b')
+	b = strconv.AppendUint(b, ms.HeapAlloc, 10)
+	b = append(b, 'B')
+	if m.stackUsed != nil {
+		b = append(b, " stack_alloc="...)
+		b = strconv.AppendUint(b, uint64(m.stackUsed()), 10)
+		b = append(b, 'B')
 	}
 	m.logger.Debug(string(b))
 }
