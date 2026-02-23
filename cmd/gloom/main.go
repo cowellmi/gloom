@@ -181,6 +181,14 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// Logger
+	now = time.Now()
+	if clock != nil {
+		if t, err := clock.ReadTime(); err != nil {
+			initErrs = append(initErrs, err)
+		} else {
+			now = t
+		}
+	}
 	logger := log.NewLogger(now)
 
 	for _, ls := range cfg.Device.LogSinks {
@@ -246,7 +254,6 @@ func main() {
 	board.LED.Off()
 
 	// Report init warnings and errors
-
 	for _, w := range initWarns {
 		logger.Warn("init: " + w.Error())
 	}

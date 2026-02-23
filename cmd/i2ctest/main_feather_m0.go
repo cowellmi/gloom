@@ -21,7 +21,7 @@ func initMCU() (hal.MCU, io.Writer) {
 
 	proc := samd21.New()
 	proc.EnableWatchdog()
-	return proc, uart0
+	return proc, io.MultiWriter(uart0, machine.Serial)
 }
 
 func resetCause() string {

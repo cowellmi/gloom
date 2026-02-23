@@ -21,6 +21,7 @@ import (
 
 	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/drivers/ds3231"
+	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
@@ -37,7 +38,7 @@ func main() {
 	wait.For(2 * time.Second)
 
 	proc, uart := initMCU()
-	debug.Add(uart)
+	debug.W = uart
 
 	debug.Log("")
 	debug.Log("=== I2C RECOVERY TEST ===")
@@ -50,8 +51,8 @@ func main() {
 
 	// Read SDA with pullups active. If the DS3231 is holding SDA
 	// from a prior stuck transaction, it reads LOW here.
-	sda := uint8(machine.SDA_PIN)
-	scl := uint8(machine.SCL_PIN)
+	sda := hal.Pin(machine.SDA_PIN)
+	scl := hal.Pin(machine.SCL_PIN)
 	sdaPin := machine.Pin(sda)
 	sdaPin.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
 	wait.For(10 * time.Microsecond)
@@ -71,7 +72,7 @@ func main() {
 	debug.Log("I2C: ok")
 	proc.PetWatchdog()
 
-	rtc, err := ds3231.Probe(machine.I2C0, uint8(machine.D12))
+	rtc, err := ds3231.Probe(machine.I2C0, hal.Pin(machine.D12))
 	if err != nil {
 		debug.Log("DS3231 failed, WDT will retry: " + err.Error())
 		select {}
