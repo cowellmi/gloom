@@ -1,15 +1,15 @@
 -include .env
 export GOTOOLCHAIN
 
-MAIN		?= ./cmd/gloom
-BIN 		?= ./build/gloom.bin
-I2CTEST		?= ./cmd/i2ctest
-I2CBIN		?= ./build/i2ctest.bin
-LOG	 		?= ./debug.log
-TARGET		?= $(GLOOM_TARGET)
-PORT		?= $(GLOOM_PORT)
-SERIAL_PORT ?= $(or $(GLOOM_SERIAL_PORT),$(PORT))
-TAGS		?= $(GLOOM_TAGS)
+MAIN	?= ./cmd/gloom
+BIN 	?= ./build/gloom.bin
+I2CTES	?= ./cmd/i2ctest
+I2CBIN	?= ./build/i2ctest.bin
+LOG	 	?= ./debug.log
+TARGET	?= $(GLOOM_TARGET)
+PORT	?= $(GLOOM_PORT)
+SERIAL 	?= $(or $(GLOOM_SERIAL),$(PORT))
+TAGS	?= $(GLOOM_TAGS)
 
 SOURCES := $(shell find cmd internal -name '*.go')
 
@@ -43,7 +43,7 @@ vet:
 	go vet ./...
 
 monitor:
-ifeq ($(SERIAL_PORT),)
-	$(error SERIAL_PORT is not set: set GLOOM_SERIAL_PORT in your .env)
+ifeq ($(SERIAL),)
+	$(error SERIAL is not set: set GLOOM_SERIAL in your .env)
 endif
-	tio --log --log-file=$(LOG) $(SERIAL_PORT)
+	tio --log --log-file=$(LOG) $(SERIAL)
