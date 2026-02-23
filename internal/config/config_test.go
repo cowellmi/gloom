@@ -14,15 +14,11 @@ import (
 func TestDefault(t *testing.T) {
 	cfg := Default()
 
-	if len(cfg.Device.LogSinks) != 1 {
-		t.Fatalf("LogSinks = %v, want 1 entries", cfg.Device.LogSinks)
+	if len(cfg.Device.LogSinks) != 0 {
+		t.Errorf("LogSinks = %v, want empty", cfg.Device.LogSinks)
 	}
-	if cfg.Device.LogSinks[0].Name != "serial" || cfg.Device.LogSinks[0].Level != log.LevelDebug {
-		t.Errorf("LogSinks[0] = %+v, want serial:debug", cfg.Device.LogSinks[0])
-	}
-	wantSinks := []string{"serial"}
-	if len(cfg.Device.DataSinks) != 1 || cfg.Device.DataSinks[0] != wantSinks[0] {
-		t.Errorf("DataSinks = %v, want %v", cfg.Device.DataSinks, wantSinks)
+	if len(cfg.Device.DataSinks) != 0 {
+		t.Errorf("DataSinks = %v, want empty", cfg.Device.DataSinks)
 	}
 	if len(cfg.Groups) != 1 {
 		t.Fatalf("Groups = %d, want 1", len(cfg.Groups))
@@ -47,33 +43,33 @@ func TestDefault(t *testing.T) {
 func TestParse_DeviceSection(t *testing.T) {
 	input := []byte(`
 [device]
-log_sinks = serial:debug, sd:error
-data_sinks = serial, sd
+log_sinks = sd:error
+data_sinks = sd
 `)
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 
-	if len(cfg.Device.LogSinks) != 2 {
-		t.Fatalf("LogSinks = %v, want 2", cfg.Device.LogSinks)
+	if len(cfg.Device.LogSinks) != 1 {
+		t.Fatalf("LogSinks = %v, want 1", cfg.Device.LogSinks)
 	}
-	if cfg.Device.LogSinks[1].Name != "sd" || cfg.Device.LogSinks[1].Level != log.LevelError {
-		t.Errorf("LogSinks[1] = %+v, want sd:error", cfg.Device.LogSinks[1])
+	if cfg.Device.LogSinks[0].Name != "sd" || cfg.Device.LogSinks[0].Level != log.LevelError {
+		t.Errorf("LogSinks[0] = %+v, want sd:error", cfg.Device.LogSinks[0])
 	}
 
-	if len(cfg.Device.DataSinks) != 2 {
-		t.Fatalf("DataSinks = %v, want 3 entries", cfg.Device.DataSinks)
+	if len(cfg.Device.DataSinks) != 1 {
+		t.Fatalf("DataSinks = %v, want 1 entry", cfg.Device.DataSinks)
 	}
-	if cfg.Device.DataSinks[1] != "sd" {
-		t.Errorf("DataSinks[1] = %q, want sd", cfg.Device.DataSinks[1])
+	if cfg.Device.DataSinks[0] != "sd" {
+		t.Errorf("DataSinks[0] = %q, want sd", cfg.Device.DataSinks[0])
 	}
 }
 
 func TestParse_LogSinksDefaultLevel(t *testing.T) {
 	input := []byte(`
 [device]
-log_sinks = serial, sd
+log_sinks = sd
 `)
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
@@ -89,7 +85,7 @@ log_sinks = serial, sd
 func TestParse_LogSinksInvalidLevel(t *testing.T) {
 	input := []byte(`
 [device]
-log_sinks = serial:verbose
+log_sinks = sd:verbose
 `)
 	cfg := Default()
 	err := Parse(input, &cfg)
@@ -139,9 +135,6 @@ func TestParse_DeviceUnknownKey(t *testing.T) {
 
 func TestParse_MultipleGroups(t *testing.T) {
 	input := []byte(`
-[device]
-data_sinks = serial
-
 [weather]
 interval = 1m
 sensors = temp, humidity
@@ -235,9 +228,6 @@ sensors = tipping_bucket
 
 func TestParse_RepeatedSection(t *testing.T) {
 	input := []byte(`
-[device]
-data_sinks = serial
-
 [weather]
 interval = 1m
 
@@ -265,9 +255,6 @@ sensors = temp
 
 func TestParse_InlineComments(t *testing.T) {
 	input := []byte(`
-[device]
-data_sinks = serial
-
 [weather]
 interval = 5m # every five minutes
 sensors = temp
@@ -322,7 +309,7 @@ func TestParse_CommentsAndBlanks(t *testing.T) {
 
 [device]
 # Another comment
-data_sinks = serial
+log_sinks = sd
 
 [sample]
 interval = 3s
@@ -333,8 +320,8 @@ sensors = vbat
 		t.Fatalf("Parse() error: %v", err)
 	}
 
-	if len(cfg.Device.DataSinks) != 1 || cfg.Device.DataSinks[0] != "serial" {
-		t.Errorf("DataSinks = %v, want [serial]", cfg.Device.DataSinks)
+	if len(cfg.Device.LogSinks) != 1 || cfg.Device.LogSinks[0].Name != "sd" {
+		t.Errorf("LogSinks = %v, want [sd]", cfg.Device.LogSinks)
 	}
 	if cfg.Groups[0].Interval != 3*time.Second {
 		t.Errorf("Interval = %v, want 3s", cfg.Groups[0].Interval)
@@ -347,8 +334,8 @@ func TestParse_EmptyInput(t *testing.T) {
 		t.Fatalf("Parse() error: %v", err)
 	}
 
-	if len(cfg.Device.LogSinks) != 1 {
-		t.Error("LogSinks should retain defaults from Default()")
+	if len(cfg.Device.LogSinks) != 0 {
+		t.Error("LogSinks should be empty")
 	}
 	if len(cfg.Groups) != 0 {
 		t.Errorf("Groups = %d, want 0 (empty config defines no groups)", len(cfg.Groups))
@@ -359,9 +346,6 @@ func TestParse_EmptyInput(t *testing.T) {
 
 func TestParse_GroupMissingTrigger(t *testing.T) {
 	input := []byte(`
-[device]
-data_sinks = serial
-
 [weather]
 sensors = temp
 `)
@@ -375,24 +359,6 @@ sensors = temp
 	}
 }
 
-func TestParse_SensorsWithoutDeviceDataSinks(t *testing.T) {
-	input := []byte(`
-[device]
-data_sinks =
-
-[weather]
-interval = 1m
-sensors = temp
-`)
-	cfg := Config{}
-	err := Parse(input, &cfg)
-	if err == nil {
-		t.Fatal("expected error for sensors without device data sinks, got nil")
-	}
-	if !strings.Contains(err.Error(), "sensors require at least one data_sink") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
 
 func TestParse_GroupNoSensorsNoSinks_OK(t *testing.T) {
 	input := []byte(`
@@ -542,8 +508,8 @@ func TestParse_PayloadVariants(t *testing.T) {
 func TestParse_FullExample(t *testing.T) {
 	input := []byte(`
 [device]
-log_sinks = serial:debug, sd:error
-data_sinks = serial, sd
+log_sinks = sd:error
+data_sinks = sd
 
 [weather]
 interval = 1m
@@ -565,11 +531,11 @@ payload = full
 	}
 
 	// Device
-	if len(cfg.Device.LogSinks) != 2 {
-		t.Fatalf("LogSinks = %d, want 3", len(cfg.Device.LogSinks))
+	if len(cfg.Device.LogSinks) != 1 {
+		t.Fatalf("LogSinks = %d, want 1", len(cfg.Device.LogSinks))
 	}
-	if len(cfg.Device.DataSinks) != 2 {
-		t.Fatalf("DataSinks = %d, want 3", len(cfg.Device.DataSinks))
+	if len(cfg.Device.DataSinks) != 1 {
+		t.Fatalf("DataSinks = %d, want 1", len(cfg.Device.DataSinks))
 	}
 
 	// Groups

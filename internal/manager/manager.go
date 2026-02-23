@@ -55,7 +55,7 @@ type Manager struct {
 	led       hal.LED
 	petWDT    func()
 	stackUsed func() uint
-	buf       [64]byte
+	buf       [128]byte
 
 	// Deduplicated sensor list built at construction. measured is a
 	// parallel slice reset each cycle to track which sensors have

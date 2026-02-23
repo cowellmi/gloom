@@ -13,10 +13,9 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	orig := Config{
 		Device: Device{
 			LogSinks: []LogSinkEntry{
-				{Name: "serial", Level: log.LevelDebug},
 				{Name: "sd", Level: log.LevelError},
 			},
-			DataSinks: []string{"serial", "sd"},
+			DataSinks: []string{"sd"},
 		},
 		Groups: []Group{
 			{
@@ -45,16 +44,13 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	}
 
 	// Device
-	if len(got.Device.LogSinks) != 2 {
-		t.Errorf("LogSinks = %d, want 2", len(got.Device.LogSinks))
+	if len(got.Device.LogSinks) != 1 {
+		t.Errorf("LogSinks = %d, want 1", len(got.Device.LogSinks))
 	}
-	if got.Device.LogSinks[0].Name != "serial" || got.Device.LogSinks[0].Level != log.LevelDebug {
+	if got.Device.LogSinks[0].Name != "sd" || got.Device.LogSinks[0].Level != log.LevelError {
 		t.Errorf("LogSink[0] = %+v", got.Device.LogSinks[0])
 	}
-	if got.Device.LogSinks[1].Name != "sd" || got.Device.LogSinks[1].Level != log.LevelError {
-		t.Errorf("LogSink[1] = %+v", got.Device.LogSinks[1])
-	}
-	if len(got.Device.DataSinks) != 2 || got.Device.DataSinks[0] != "serial" {
+	if len(got.Device.DataSinks) != 1 || got.Device.DataSinks[0] != "sd" {
 		t.Errorf("DataSinks = %v", got.Device.DataSinks)
 	}
 

@@ -193,10 +193,10 @@ func main() {
 	}
 	logger := log.NewLogger(now)
 
+	logger.AddSink(serialSink, log.LevelDebug)
+
 	for _, ls := range cfg.Device.LogSinks {
 		switch ls.Name {
-		case "serial":
-			logger.AddSink(serialSink, ls.Level)
 		case "sd":
 			if sdCardFileSink != nil {
 				logger.AddSink(sdCardFileSink, ls.Level)
@@ -211,10 +211,9 @@ func main() {
 	// Sensor data sinks
 
 	var recorders []sensor.Recorder
+	recorders = append(recorders, serialSink)
 	for _, name := range cfg.Device.DataSinks {
 		switch name {
-		case "serial":
-			recorders = append(recorders, serialSink)
 		case "sd":
 			if sdCardFileSink != nil {
 				recorders = append(recorders, sdCardFileSink)

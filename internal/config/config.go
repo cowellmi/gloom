@@ -58,10 +58,8 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Device: Device{
-			LogSinks: []LogSinkEntry{
-				{Name: "serial", Level: log.LevelDebug},
-			},
-			DataSinks: []string{"serial"},
+			LogSinks:  []LogSinkEntry{},
+			DataSinks: []string{},
 		},
 		Groups: []Group{
 			{
@@ -139,7 +137,7 @@ func Parse(data []byte, cfg *Config) error {
 	cfg.Groups = groups
 
 	for i := range cfg.Groups {
-		if err := validateGroup(&cfg.Groups[i], &cfg.Device); err != nil {
+		if err := validateGroup(&cfg.Groups[i]); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -199,20 +197,17 @@ func parseGroupKey(g *Group, key, value string) error {
 	return nil
 }
 
-func validateGroup(g *Group, dev *Device) error {
+func validateGroup(g *Group) error {
 	var errs []error
 	if g.Interval <= 0 && g.ExternalIntPin == hal.NoPin {
 		errs = append(errs, errors.New("["+g.Name+"] must have interval or external_int_pin"))
-	}
-	if len(g.Sensors) > 0 && len(dev.DataSinks) == 0 {
-		errs = append(errs, errors.New("["+g.Name+"] sensors require at least one data_sink in [device]"))
 	}
 	return errors.Join(errs...)
 }
 
 // --- parse helpers ---
 
-var knownSinks = []string{"serial", "sd"}
+var knownSinks = []string{"sd"}
 
 func validSinkName(name string) bool {
 	for _, s := range knownSinks {

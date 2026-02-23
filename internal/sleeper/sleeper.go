@@ -113,7 +113,10 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		now, err := s.readTime()
 		errs = append(errs, err)
 		remaining = target.Sub(now)
-		shouldSleep = remaining > 0
+		// If readTime failed, now may be a bogus system time that makes
+		// remaining negative. Still sleep: the RTC alarm uses the absolute
+		// target and will fire correctly regardless of the time calculation.
+		shouldSleep = err != nil || remaining > 0
 	}
 
 	if shouldSleep {
