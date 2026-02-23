@@ -7,52 +7,32 @@ package vbat
 import (
 	"machine"
 
-	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
 type Device struct {
 	adc machine.ADC
-	ms  [1]sensor.Measurement
-	buf [8]byte
+	ms  [1]sensor.Reading
 }
 
 func NewDevice(pin hal.Pin) *Device {
 	return &Device{adc: machine.ADC{Pin: machine.Pin(pin)}}
 }
 
-func (*Device) Init() error  { return nil }
-func (*Device) Name() string { return "vbat" }
+func (*Device) ID() string { return "vbat" }
 
-// Measure reads the ADC and converts the raw 16-bit value to
-// voltage assuming a 2:1 divider with a 3.3V reference:
+// Measure reads the ADC and returns the battery voltage in millivolts,
+// assuming a 2:1 voltage divider with a 3.3V reference:
 //
-//	V = raw * 2 * 3.3 / 65535
-//
-// The result is formatted to two decimal places using integer math.
-func (d *Device) Measure() ([]sensor.Measurement, error) {
+//	mV = raw * 6600 / 65535
+func (d *Device) Measure() ([]sensor.Reading, error) {
 	d.adc.Configure(machine.ADCConfig{})
 	raw := uint32(d.adc.Get())
-
-	// millivolts = raw * 6600 / 65535
-	mv := (raw * 6600) / 65535
-
-	whole := mv / 1000
-	frac := (mv % 1000) / 10
-
-	b := d.buf[:0]
-	b = fmtbuf.AppendUint(b, uint64(whole), 10)
-	b = fmtbuf.AppendByte(b, '.')
-	if frac < 10 {
-		b = fmtbuf.AppendByte(b, '0')
-	}
-	b = fmtbuf.AppendUint(b, uint64(frac), 10)
-
-	d.ms[0] = sensor.Measurement{
+	d.ms[0] = sensor.Reading{
 		Label: "voltage",
-		Value: b,
-		Unit:  "V",
+		Value: int32((raw * 6600) / 65535),
+		Unit:  "mV",
 	}
 	return d.ms[:], nil
 }

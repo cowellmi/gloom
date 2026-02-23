@@ -2,18 +2,22 @@ package sensor
 
 import "time"
 
-// Measurement holds a single sensor reading.
-type Measurement struct {
+// Reading holds a single sensor measurement with its label, fixed-point
+// integer value, and unit. Labels and units are string literals defined
+// in the driver (flash, not RAM). Value is fixed-point: scale depends on
+// the sensor, e.g. millivolts, millidegrees Celsius, hundredths of a percent.
+type Reading struct {
 	Label string
-	Value []byte
+	Value int32
 	Unit  string
 }
 
-// Device abstracts a sensor that produces measurements.
-type Device interface {
-	Init() error
-	Name() string
-	Measure() ([]Measurement, error)
+// Sensor abstracts a sensor that produces readings. Configure, init, and
+// any required startup delay are handled inside Measure — no separate Init
+// call is needed from the caller.
+type Sensor interface {
+	ID() string
+	Measure() ([]Reading, error)
 }
 
 // Recorder receives measurement batches for output to a destination
@@ -22,6 +26,6 @@ type Device interface {
 // scratch buffers internally to avoid per-call heap allocations.
 type Recorder interface {
 	Name() string
-	Record(t time.Time, device string, ms []Measurement) error
+	Record(t time.Time, id string, readings []Reading) error
 	Flush() error
 }

@@ -76,10 +76,10 @@ func New(name string, opener Opener, data, logSpec FileSpec, now time.Time) (*Si
 
 func (s *Sink) Name() string { return s.name }
 
-// Record formats each measurement as a CSV row:
+// Record formats each reading as a CSV row:
 //
-//	timestamp,device,label,value,unit
-func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error {
+//	timestamp,id,label,value,unit
+func (s *Sink) Record(t time.Time, id string, readings []sensor.Reading) error {
 	if s.dataFile == nil {
 		return nil
 	}
@@ -89,17 +89,17 @@ func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error
 		return err
 	}
 
-	for _, m := range ms {
+	for _, r := range readings {
 		b := s.buf[:0]
 		b = appendTimestamp(b, t)
 		b = fmtbuf.AppendByte(b, ',')
-		b = fmtbuf.Append(b, device)
+		b = fmtbuf.Append(b, id)
 		b = fmtbuf.AppendByte(b, ',')
-		b = fmtbuf.Append(b, m.Label)
+		b = fmtbuf.Append(b, r.Label)
 		b = fmtbuf.AppendByte(b, ',')
-		b = fmtbuf.AppendBytes(b, m.Value)
+		b = fmtbuf.AppendInt(b, int64(r.Value), 10)
 		b = fmtbuf.AppendByte(b, ',')
-		b = fmtbuf.Append(b, m.Unit)
+		b = fmtbuf.Append(b, r.Unit)
 		b = fmtbuf.AppendByte(b, '\n')
 		if _, err := s.dataFile.Write(b); err != nil {
 			s.dataFile = nil

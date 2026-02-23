@@ -30,21 +30,21 @@ func NewSink(w io.Writer) *Sink {
 
 func (*Sink) Name() string { return "serial" }
 
-func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error {
+func (s *Sink) Record(t time.Time, id string, readings []sensor.Reading) error {
 	if s.w == nil {
 		return nil
 	}
-	for _, m := range ms {
+	for _, r := range readings {
 		b := s.buf[:0]
 		b = appendTimestamp(b, t)
 		b = fmtbuf.Append(b, "SEN | ")
-		b = fmtbuf.Append(b, device)
+		b = fmtbuf.Append(b, id)
 		b = fmtbuf.Append(b, ": ")
-		b = fmtbuf.Append(b, m.Label)
+		b = fmtbuf.Append(b, r.Label)
 		b = fmtbuf.Append(b, ": ")
-		b = fmtbuf.AppendBytes(b, m.Value)
+		b = fmtbuf.AppendInt(b, int64(r.Value), 10)
 		b = fmtbuf.AppendByte(b, ' ')
-		b = fmtbuf.Append(b, m.Unit)
+		b = fmtbuf.Append(b, r.Unit)
 		b = fmtbuf.AppendByte(b, '\r')
 		b = fmtbuf.AppendByte(b, '\n')
 		_, _ = s.w.Write(b) // best-effort

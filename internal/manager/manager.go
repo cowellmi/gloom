@@ -35,7 +35,7 @@ type Group struct {
 	Name     string
 	Interval time.Duration
 	PulseLED bool
-	Sensors  []sensor.Device
+	Sensors  []sensor.Sensor
 	Host     string
 	Payload  config.Payload
 }
@@ -59,9 +59,9 @@ type Manager struct {
 
 	// Deduplicated sensor list built at construction. measured is a
 	// parallel slice reset each cycle to track which sensors have
-	// already been init'd + measured, avoiding duplicate I2C traffic
-	// when multiple fired groups share a sensor.
-	allSensors []sensor.Device
+	// already been measured, avoiding duplicate I2C traffic when
+	// multiple fired groups share a sensor.
+	allSensors []sensor.Sensor
 	measured   []bool
 
 	// Deadline tracking (parallel to groups).
@@ -73,7 +73,7 @@ type Manager struct {
 }
 
 func New(sleeper sleeper, groups []Group, recorders []sensor.Recorder, logger *log.Logger) *Manager {
-	var allSensors []sensor.Device
+	var allSensors []sensor.Sensor
 	for _, g := range groups {
 		for _, s := range g.Sensors {
 			found := false
@@ -219,7 +219,7 @@ func (m *Manager) measureSensors(fired []bool) {
 		for _, s := range m.groups[i].Sensors {
 			idx := m.sensorIndex(s)
 			if idx < 0 {
-				m.logger.Error("sensor not in pool: " + s.Name())
+				m.logger.Error("sensor not in pool: " + s.ID())
 				continue
 			}
 			if m.measured[idx] {
@@ -229,27 +229,22 @@ func (m *Manager) measureSensors(fired []bool) {
 
 			m.pet()
 
-			if err := s.Init(); err != nil {
-				m.logger.Error("failed to initialize: " + s.Name() + ": " + err.Error())
-				continue
-			}
-
-			ms, err := s.Measure()
+			readings, err := s.Measure()
 			if err != nil {
-				m.logger.Error("failed to measure: " + s.Name() + ": " + err.Error())
+				m.logger.Error("failed to measure: " + s.ID() + ": " + err.Error())
 				continue
 			}
 
 			for _, r := range m.recorders {
-				if err := r.Record(m.wakeTime, s.Name(), ms); err != nil {
-					m.logger.Error("failed to record: " + s.Name() + ": " + err.Error())
+				if err := r.Record(m.wakeTime, s.ID(), readings); err != nil {
+					m.logger.Error("failed to record: " + s.ID() + ": " + err.Error())
 				}
 			}
 		}
 	}
 }
 
-func (m *Manager) sensorIndex(s sensor.Device) int {
+func (m *Manager) sensorIndex(s sensor.Sensor) int {
 	for i, existing := range m.allSensors {
 		if existing == s {
 			return i

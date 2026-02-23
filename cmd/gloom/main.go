@@ -114,10 +114,10 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// Sensors
-	sensorRegistry := make(map[string]func() sensor.Device)
+	sensorRegistry := make(map[string]func() sensor.Sensor)
 
 	if board.ADCPin != 0 {
-		sensorRegistry["vbat"] = func() sensor.Device {
+		sensorRegistry["vbat"] = func() sensor.Sensor {
 			return vbat.NewDevice(board.ADCPin)
 		}
 		board.MCU.PetWatchdog()
@@ -214,7 +214,7 @@ func main() {
 
 	// Resolve groups
 
-	sensorPool := make(map[string]sensor.Device)
+	sensorPool := make(map[string]sensor.Sensor)
 	var groups []manager.Group
 	for _, gcfg := range cfg.Groups {
 		g := manager.Group{

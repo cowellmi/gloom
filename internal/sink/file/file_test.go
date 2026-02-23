@@ -62,14 +62,36 @@ func TestRecord_WritesCSV(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ms := []sensor.Measurement{{Label: "temp", Value: []byte("22"), Unit: "C"}}
-	if err := s.Record(now, "bme280", ms); err != nil {
+	readings := []sensor.Reading{{Label: "temp", Value: 22000, Unit: "mC"}}
+	if err := s.Record(now, "bme280", readings); err != nil {
 		t.Fatal(err)
 	}
 
 	f := o.files["data/20260214.csv"]
 	got := f.buf.String()
-	want := "2026-02-14T10:30:00,bme280,temp,22,C\n"
+	want := "2026-02-14T10:30:00,bme280,temp,22000,mC\n"
+	if got != want {
+		t.Errorf("CSV row =\n  %q\nwant\n  %q", got, want)
+	}
+}
+
+func TestRecord_NegativeValue(t *testing.T) {
+	o := newMemOpener()
+	now := time.Date(2026, 2, 14, 10, 30, 0, 0, time.UTC)
+
+	s, err := New("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readings := []sensor.Reading{{Label: "temp", Value: -5000, Unit: "mC"}}
+	if err := s.Record(now, "ds18b20", readings); err != nil {
+		t.Fatal(err)
+	}
+
+	f := o.files["data/20260214.csv"]
+	got := f.buf.String()
+	want := "2026-02-14T10:30:00,ds18b20,temp,-5000,mC\n"
 	if got != want {
 		t.Errorf("CSV row =\n  %q\nwant\n  %q", got, want)
 	}
@@ -106,8 +128,8 @@ func TestRotation_OnDateChange(t *testing.T) {
 	}
 
 	// Write on day 1.
-	ms := []sensor.Measurement{{Label: "temp", Value: []byte("20"), Unit: "C"}}
-	if err := s.Record(day1, "dev", ms); err != nil {
+	readings := []sensor.Reading{{Label: "temp", Value: 20000, Unit: "mC"}}
+	if err := s.Record(day1, "dev", readings); err != nil {
 		t.Fatal(err)
 	}
 
@@ -150,12 +172,12 @@ func TestRotation_SameDateNoReopen(t *testing.T) {
 	}
 
 	// Write twice on the same day.
-	ms := []sensor.Measurement{{Label: "a", Value: []byte("1"), Unit: ""}}
-	_ = s.Record(now, "dev", ms)
+	readings := []sensor.Reading{{Label: "a", Value: 1, Unit: ""}}
+	_ = s.Record(now, "dev", readings)
 
 	later := now.Add(2 * time.Hour)
-	ms[0].Value = []byte("2")
-	_ = s.Record(later, "dev", ms)
+	readings[0].Value = 2
+	_ = s.Record(later, "dev", readings)
 
 	// Should still be the same file (only 1 entry in opener map).
 	if len(o.files) != 1 {
