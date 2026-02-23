@@ -311,16 +311,6 @@ func main() {
 		logger.Debug("groups: none")
 	}
 
-	if clock == nil {
-		for _, g := range cfg.Groups {
-			if g.Interval > 0 {
-				logger.Warn("config: timed groups configured without an RTC")
-				logger.Warn("config: deep sleep disabled; using idle sleep")
-				break
-			}
-		}
-	}
-
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	b := bootBuf[:0]
@@ -337,7 +327,6 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// Manager
-
 	sleeper := sleeper.New(board.MCU, clock, rails)
 	man := manager.New(sleeper, groups, recorders, logger)
 
@@ -368,6 +357,13 @@ func main() {
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackUsed)
 
+	if clock != nil {
+		if t, err := clock.ReadTime(); err == nil {
+			now = t
+		}
+	} else {
+		now = time.Now()
+	}
 	man.Run(now)
 }
 
