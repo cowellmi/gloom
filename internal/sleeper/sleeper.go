@@ -59,9 +59,9 @@ func (s *Device) AddWakePin(pin hal.Pin) {
 	}
 }
 
-// ReadTime returns the current time from the RTC, or time.Now() if
+// readTime returns the current time from the RTC, or time.Now() if
 // no RTC is attached.
-func (s *Device) ReadTime() (time.Time, error) {
+func (s *Device) readTime() (time.Time, error) {
 	if s.rtc != nil {
 		return s.rtc.ReadTime()
 	}
@@ -100,7 +100,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 	shouldSleep := target.IsZero()
 	if !target.IsZero() {
 		// TODO: short explaination of skip err
-		now, _ := s.ReadTime()
+		now, _ := s.readTime()
 		remaining = target.Sub(now)
 		shouldSleep = remaining > 0
 	}
@@ -140,7 +140,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		s.mcu.PetWatchdog()
 	}
 
-	return s.ReadTime() // actual wake time
+	return s.readTime() // actual wake time
 }
 
 // deepSleep sets the RTC alarm (if present), arms all wake pins,
@@ -207,7 +207,7 @@ func (s *Device) idleSleep(target time.Time) {
 
 	// For timed waits, cut on-demand rails if the remaining time is
 	// long enough to justify the power savings.
-	now, _ := s.ReadTime()
+	now, _ := s.readTime()
 	if target.Sub(now) > minDeepSleep {
 		if s.rails != nil {
 			s.rails.Power(hal.RailsCore)
@@ -218,6 +218,6 @@ func (s *Device) idleSleep(target time.Time) {
 		s.mcu.PetWatchdog()
 		remaining := min(target.Sub(now), tick)
 		wait.For(remaining)
-		now, _ = s.ReadTime()
+		now, _ = s.readTime()
 	}
 }

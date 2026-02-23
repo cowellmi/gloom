@@ -368,7 +368,7 @@ func main() {
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackUsed)
 
-	man.Run()
+	man.Run(now)
 }
 
 func needsSDSink(cfg *config.Config) bool {

@@ -20,10 +20,9 @@ func (noopLED) On()  {}
 func (noopLED) Off() {}
 
 // sleeper is the interface the manager needs from the hardware layer.
-// It is satisfied by *sleeper.Sleeper and by test mocks.
+// It is satisfied by *sleeper.Device and by test mocks.
 // Uses uint8 for pin numbers so Manager does not import hal.
 type sleeper interface {
-	ReadTime() (time.Time, error)
 	Sleep(target time.Time) (time.Time, error)
 	PowerOnSensorRails()
 	PinFired(pin uint8) bool
@@ -132,15 +131,11 @@ func (m *Manager) SetStackMonitor(used func() uint) {
 	m.stackUsed = used
 }
 
-// Run enters the main loop. A GC pass runs first to reclaim
-// transient boot allocations before the first sleep.
-func (m *Manager) Run() {
+// Run enters the main loop. now is the current time read by the
+// caller before Run; it seeds the first sleep's deadline calculations.
+// A GC pass runs first to reclaim transient boot allocations.
+func (m *Manager) Run(now time.Time) {
 	runtime.GC()
-	now, err := m.sleeper.ReadTime()
-	if err != nil {
-		m.logger.Error("rtc: " + err.Error())
-		now = time.Now() // best effort: RTC failed, fall back to system clock
-	}
 	m.wakeTime = now
 	for {
 		m.step()

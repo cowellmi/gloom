@@ -180,7 +180,7 @@ func TestReadTime_WithRTC(t *testing.T) {
 	rtc := &mockRTC{times: []time.Time{T}}
 	s := New(&mockMCU{}, rtc, nil)
 
-	got, err := s.ReadTime()
+	got, err := s.readTime()
 	if err != nil {
 		t.Fatalf("ReadTime() error: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestReadTime_WithoutRTC(t *testing.T) {
 	s := New(&mockMCU{}, nil, nil)
 
 	before := time.Now()
-	got, err := s.ReadTime()
+	got, err := s.readTime()
 	after := time.Now()
 
 	if err != nil {
