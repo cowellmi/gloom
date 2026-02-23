@@ -14,7 +14,7 @@ var testTime = time.Date(2026, 2, 14, 9, 5, 7, 0, time.UTC)
 
 func TestNilWriter_Record(t *testing.T) {
 	s := NewSink(nil)
-	ms := []sensor.Measurement{{Label: "temp", Value: "22", Unit: "C"}}
+	ms := []sensor.Measurement{{Label: "temp", Value: []byte("22"), Unit: "C"}}
 	if err := s.Record(testTime, "bme280", ms); err != nil {
 		t.Fatalf("Record with nil writer: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestRecord_FormatsLine(t *testing.T) {
 	var buf bytes.Buffer
 	s := NewSink(&buf)
 
-	ms := []sensor.Measurement{{Label: "temp", Value: "22.5", Unit: "C"}}
+	ms := []sensor.Measurement{{Label: "temp", Value: []byte("22.5"), Unit: "C"}}
 	if err := s.Record(testTime, "bme280", ms); err != nil {
 		t.Fatal(err)
 	}
@@ -48,9 +48,9 @@ func TestRecord_MultipleMeasurements(t *testing.T) {
 	s := NewSink(&buf)
 
 	ms := []sensor.Measurement{
-		{Label: "temp", Value: "22", Unit: "C"},
-		{Label: "hum", Value: "65", Unit: "%"},
-		{Label: "pres", Value: "1013", Unit: "hPa"},
+		{Label: "temp", Value: []byte("22"), Unit: "C"},
+		{Label: "hum", Value: []byte("65"), Unit: "%"},
+		{Label: "pres", Value: []byte("1013"), Unit: "hPa"},
 	}
 	if err := s.Record(testTime, "bme280", ms); err != nil {
 		t.Fatal(err)

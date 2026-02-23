@@ -5,7 +5,7 @@ import "time"
 // Measurement holds a single sensor reading.
 type Measurement struct {
 	Label string
-	Value string
+	Value []byte
 	Unit  string
 }
 

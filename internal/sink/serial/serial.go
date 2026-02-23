@@ -42,7 +42,7 @@ func (s *Sink) Record(t time.Time, device string, ms []sensor.Measurement) error
 		b = fmtbuf.Append(b, ": ")
 		b = fmtbuf.Append(b, m.Label)
 		b = fmtbuf.Append(b, ": ")
-		b = fmtbuf.Append(b, m.Value)
+		b = fmtbuf.AppendBytes(b, m.Value)
 		b = fmtbuf.AppendByte(b, ' ')
 		b = fmtbuf.Append(b, m.Unit)
 		b = fmtbuf.AppendByte(b, '\r')

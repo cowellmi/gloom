@@ -62,7 +62,7 @@ func TestRecord_WritesCSV(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ms := []sensor.Measurement{{Label: "temp", Value: "22", Unit: "C"}}
+	ms := []sensor.Measurement{{Label: "temp", Value: []byte("22"), Unit: "C"}}
 	if err := s.Record(now, "bme280", ms); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestRotation_OnDateChange(t *testing.T) {
 	}
 
 	// Write on day 1.
-	ms := []sensor.Measurement{{Label: "temp", Value: "20", Unit: "C"}}
+	ms := []sensor.Measurement{{Label: "temp", Value: []byte("20"), Unit: "C"}}
 	if err := s.Record(day1, "dev", ms); err != nil {
 		t.Fatal(err)
 	}
@@ -150,11 +150,11 @@ func TestRotation_SameDateNoReopen(t *testing.T) {
 	}
 
 	// Write twice on the same day.
-	ms := []sensor.Measurement{{Label: "a", Value: "1", Unit: ""}}
+	ms := []sensor.Measurement{{Label: "a", Value: []byte("1"), Unit: ""}}
 	_ = s.Record(now, "dev", ms)
 
 	later := now.Add(2 * time.Hour)
-	ms[0].Value = "2"
+	ms[0].Value = []byte("2")
 	_ = s.Record(later, "dev", ms)
 
 	// Should still be the same file (only 1 entry in opener map).

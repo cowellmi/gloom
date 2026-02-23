@@ -15,6 +15,7 @@ import (
 type Device struct {
 	adc machine.ADC
 	ms  [1]sensor.Measurement
+	buf [8]byte
 }
 
 func NewDevice(pin hal.Pin) *Device {
@@ -40,8 +41,7 @@ func (d *Device) Measure() ([]sensor.Measurement, error) {
 	whole := mv / 1000
 	frac := (mv % 1000) / 10
 
-	var buf [8]byte
-	b := buf[:0]
+	b := d.buf[:0]
 	b = fmtbuf.AppendUint(b, uint64(whole), 10)
 	b = fmtbuf.AppendByte(b, '.')
 	if frac < 10 {
@@ -51,7 +51,7 @@ func (d *Device) Measure() ([]sensor.Measurement, error) {
 
 	d.ms[0] = sensor.Measurement{
 		Label: "voltage",
-		Value: string(b),
+		Value: b,
 		Unit:  "V",
 	}
 	return d.ms[:], nil

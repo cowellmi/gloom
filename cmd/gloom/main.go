@@ -10,9 +10,9 @@ import (
 
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
-	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/drivers/ds3231"
 	"github.com/cowellmi/gloom/internal/drivers/pcf8523"
+	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
@@ -311,6 +311,16 @@ func main() {
 		logger.Debug("groups: none")
 	}
 
+	if clock == nil {
+		for _, g := range cfg.Groups {
+			if g.Interval > 0 {
+				logger.Warn("config: timed groups configured without an RTC")
+				logger.Warn("config: deep sleep disabled; using idle sleep")
+				break
+			}
+		}
+	}
+
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	b := bootBuf[:0]
@@ -323,16 +333,6 @@ func main() {
 		b = fmtbuf.Append(b, "KB")
 	}
 	logger.Debug(string(b))
-
-	if clock == nil {
-		for _, g := range cfg.Groups {
-			if g.Interval > 0 {
-				logger.Warn("config: timed groups configured without an RTC")
-				logger.Warn("config: deep sleep disabled; using idle sleep")
-				break
-			}
-		}
-	}
 
 	board.MCU.PetWatchdog()
 

@@ -12,6 +12,19 @@ package fmtbuf
 
 import "strconv"
 
+// AppendBytes appends s to b, truncating s if b's capacity would be exceeded.
+// Never allocates.
+func AppendBytes(b []byte, s []byte) []byte {
+	avail := cap(b) - len(b)
+	if avail <= 0 {
+		return b
+	}
+	if len(s) > avail {
+		s = s[:avail]
+	}
+	return append(b, s...)
+}
+
 // Append appends s to b, truncating s if b's capacity would be exceeded.
 // Never allocates.
 func Append(b []byte, s string) []byte {

@@ -333,7 +333,7 @@ func TestStep_GroupWithSensorsFires(t *testing.T) {
 	dev := &mockSensor{
 		name: "test-sensor",
 		measurements: []sensor.Measurement{
-			{Label: "temp", Value: "22", Unit: "C"},
+			{Label: "temp", Value: []byte("22"), Unit: "C"},
 		},
 	}
 	recorder := &mockOutput{name: "rec"}
@@ -373,7 +373,7 @@ func TestStep_SharedSensorMeasuredOnce(t *testing.T) {
 	dev := &mockSensor{
 		name: "shared-sensor",
 		measurements: []sensor.Measurement{
-			{Label: "temp", Value: "22", Unit: "C"},
+			{Label: "temp", Value: []byte("22"), Unit: "C"},
 		},
 	}
 	recorder := &mockOutput{name: "rec"}
@@ -408,11 +408,11 @@ func TestStep_SharedSensorMeasuredOnce(t *testing.T) {
 func TestStep_DifferentSensorsBothMeasured(t *testing.T) {
 	temp := &mockSensor{
 		name:         "temp",
-		measurements: []sensor.Measurement{{Label: "temp", Value: "22", Unit: "C"}},
+		measurements: []sensor.Measurement{{Label: "temp", Value: []byte("22"), Unit: "C"}},
 	}
 	humidity := &mockSensor{
 		name:         "humidity",
-		measurements: []sensor.Measurement{{Label: "rh", Value: "55", Unit: "%"}},
+		measurements: []sensor.Measurement{{Label: "rh", Value: []byte("55"), Unit: "%"}},
 	}
 	recorder := &mockOutput{name: "rec"}
 
@@ -443,7 +443,7 @@ func TestStep_DifferentSensorsBothMeasured(t *testing.T) {
 func TestStep_SharedSensorOnlyFiredGroupsCounted(t *testing.T) {
 	dev := &mockSensor{
 		name:         "sensor",
-		measurements: []sensor.Measurement{{Label: "x", Value: "1", Unit: "u"}},
+		measurements: []sensor.Measurement{{Label: "x", Value: []byte("1"), Unit: "u"}},
 	}
 
 	sys := &mockSystem{
@@ -495,7 +495,7 @@ func TestStep_GroupWithHostFires(t *testing.T) {
 func TestStep_MultipleGroups(t *testing.T) {
 	weatherSensor := &mockSensor{
 		name:         "temp",
-		measurements: []sensor.Measurement{{Label: "temp", Value: "22", Unit: "C"}},
+		measurements: []sensor.Measurement{{Label: "temp", Value: []byte("22"), Unit: "C"}},
 	}
 	rec := &mockOutput{name: "rec"}
 
@@ -698,7 +698,7 @@ func TestStep_NoLEDOnExternalWake(t *testing.T) {
 }
 
 func TestStep_PowerOnSensorRailsCalledWhenNeeded(t *testing.T) {
-	dev := &mockSensor{name: "temp", measurements: []sensor.Measurement{{Label: "t", Value: "1", Unit: "C"}}}
+	dev := &mockSensor{name: "temp", measurements: []sensor.Measurement{{Label: "t", Value: []byte("1"), Unit: "C"}}}
 
 	sys := &mockSystem{
 		timeFn:  fixedTimeFn(),
@@ -793,8 +793,8 @@ func TestStep_MultipleMeasurements(t *testing.T) {
 	dev := &mockSensor{
 		name: "multi",
 		measurements: []sensor.Measurement{
-			{Label: "temp", Value: "22", Unit: "C"},
-			{Label: "rh", Value: "55", Unit: "%"},
+			{Label: "temp", Value: []byte("22"), Unit: "C"},
+			{Label: "rh", Value: []byte("55"), Unit: "%"},
 		},
 	}
 	rec := &mockOutput{name: "rec"}

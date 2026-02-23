@@ -126,11 +126,42 @@ func TestAppendUint(t *testing.T) {
 	}
 }
 
+func TestAppendBytes(t *testing.T) {
+	tests := []struct {
+		name string
+		pre  string
+		s    []byte
+		want string
+	}{
+		{"empty buf empty s", "", []byte{}, ""},
+		{"normal", "", []byte("hi"), "hi"},
+		{"exact fit", "", []byte("hello"), "hello"},
+		{"truncate by 1", "", []byte("hello!"), "hello"},
+		{"full buf unchanged", "hello", []byte("x"), "hello"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := cap5()
+			b = append(b, tt.pre...)
+			b = fmtbuf.AppendBytes(b, tt.s)
+			got := string(b)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+			if len(b) > cap(b) {
+				t.Errorf("len %d > cap %d", len(b), cap(b))
+			}
+		})
+	}
+}
+
 func TestNoAllocs(t *testing.T) {
 	var arr [64]byte
+	src := []byte("hello world truncated bytes")
 	allocs := testing.AllocsPerRun(100, func() {
 		b := arr[:0]
 		b = fmtbuf.Append(b, "hello world truncated string")
+		b = fmtbuf.AppendBytes(b, src)
 		b = fmtbuf.AppendByte(b, '!')
 		b = fmtbuf.AppendInt(b, -9876543210, 10)
 		b = fmtbuf.AppendUint(b, 9876543210, 16)
