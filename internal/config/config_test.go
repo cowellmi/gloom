@@ -33,8 +33,8 @@ func TestDefault(t *testing.T) {
 	if len(g.Sensors) != 1 || g.Sensors[0] != "vbat" {
 		t.Errorf("Groups[0].Sensors = %v, want [vbat]", g.Sensors)
 	}
-	if !g.PulseLED {
-		t.Error("Groups[0].PulseLED = false, want true")
+	if !g.BlinkLED {
+		t.Error("Groups[0].BlinkLED = false, want true")
 	}
 }
 
@@ -97,25 +97,25 @@ log_sinks = sd:verbose
 	}
 }
 
-func TestParse_PulseLED(t *testing.T) {
+func TestParse_BlinkLED(t *testing.T) {
 	for _, val := range []string{"true", "True", "TRUE", "yes", "1"} {
-		input := []byte("[sample]\ninterval = 5s\npulse_led = " + val)
+		input := []byte("[sample]\ninterval = 5s\nblink_led = " + val)
 		cfg := Config{}
 		if err := Parse(input, &cfg); err != nil {
-			t.Fatalf("Parse(pulse_led=%s) error: %v", val, err)
+			t.Fatalf("Parse(blink_led=%s) error: %v", val, err)
 		}
-		if !cfg.Groups[0].PulseLED {
-			t.Errorf("pulse_led = %s: want true", val)
+		if !cfg.Groups[0].BlinkLED {
+			t.Errorf("blink_led = %s: want true", val)
 		}
 	}
 
-	input := []byte("[sample]\ninterval = 5s\npulse_led = false")
+	input := []byte("[sample]\ninterval = 5s\nblink_led = false")
 	cfg := Config{}
 	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse(pulse_led=false) error: %v", err)
+		t.Fatalf("Parse(blink_led=false) error: %v", err)
 	}
-	if cfg.Groups[0].PulseLED {
-		t.Error("pulse_led = false: want false")
+	if cfg.Groups[0].BlinkLED {
+		t.Error("blink_led = false: want false")
 	}
 }
 
@@ -514,7 +514,7 @@ data_sinks = sd
 [weather]
 interval = 1m
 sensors = temperature, humidity
-pulse_led = true
+blink_led = true
 
 [rain]
 external_int_pin = 7
@@ -551,17 +551,17 @@ payload = full
 	if len(w.Sensors) != 2 {
 		t.Errorf("weather sensors = %v, want [temperature humidity]", w.Sensors)
 	}
-	if !w.PulseLED {
-		t.Error("weather pulse_led = false, want true")
+	if !w.BlinkLED {
+		t.Error("weather blink_led = false, want true")
 	}
 
-	// Rain has ext pin, no pulse_led
+	// Rain has ext pin, no blink_led
 	r := cfg.Groups[1]
 	if r.ExternalIntPin != hal.Pin(7) {
 		t.Errorf("rain ext pin = %d, want 7", r.ExternalIntPin)
 	}
-	if r.PulseLED {
-		t.Error("rain pulse_led = true, want false")
+	if r.BlinkLED {
+		t.Error("rain blink_led = true, want false")
 	}
 
 	// Heartbeat

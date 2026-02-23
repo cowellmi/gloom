@@ -229,12 +229,12 @@ func main() {
 		g := manager.Group{
 			Name:     gcfg.Name,
 			Interval: gcfg.Interval,
-			PulseLED: gcfg.PulseLED,
+			BlinkLED: gcfg.BlinkLED,
 			Host:     gcfg.Host,
 			Payload:  gcfg.Payload,
 		}
 
-		if g.PulseLED {
+		if g.BlinkLED {
 			enableLED = true
 		}
 
@@ -254,10 +254,6 @@ func main() {
 		}
 
 		groups = append(groups, g)
-	}
-
-	if enableLED {
-
 	}
 
 	board.LED.Off()
@@ -344,7 +340,7 @@ func main() {
 
 	// Manager
 	sleeper := sleeper.New(board.MCU, clock, rails)
-	man := manager.New(sleeper, groups, recorders, logger, board.LED)
+	man := manager.New(sleeper, groups, recorders, logger)
 
 	// Validate if there is any way to wake from sleep.
 	hasExtPins := false
@@ -369,6 +365,9 @@ func main() {
 		fatal(err, board.LED)
 	}
 
+	if enableLED {
+		man.SetBlinkLED(board.LED.Blink)
+	}
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackUsed)
 

@@ -104,8 +104,8 @@ func appendGroup(buf []byte, g *Group) ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if g.PulseLED {
-		buf = append(buf, "pulse_led = true\n"...)
+	if g.BlinkLED {
+		buf = append(buf, "blink_led = true\n"...)
 	}
 
 	if g.Host != "" {

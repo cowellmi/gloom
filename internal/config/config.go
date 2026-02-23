@@ -43,7 +43,7 @@ type Group struct {
 	Name           string
 	Interval       time.Duration
 	ExternalIntPin hal.Pin
-	PulseLED       bool
+	BlinkLED       bool
 	Sensors        []string
 	Host           string
 	Payload        Payload
@@ -69,7 +69,7 @@ func Default() Config {
 				Interval:       5 * time.Second,
 				ExternalIntPin: hal.NoPin,
 				Sensors:        []string{"vbat"},
-				PulseLED:       true,
+				BlinkLED:       true,
 			},
 		},
 	}
@@ -187,8 +187,8 @@ func parseGroupKey(g *Group, key, value string) error {
 			return err
 		}
 		g.ExternalIntPin = pin
-	case "pulse_led":
-		g.PulseLED = parseBool(value)
+	case "blink_led":
+		g.BlinkLED = parseBool(value)
 	case "sensors":
 		g.Sensors = parseStringList(value)
 	case "host":

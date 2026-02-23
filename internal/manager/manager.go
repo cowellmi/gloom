@@ -26,7 +26,7 @@ type sleeper interface {
 type Group struct {
 	Name     string
 	Interval time.Duration
-	PulseLED bool
+	BlinkLED bool
 	Sensors  []sensor.Sensor
 	Host     string
 	Payload  config.Payload
@@ -44,7 +44,7 @@ type Manager struct {
 	recorders []sensor.Recorder
 	logger    *log.Logger
 	wakeTime  time.Time
-	led       hal.LED
+	blinkLED  func()
 	petWDT    func()
 	stackUsed func() uint
 	buf       [128]byte
@@ -64,7 +64,7 @@ type Manager struct {
 	extPins []extPin
 }
 
-func New(sleeper sleeper, groups []Group, recorders []sensor.Recorder, logger *log.Logger, led hal.LED) *Manager {
+func New(sleeper sleeper, groups []Group, recorders []sensor.Recorder, logger *log.Logger) *Manager {
 	var allSensors []sensor.Sensor
 	for _, g := range groups {
 		for _, s := range g.Sensors {
@@ -87,7 +87,6 @@ func New(sleeper sleeper, groups []Group, recorders []sensor.Recorder, logger *l
 		groups:     groups,
 		recorders:  recorders,
 		logger:     logger,
-		led:        led,
 		allSensors: allSensors,
 		measured:   make([]bool, len(allSensors)),
 		deadlines:  make([]time.Time, n),
@@ -106,6 +105,12 @@ func (m *Manager) RegisterExternalPin(pin hal.Pin, slot int) {
 // watchdog at strategic points.
 func (m *Manager) EnableWatchdog(pet func()) {
 	m.petWDT = pet
+}
+
+// SetBlinkLED sets a callback the manager calls to blink the LED when
+// a group with blink_led enabled fires. Pass nil to disable.
+func (m *Manager) SetBlinkLED(fn func()) {
+	m.blinkLED = fn
 }
 
 // SetStackMonitor sets a callback the manager calls each cycle to
@@ -143,7 +148,7 @@ func (m *Manager) step() {
 		anyFired = true
 		b = fmtbuf.AppendByte(b, ' ')
 		b = fmtbuf.Append(b, m.groups[i].Name)
-		if m.groups[i].PulseLED {
+		if m.groups[i].BlinkLED {
 			wantLED = true
 		}
 		if len(m.groups[i].Sensors) > 0 {
@@ -159,8 +164,8 @@ func (m *Manager) step() {
 		m.sleeper.PowerOnSensorRails()
 	}
 
-	if wantLED && m.led != nil {
-		m.led.Blink()
+	if wantLED && m.blinkLED != nil {
+		m.blinkLED()
 	}
 
 	// Measure each unique sensor once across all fired groups.

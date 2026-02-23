@@ -22,7 +22,7 @@ func TestMarshal_RoundTrip(t *testing.T) {
 				Name:     "weather",
 				Interval: time.Minute,
 				Sensors:  []string{"temperature", "humidity"},
-				PulseLED: true,
+				BlinkLED: true,
 			},
 			{
 				Name:     "heartbeat",
@@ -69,8 +69,8 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	if len(w.Sensors) != 2 {
 		t.Errorf("weather sensors = %v", w.Sensors)
 	}
-	if !w.PulseLED {
-		t.Error("weather pulse_led = false, want true")
+	if !w.BlinkLED {
+		t.Error("weather blink_led = false, want true")
 	}
 
 	h := got.Groups[1]
@@ -103,7 +103,7 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 
 	s := string(data)
 	for _, absent := range []string{
-		"sensors", "pulse_led", "host", "payload",
+		"sensors", "blink_led", "host", "payload",
 		"external_int_pin",
 	} {
 		if strings.Contains(s, absent) {

@@ -84,14 +84,6 @@ func (m *mockSystem) PowerOnSensorRails() {
 	m.powerOnSensorRailsCalls++
 }
 
-type mockLED struct {
-	onCalled  bool
-	offCalled bool
-}
-
-func (l *mockLED) On()    { l.onCalled = true }
-func (l *mockLED) Off()   { l.offCalled = true }
-func (l *mockLED) Blink() {}
 
 type mockSensor struct {
 	id           string
@@ -122,7 +114,7 @@ func newTestManager(sys *mockSystem, groups []Group, recorders []sensor.Recorder
 	logger.AddSink(mo, log.LevelDebug)
 
 	man := New(sys, groups, recorders, logger)
-	man.wakeTime = T // seed initial time, as boot() would via ReadTime
+	man.wakeTime = T
 	return man, mo
 }
 
@@ -559,61 +551,58 @@ func TestStep_SensorMeasureError(t *testing.T) {
 	}
 }
 
-func TestStep_LEDOnPulseLEDGroup(t *testing.T) {
-	led := &mockLED{}
+func TestStep_LEDOnBlinkLEDGroup(t *testing.T) {
+	var blinked bool
 
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	groups := []Group{{Name: "sample", Interval: 5 * time.Second, PulseLED: true, Host: "http://x"}}
+	groups := []Group{{Name: "sample", Interval: 5 * time.Second, BlinkLED: true, Host: "http://x"}}
 
 	man, _ := newTestManager(sys, groups, nil)
-	man.SetLED(led)
+	man.SetBlinkLED(func() { blinked = true })
 	man.step()
 
-	if !led.onCalled {
-		t.Error("LED.On was not called")
-	}
-	if !led.offCalled {
-		t.Error("LED.Off was not called")
+	if !blinked {
+		t.Error("blinkLED was not called")
 	}
 }
 
-func TestStep_NoLEDWhenPulseLEDFalse(t *testing.T) {
-	led := &mockLED{}
+func TestStep_NoLEDWhenBlinkLEDFalse(t *testing.T) {
+	var blinked bool
 
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	groups := []Group{{Name: "hb", Interval: 5 * time.Second, PulseLED: false, Host: "http://x"}}
+	groups := []Group{{Name: "hb", Interval: 5 * time.Second, BlinkLED: false, Host: "http://x"}}
 
 	man, _ := newTestManager(sys, groups, nil)
-	man.SetLED(led)
+	man.SetBlinkLED(func() { blinked = true })
 	man.step()
 
-	if led.onCalled {
-		t.Error("LED should not pulse when PulseLED is false")
+	if blinked {
+		t.Error("blinkLED should not be called when BlinkLED is false")
 	}
 }
 
 func TestStep_NoLEDOnExternalWake(t *testing.T) {
-	led := &mockLED{}
+	var blinked bool
 
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T),
 	}
 
-	// Group with PulseLED but no Interval — never fires via deadline.
-	groups := []Group{{Name: "weather", PulseLED: true}}
+	// Group with BlinkLED but no Interval — never fires via deadline.
+	groups := []Group{{Name: "weather", BlinkLED: true}}
 
 	man, _ := newTestManager(sys, groups, nil)
-	man.SetLED(led)
+	man.SetBlinkLED(func() { blinked = true })
 	man.step()
 
-	if led.onCalled {
-		t.Error("LED should not pulse on external wake (no groups fired)")
+	if blinked {
+		t.Error("blinkLED should not be called on external wake (no groups fired)")
 	}
 }
 
