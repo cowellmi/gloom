@@ -55,8 +55,8 @@ func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails) *Device {
 func (s *Device) AddWakePin(pin hal.Pin) {
 	if !slices.Contains(s.wakePins, pin) {
 		s.wakePins = append(s.wakePins, pin)
+		s.hasExtPins = true
 	}
-	s.hasExtPins = true
 }
 
 // ReadTime returns the current time from the RTC, or time.Now() if

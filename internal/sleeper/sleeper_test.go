@@ -156,6 +156,27 @@ func TestAddWakePin_NoDuplicate(t *testing.T) {
 	}
 }
 
+func TestAddWakePin_DedupDoesNotSetExtPins(t *testing.T) {
+	rtc := &mockRTC{pin: 12, times: []time.Time{T}}
+	// New adds RTC pin (12) but does NOT set hasExtPins.
+	s := New(&mockMCU{}, rtc, nil)
+
+	if s.hasExtPins {
+		t.Fatal("hasExtPins should be false after New")
+	}
+
+	// Add the RTC pin again. It should be deduplicated.
+	// hasExtPins should remain false because it's a duplicate of the RTC pin.
+	s.AddWakePin(12)
+
+	if len(s.wakePins) != 1 {
+		t.Errorf("wakePins len = %d, want 1", len(s.wakePins))
+	}
+	if s.hasExtPins {
+		t.Error("hasExtPins should be false after adding duplicate RTC pin")
+	}
+}
+
 // --- ReadTime tests ---
 
 func TestReadTime_WithRTC(t *testing.T) {

@@ -146,9 +146,9 @@ func (m *Manager) step() {
 	fired := m.doSleep()
 
 	// Single pass: gather flags and build the "wake:" log message.
-	needsSensors := false
-	anyFired := false
+	needSensors := false
 	wantLED := false
+	anyFired := false
 	b := m.buf[:0]
 	b = append(b, "wake:"...)
 
@@ -163,20 +163,24 @@ func (m *Manager) step() {
 			wantLED = true
 		}
 		if len(m.groups[i].Sensors) > 0 {
-			needsSensors = true
+			needSensors = true
 		}
-	}
-
-	if needsSensors {
-		m.sleeper.PowerOnSensorRails()
 	}
 
 	if anyFired {
 		m.logger.Debug(string(b))
 	}
 
+	if needSensors {
+		m.sleeper.PowerOnSensorRails()
+	}
+
+	if wantLED {
+		m.pulseLED()
+	}
+
 	// Measure each unique sensor once across all fired groups.
-	if needsSensors {
+	if needSensors {
 		m.measureSensors(fired)
 	}
 
@@ -194,10 +198,6 @@ func (m *Manager) step() {
 
 	if !anyFired {
 		m.logger.Debug("external wake")
-	}
-
-	if wantLED {
-		m.pulseLED()
 	}
 
 	m.logMem()
