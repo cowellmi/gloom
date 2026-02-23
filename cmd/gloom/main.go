@@ -146,8 +146,7 @@ func main() {
 
 	// Apply runtime LED pin override from config.
 	if cfg.Device.LedPin != hal.NoPin {
-		led.Configure(cfg.Device.LedPin)
-		board.LED = led.NewLED(cfg.Device.LedPin)
+		board.LED = led.New(cfg.Device.LedPin)
 	}
 
 	board.MCU.PetWatchdog()

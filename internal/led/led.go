@@ -1,3 +1,5 @@
+//go:build tinygo
+
 package led
 
 import (
@@ -6,20 +8,19 @@ import (
 	"github.com/cowellmi/gloom/internal/hal"
 )
 
-type LED struct {
-	pin hal.Pin
+// LED is an output pin driven as an LED.
+type LED hal.Pin
+
+// New configures pin as a digital output.
+func New(pin hal.Pin) LED {
+	machine.Pin(pin).Configure(machine.PinConfig{Mode: machine.PinOutput})
+	return LED(pin)
 }
 
-func NewLED(pin hal.Pin) *LED {
-	return &LED{pin: pin}
+func (p LED) On() {
+	machine.Pin(p).High()
 }
 
-func (l *LED) On()  { machine.Pin(l.pin).High() }
-func (l *LED) Off() { machine.Pin(l.pin).Low() }
-
-// Configure sets pin as a digital output. Call before NewLED or before
-// reassigning board.LED at runtime.
-func Configure(pin hal.Pin) {
-	p := machine.Pin(pin)
-	p.Configure(machine.PinConfig{Mode: machine.PinOutput})
+func (p LED) Off() {
+	machine.Pin(p).Low()
 }

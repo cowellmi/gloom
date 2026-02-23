@@ -29,8 +29,7 @@ func initBoard() Board {
 	board.Serial = io.MultiWriter(machine.UART0, machine.Serial)
 
 	// LED
-	led.Configure(hal.Pin(machine.LED))
-	board.LED = led.NewLED(hal.Pin(machine.LED))
+	board.LED = led.New(hal.Pin(machine.LED))
 
 	// I2C
 	board.I2C.Bus = machine.I2C0
