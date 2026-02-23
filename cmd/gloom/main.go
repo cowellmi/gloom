@@ -222,6 +222,7 @@ func main() {
 
 	// Resolve groups
 
+	enableLED := false
 	sensorPool := make(map[string]sensor.Sensor)
 	var groups []manager.Group
 	for _, gcfg := range cfg.Groups {
@@ -231,6 +232,10 @@ func main() {
 			PulseLED: gcfg.PulseLED,
 			Host:     gcfg.Host,
 			Payload:  gcfg.Payload,
+		}
+
+		if g.PulseLED {
+			enableLED = true
 		}
 
 		for _, id := range gcfg.Sensors {
@@ -249,6 +254,10 @@ func main() {
 		}
 
 		groups = append(groups, g)
+	}
+
+	if enableLED {
+
 	}
 
 	board.LED.Off()
@@ -335,7 +344,7 @@ func main() {
 
 	// Manager
 	sleeper := sleeper.New(board.MCU, clock, rails)
-	man := manager.New(sleeper, groups, recorders, logger)
+	man := manager.New(sleeper, groups, recorders, logger, board.LED)
 
 	// Validate if there is any way to wake from sleep.
 	hasExtPins := false
@@ -360,7 +369,6 @@ func main() {
 		fatal(err, board.LED)
 	}
 
-	man.SetLED(board.LED)
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackUsed)
 
@@ -393,9 +401,6 @@ func needsSDSink(cfg *config.Config) bool {
 func fatal(err error, led hal.LED) {
 	debug.Log("FATAL: " + err.Error())
 	for {
-		led.On()
-		wait.For(250 * time.Millisecond)
-		led.Off()
-		wait.For(250 * time.Millisecond)
+		led.Blink()
 	}
 }

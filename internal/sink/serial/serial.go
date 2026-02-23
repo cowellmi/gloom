@@ -67,6 +67,21 @@ func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
 	return nil
 }
 
+func (s *Sink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
+	if s.w == nil {
+		return nil
+	}
+	b := s.buf[:0]
+	b = appendTimestamp(b, t)
+	b = log.AppendLevel(b, level)
+	b = fmtbuf.Append(b, " | ")
+	b = fmtbuf.AppendBytes(b, msg)
+	b = fmtbuf.AppendByte(b, '\r')
+	b = fmtbuf.AppendByte(b, '\n')
+	_, _ = s.w.Write(b) // best-effort
+	return nil
+}
+
 func (*Sink) Flush() error { return nil }
 
 func appendTimestamp(buf []byte, t time.Time) []byte {

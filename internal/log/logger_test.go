@@ -17,6 +17,11 @@ func (m *mockSink) WriteLog(_ time.Time, _ Level, msg string) error {
 	return m.err
 }
 
+func (m *mockSink) WriteBytes(_ time.Time, _ Level, msg []byte) error {
+	m.entries = append(m.entries, string(msg))
+	return m.err
+}
+
 func (m *mockSink) Flush() error { return m.err }
 
 // --- tests ---

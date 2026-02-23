@@ -135,6 +135,32 @@ func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
 	return nil
 }
 
+// WriteBytes formats a log line from a byte slice: timestamp level msg
+func (s *Sink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
+	if s.logFile == nil {
+		return nil
+	}
+
+	err := s.maybeRotate(t)
+	if err != nil {
+		return err
+	}
+
+	b := s.buf[:0]
+	b = appendTimestamp(b, t)
+	b = fmtbuf.AppendByte(b, ' ')
+	b = log.AppendLevel(b, level)
+	b = fmtbuf.AppendByte(b, ' ')
+	b = fmtbuf.AppendBytes(b, msg)
+	b = fmtbuf.AppendByte(b, '\n')
+	if _, err := s.logFile.Write(b); err != nil {
+		s.logFile = nil
+		return err
+	}
+
+	return nil
+}
+
 // Flush syncs both open files to durable storage.
 func (s *Sink) Flush() error {
 	var errs []error

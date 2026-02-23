@@ -49,6 +49,7 @@ func AppendLevel(buf []byte, level Level) []byte {
 // before sleep).
 type Sink interface {
 	WriteLog(t time.Time, level Level, msg string) error
+	WriteBytes(t time.Time, level Level, msg []byte) error
 	Flush() error
 }
 
@@ -90,6 +91,17 @@ func (l *Logger) Log(level Level, msg string) {
 			if err := l.targets[i].sink.WriteLog(l.t, level, msg); err != nil {
 				// Route to debug (UART) instead of logging through
 				// ourselves to avoid a recursive log loop.
+				debug.Log("sink error: " + err.Error())
+			}
+		}
+	}
+}
+
+// Write logs b at the given level without converting b to a string.
+func (l *Logger) Write(b []byte, level Level) {
+	for i := range l.targets {
+		if level >= l.targets[i].minLevel {
+			if err := l.targets[i].sink.WriteBytes(l.t, level, b); err != nil {
 				debug.Log("sink error: " + err.Error())
 			}
 		}

@@ -37,6 +37,11 @@ func (m *mockOutput) WriteLog(_ time.Time, _ log.Level, msg string) error {
 	return nil
 }
 
+func (m *mockOutput) WriteBytes(_ time.Time, _ log.Level, msg []byte) error {
+	m.logEntries = append(m.logEntries, string(msg))
+	return nil
+}
+
 func (m *mockOutput) Flush() error {
 	m.flushCalled = true
 	return nil
@@ -84,8 +89,9 @@ type mockLED struct {
 	offCalled bool
 }
 
-func (l *mockLED) On()  { l.onCalled = true }
-func (l *mockLED) Off() { l.offCalled = true }
+func (l *mockLED) On()    { l.onCalled = true }
+func (l *mockLED) Off()   { l.offCalled = true }
+func (l *mockLED) Blink() {}
 
 type mockSensor struct {
 	id           string
