@@ -83,7 +83,7 @@ func Default(ledPin hal.Pin, sensors []string) Config {
 //
 // Parse should be called on a Default()-initialised cfg so that fields
 // absent from the file keep their sensible defaults (including NoPin sentinels).
-func Parse(data []byte, cfg *Config) error {
+func ParseINI(data []byte, cfg *Config) error {
 	var errs []error
 
 	for line := range strings.SplitSeq(string(data), "\n") {

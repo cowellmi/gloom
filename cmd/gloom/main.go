@@ -44,7 +44,7 @@ func main() {
 	// Power rails
 	rails := initRails()
 	if rails != nil {
-		debug.Log("power cycling rails...")
+		debug.Log("power-cycling rails...")
 		rails.Power(hal.RailsOff)
 		wait.For(250 * time.Millisecond)
 		rails.Power(hal.RailsCore)
@@ -61,7 +61,7 @@ func main() {
 	}
 
 	board.MCU.PetWatchdog()
-	debug.Log("probing rtc...")
+	debug.Log("probing RTC...")
 
 	// RTC
 	var clock hal.RTC
@@ -80,7 +80,7 @@ func main() {
 	}
 
 	board.MCU.PetWatchdog()
-	debug.Log("probing notecard...")
+	debug.Log("probing Notecard...")
 
 	// Blues Notecard
 	nc, err := notecard.New(board.I2C.TxFn)
@@ -90,7 +90,7 @@ func main() {
 
 	runtime.GC()
 	board.MCU.PetWatchdog()
-	debug.Log("probing sd...")
+	debug.Log("probing SD card...")
 
 	// SD Card
 	type sdEntry struct {
@@ -117,6 +117,7 @@ func main() {
 	}
 
 	board.MCU.PetWatchdog()
+	debug.Log("loading config...")
 
 	// Config
 	cfg := config.Default(board.LED.Pin(), board.Sensors)
@@ -132,14 +133,14 @@ func main() {
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
 			// No CONFIG.INI on SD card; attempt to make one.
-			if ini, mErr := cfg.Marshal(); mErr != nil {
+			if ini, mErr := cfg.MarshalINI(); mErr != nil {
 				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
 			} else if wErr := card.WriteFile("CONFIG.INI", ini); wErr != nil {
 				initErrs = append(initErrs, errors.New("sd: "+wErr.Error()))
 			}
 		} else if raw != nil {
 			// Found CONFIG.INI on SD card; attempt to parse it.
-			if err := config.Parse(raw, &cfg); err != nil {
+			if err := config.ParseINI(raw, &cfg); err != nil {
 				if joined, ok := err.(interface{ Unwrap() []error }); ok {
 					for _, e := range joined.Unwrap() {
 						initErrs = append(initErrs, errors.New("config: "+e.Error()))
@@ -154,9 +155,6 @@ func main() {
 	if cfg.Heartbeat.LedPin != hal.NoPin {
 		board.LED = led.New(cfg.Heartbeat.LedPin)
 	}
-
-	// Log sinks
-	serialSink := serial.NewSink(board.Serial)
 
 	// Read the current time once — used for both the file sink
 	// (daily rotation key) and the logger's initial timestamp.
@@ -174,7 +172,6 @@ func main() {
 		if err := card.Mkdir("GLOOM"); err != nil {
 			initErrs = append(initErrs, errors.New("sd: "+err.Error()))
 		}
-
 		opener := func(name string) (file.AppendFile, error) {
 			return card.OpenAppend(name)
 		}
@@ -188,6 +185,7 @@ func main() {
 		if err != nil {
 			initErrs = append(initErrs, errors.New("file: "+err.Error()))
 		}
+		board.MCU.PetWatchdog()
 	}
 
 	var notehubSink *notehub.Sink
@@ -196,9 +194,10 @@ func main() {
 		if err != nil {
 			initErrs = append(initErrs, errors.New("notehub: "+err.Error()))
 		}
+		board.MCU.PetWatchdog()
 	}
 
-	board.MCU.PetWatchdog()
+	serialSink := serial.NewSink(board.Serial)
 
 	// Logger and recorders
 	logger := log.NewLogger(now)
@@ -272,13 +271,6 @@ func main() {
 		logger.Debug("notecard: " + nc.UID)
 	} else {
 		logger.Debug("notecard: NONE")
-	}
-
-	p, err := cfg.Marshal()
-	if err != nil {
-		logger.Error("marshal: " + err.Error())
-	} else {
-		_, _ = debug.W.Write(p)
 	}
 
 	var bootBuf [256]byte

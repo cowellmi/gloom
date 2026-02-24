@@ -17,3 +17,17 @@ func Log(msg string) {
 	b = fmtbuf.AppendByte(b, '\n')
 	W.Write(b)
 }
+
+func LogMap(m map[string]any) {
+	b := buf[:0]
+	for k, v := range m {
+		if s, ok := v.(string); ok {
+			b = fmtbuf.Append(b, k)
+			b = fmtbuf.Append(b, "=")
+			b = fmtbuf.Append(b, s)
+			b = fmtbuf.AppendByte(b, '\r')
+			b = fmtbuf.AppendByte(b, '\n')
+		}
+	}
+	W.Write(b)
+}

@@ -26,23 +26,6 @@ const (
 	LevelOff   Level = 32
 )
 
-func (l Level) String() string {
-	switch l {
-	case LevelDebug:
-		return "debug"
-	case LevelInfo:
-		return "info"
-	case LevelWarn:
-		return "warn"
-	case LevelError:
-		return "error"
-	case LevelOff:
-		return "off"
-	}
-
-	return strconv.Itoa(int(l))
-}
-
 // AppendLevel appends the short display string for a log level
 // ("DBG", "INF", "WRN", "ERR") to buf. Unknown levels are appended
 // as their numeric value.

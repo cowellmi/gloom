@@ -12,7 +12,7 @@ import (
 // Marshal serializes the Config to flat key=value format.
 // Only non-zero / non-NoPin fields are emitted. The output round-trips
 // through Parse when called on a Default()-initialised destination.
-func (c *Config) Marshal() ([]byte, error) {
+func (c *Config) MarshalINI() ([]byte, error) {
 	var buf []byte
 
 	buf = append(buf, "# See example.config.ini for full documentation.\n"...)
