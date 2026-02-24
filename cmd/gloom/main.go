@@ -121,10 +121,59 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// Config
 	cfg := config.Default()
 
-	if card != nil {
+	board.MCU.PetWatchdog()
+
+	// Blues Notecard — probe via card.version; failure means no notecard.
+	var notecardPresent bool
+	nc, _ := tinynote.OpenI2C(tinynote.DefaultI2CAddress, board.I2C.TxFn)
+	if nc != nil {
+		verReq := tinynote.NewRequest("card.version")
+		verRsp, err := nc.RequestResponse(verReq)
+		board.MCU.PetWatchdog()
+		if err == nil && !tinynote.IsError(err, verRsp) {
+			notecardPresent = true
+			if uid, ok := verRsp["device"].(string); ok {
+				cfg.Device.ID = uid
+			}
+		}
+	}
+
+	if notecardPresent {
+		// Send env.template every boot — idempotent, defines expected
+		// env var keys and their types for the Notehub UI.
+		tmplReq := tinynote.NewRequest("env.template")
+		tmplBody := tinynote.NewBody()
+		tmplBody["log_sinks"] = "a"
+		tmplBody["data_sinks"] = "a"
+		tmplBody["led_pin"] = 21
+		tmplBody["interval"] = "a"
+		tmplBody["sensors"] = "a"
+		tmplBody["ext_pin"] = 21
+		tmplBody["heartbeat"] = "a"
+		tmplBody["host"] = "a"
+		tmplBody["payload"] = "a"
+		tmplBody["blink_led"] = true
+		tmplReq["body"] = tmplBody
+		nc.Request(tmplReq)
+		board.MCU.PetWatchdog()
+
+		// Fetch env vars and apply to config.
+		envReq := tinynote.NewRequest("env.get")
+		envRsp, err := nc.RequestResponse(envReq)
+		board.MCU.PetWatchdog()
+		if err == nil && !tinynote.IsError(err, envRsp) {
+			if body, ok := envRsp["body"].(map[string]interface{}); ok {
+				if err := config.ParseMap(&cfg, body); err != nil {
+					initWarns = append(initWarns, errors.New("env: "+err.Error()))
+				}
+			}
+		}
+	}
+
+	// If no Notecard, fall back to SD card CONFIG.INI.
+	if !notecardPresent && card != nil {
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
 			// No CONFIG.INI on SD card; attempt to make one.
@@ -150,17 +199,6 @@ func main() {
 	if cfg.Device.LedPin != hal.NoPin {
 		board.LED = led.New(cfg.Device.LedPin)
 	}
-
-	board.MCU.PetWatchdog()
-
-	// Blues Notecard
-	notecard, err := tinynote.OpenI2C(tinynote.DefaultI2CAddress, board.I2C.TxFn)
-	if err != nil {
-		initErrs = append(initErrs, err)
-	}
-
-	debug.Log("puid: " + ProductUID)
-	debug.Log("notecard: " + notecard.Identify())
 
 	// Log sinks
 	serialSink := serial.NewSink(board.Serial)
@@ -219,7 +257,6 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// Sensor data sinks
-
 	var recorders []sensor.Recorder
 	recorders = append(recorders, serialSink)
 	for _, name := range cfg.Device.DataSinks {
@@ -231,40 +268,39 @@ func main() {
 		}
 	}
 
-	// Resolve groups
+	// Resolve config into manager groups.
+	// Sample is always groups[0]; heartbeat (if enabled) is groups[1].
 
-	enableLED := false
 	sensorPool := make(map[string]sensor.Sensor)
-	var groups []manager.Group
-	for _, gcfg := range cfg.Groups {
-		g := manager.Group{
-			Name:     gcfg.Name,
-			Interval: gcfg.Interval,
-			BlinkLED: gcfg.BlinkLED,
-			Host:     gcfg.Host,
-			Payload:  gcfg.Payload,
-		}
-
-		if g.BlinkLED {
-			enableLED = true
-		}
-
-		for _, id := range gcfg.Sensors {
-			dev, ok := sensorPool[id]
-			if !ok {
-				newDevice, found := sensorRegistry[id]
-				if !found {
-					initErrs = append(initErrs, errors.New("config: ["+gcfg.Name+"] Unknown sensor: "+id))
-					continue
-				}
-				dev = newDevice()
-				sensorPool[id] = dev
-				board.MCU.PetWatchdog()
+	sampleGroup := manager.Group{
+		Name:     "sample",
+		Interval: cfg.Sample.Interval,
+	}
+	for _, id := range cfg.Sample.Sensors {
+		dev, ok := sensorPool[id]
+		if !ok {
+			newDevice, found := sensorRegistry[id]
+			if !found {
+				initErrs = append(initErrs, errors.New("config: unknown sensor: "+id))
+				continue
 			}
-			g.Sensors = append(g.Sensors, dev)
+			dev = newDevice()
+			sensorPool[id] = dev
+			board.MCU.PetWatchdog()
 		}
+		sampleGroup.Sensors = append(sampleGroup.Sensors, dev)
+	}
 
-		groups = append(groups, g)
+	groups := []manager.Group{sampleGroup} // sample is always groups[0]
+
+	if cfg.Heartbeat.Interval > 0 {
+		groups = append(groups, manager.Group{
+			Name:     "heartbeat",
+			Interval: cfg.Heartbeat.Interval,
+			BlinkLED: cfg.Heartbeat.BlinkLED,
+			Host:     cfg.Heartbeat.Host,
+			Payload:  cfg.Heartbeat.Payload,
+		})
 	}
 
 	board.LED.Off()
@@ -278,7 +314,6 @@ func main() {
 	}
 
 	// Boot banner
-
 	logger.Debug("mcu: " + board.MCU.Identifier())
 
 	if clock != nil {
@@ -298,6 +333,12 @@ func main() {
 		}
 	} else {
 		logger.Debug("sd: NONE")
+	}
+
+	if notecardPresent {
+		logger.Debug("notecard: " + cfg.Device.ID)
+	} else {
+		logger.Debug("notecard: NONE")
 	}
 
 	var bootBuf [256]byte
@@ -322,16 +363,22 @@ func main() {
 		logger.Debug(string(b))
 	}
 
-	if len(cfg.Groups) > 0 {
+	{
 		b := bootBuf[:0]
-		b = fmtbuf.Append(b, "groups:")
-		for _, g := range cfg.Groups {
-			b = fmtbuf.AppendByte(b, ' ')
-			b = fmtbuf.Append(b, g.Name)
+		b = fmtbuf.Append(b, "sample: interval=")
+		b = fmtbuf.Append(b, cfg.Sample.Interval.String())
+		if cfg.Sample.ExtPin != hal.NoPin {
+			b = fmtbuf.Append(b, " ext_pin=")
+			b = fmtbuf.AppendUint(b, uint64(cfg.Sample.ExtPin), 10)
 		}
 		logger.Debug(string(b))
-	} else {
-		logger.Debug("groups: none")
+	}
+
+	if cfg.Heartbeat.Interval > 0 {
+		b := bootBuf[:0]
+		b = fmtbuf.Append(b, "heartbeat: interval=")
+		b = fmtbuf.Append(b, cfg.Heartbeat.Interval.String())
+		logger.Debug(string(b))
 	}
 
 	var ms runtime.MemStats
@@ -353,30 +400,20 @@ func main() {
 	sleeper := sleeper.New(board.MCU, clock, rails)
 	man := manager.New(sleeper, groups, recorders, logger)
 
-	// Validate if there is any way to wake from sleep.
-	hasExtPins := false
-	for i, g := range cfg.Groups {
-		if g.ExternalIntPin != hal.NoPin {
-			hasExtPins = true
-			pin := g.ExternalIntPin
-			sleeper.AddWakePin(pin)
-			man.RegisterExternalPin(pin, i)
-		}
+	// Register sample's external interrupt pin.
+	if cfg.Sample.ExtPin != hal.NoPin {
+		sleeper.AddWakePin(cfg.Sample.ExtPin)
+		man.RegisterExternalPin(cfg.Sample.ExtPin, 0) // sample is always groups[0]
 	}
-	hasTimedGroups := false
-	for _, g := range cfg.Groups {
-		if g.Interval > 0 {
-			hasTimedGroups = true
-			break
-		}
-	}
-	if !hasTimedGroups && !hasExtPins {
-		err := errors.New("config: no wake sources configured (at least one group needs interval > 0 or external_int_pin)")
+
+	// Validate there is at least one wake source.
+	if cfg.Sample.Interval <= 0 && cfg.Sample.ExtPin == hal.NoPin {
+		err := errors.New("config: no wake sources configured (sample needs interval > 0 or ext_pin)")
 		logger.Error(err.Error())
 		fatal(err, board.LED)
 	}
 
-	if enableLED {
+	if cfg.Heartbeat.Interval > 0 && cfg.Heartbeat.BlinkLED {
 		man.SetBlinkLED(board.LED.Blink)
 	}
 	man.EnableWatchdog(board.MCU.PetWatchdog)

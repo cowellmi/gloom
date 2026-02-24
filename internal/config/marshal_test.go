@@ -16,20 +16,17 @@ func TestMarshal_RoundTrip(t *testing.T) {
 				{Name: "sd", Level: log.LevelError},
 			},
 			DataSinks: []string{"sd"},
+			LedPin:    hal.NoPin,
 		},
-		Groups: []Group{
-			{
-				Name:     "weather",
-				Interval: time.Minute,
-				Sensors:  []string{"temperature", "humidity"},
-				BlinkLED: true,
-			},
-			{
-				Name:     "heartbeat",
-				Interval: time.Hour,
-				Host:     "http://example.com/hb",
-				Payload:  PayloadFull,
-			},
+		Sample: Sample{
+			Interval: time.Minute,
+			Sensors:  []string{"temperature", "humidity"},
+			ExtPin:   hal.NoPin,
+		},
+		Heartbeat: Heartbeat{
+			Interval: time.Hour,
+			Host:     "http://example.com/hb",
+			Payload:  PayloadFull,
 		},
 	}
 
@@ -38,7 +35,9 @@ func TestMarshal_RoundTrip(t *testing.T) {
 		t.Fatalf("Marshal() error: %v", err)
 	}
 
-	var got Config
+	// Start from Default so NoPin sentinels are correctly seeded for
+	// fields absent from the marshaled output.
+	got := Default()
 	if err := Parse(data, &got); err != nil {
 		t.Fatalf("Parse(Marshal()) error: %v\nINI:\n%s", err, data)
 	}
@@ -54,45 +53,37 @@ func TestMarshal_RoundTrip(t *testing.T) {
 		t.Errorf("DataSinks = %v", got.Device.DataSinks)
 	}
 
-	// Groups
-	if len(got.Groups) != 2 {
-		t.Fatalf("Groups = %d, want 2", len(got.Groups))
+	// Sample
+	if got.Sample.Interval != time.Minute {
+		t.Errorf("Sample.Interval = %v, want 1m", got.Sample.Interval)
+	}
+	if len(got.Sample.Sensors) != 2 {
+		t.Errorf("Sample.Sensors = %v", got.Sample.Sensors)
+	}
+	if got.Sample.ExtPin != hal.NoPin {
+		t.Errorf("Sample.ExtPin = %d, want NoPin", got.Sample.ExtPin)
 	}
 
-	w := got.Groups[0]
-	if w.Name != "weather" {
-		t.Errorf("group 0 name = %q", w.Name)
+	// Heartbeat
+	if got.Heartbeat.Interval != time.Hour {
+		t.Errorf("Heartbeat.Interval = %v, want 1h", got.Heartbeat.Interval)
 	}
-	if w.Interval != time.Minute {
-		t.Errorf("weather interval = %v, want 1m", w.Interval)
+	if got.Heartbeat.Host != "http://example.com/hb" {
+		t.Errorf("Heartbeat.Host = %q", got.Heartbeat.Host)
 	}
-	if len(w.Sensors) != 2 {
-		t.Errorf("weather sensors = %v", w.Sensors)
-	}
-	if !w.BlinkLED {
-		t.Error("weather blink_led = false, want true")
-	}
-
-	h := got.Groups[1]
-	if h.Interval != time.Hour {
-		t.Errorf("heartbeat interval = %v, want 1h", h.Interval)
-	}
-	if h.Host != "http://example.com/hb" {
-		t.Errorf("heartbeat host = %q", h.Host)
-	}
-	if h.Payload != PayloadFull {
-		t.Errorf("heartbeat payload = %d, want PayloadFull", h.Payload)
+	if got.Heartbeat.Payload != PayloadFull {
+		t.Errorf("Heartbeat.Payload = %d, want PayloadFull", got.Heartbeat.Payload)
 	}
 }
 
 func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 	cfg := Config{
-		Groups: []Group{
-			{
-				Name:           "minimal",
-				Interval:       5 * time.Second,
-				ExternalIntPin: hal.NoPin,
-			},
+		Device: Device{
+			LedPin: hal.NoPin,
+		},
+		Sample: Sample{
+			Interval: 5 * time.Second,
+			ExtPin:   hal.NoPin,
 		},
 	}
 
@@ -104,18 +95,23 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 	s := string(data)
 	for _, absent := range []string{
 		"sensors", "blink_led", "host", "payload",
-		"external_int_pin",
+		"ext_pin", "heartbeat", "log_sinks", "data_sinks", "led_pin",
 	} {
 		if strings.Contains(s, absent) {
 			t.Errorf("output should not contain %q:\n%s", absent, s)
 		}
 	}
+
+	if !strings.Contains(s, "interval = 5s") {
+		t.Errorf("output should contain 'interval = 5s':\n%s", s)
+	}
 }
 
-func TestMarshal_ExternalIntPin(t *testing.T) {
+func TestMarshal_ExtPin(t *testing.T) {
 	cfg := Config{
-		Groups: []Group{
-			{Name: "rain", ExternalIntPin: hal.Pin(7), Sensors: []string{"bucket"}},
+		Sample: Sample{
+			ExtPin:  hal.Pin(7),
+			Sensors: []string{"bucket"},
 		},
 	}
 
@@ -124,8 +120,27 @@ func TestMarshal_ExternalIntPin(t *testing.T) {
 		t.Fatalf("Marshal() error: %v", err)
 	}
 
-	if !strings.Contains(string(data), "external_int_pin = 7") {
-		t.Errorf("expected external_int_pin = 7 in output:\n%s", data)
+	if !strings.Contains(string(data), "ext_pin = 7") {
+		t.Errorf("expected ext_pin = 7 in output:\n%s", data)
+	}
+}
+
+func TestMarshal_HeartbeatDisabled(t *testing.T) {
+	cfg := Config{
+		Sample: Sample{
+			Interval: 5 * time.Second,
+			ExtPin:   hal.NoPin,
+		},
+		// Heartbeat.Interval = 0 → disabled
+	}
+
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal() error: %v", err)
+	}
+
+	if strings.Contains(string(data), "heartbeat") {
+		t.Errorf("output should not contain 'heartbeat' when disabled:\n%s", data)
 	}
 }
 
@@ -142,7 +157,10 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 
 	for _, tt := range tests {
 		cfg := Config{
-			Groups: []Group{{Name: "t", Interval: tt.d}},
+			Sample: Sample{
+				Interval: tt.d,
+				ExtPin:   hal.NoPin,
+			},
 		}
 		data, err := cfg.Marshal()
 		if err != nil {
@@ -151,5 +169,27 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 		if !strings.Contains(string(data), "interval = "+tt.want) {
 			t.Errorf("duration %v: want %q in output:\n%s", tt.d, tt.want, data)
 		}
+	}
+}
+
+func TestMarshal_BlinkLED(t *testing.T) {
+	cfg := Config{
+		Sample: Sample{
+			Interval: time.Minute,
+			ExtPin:   hal.NoPin,
+		},
+		Heartbeat: Heartbeat{
+			Interval: time.Hour,
+			BlinkLED: true,
+		},
+	}
+
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal() error: %v", err)
+	}
+
+	if !strings.Contains(string(data), "blink_led = true") {
+		t.Errorf("expected blink_led = true in output:\n%s", data)
 	}
 }

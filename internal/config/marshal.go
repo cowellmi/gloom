@@ -9,38 +9,18 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 )
 
-// Marshal serializes the Config to INI format. Only non-zero fields
-// are emitted. The output round-trips through Parse.
+// Marshal serializes the Config to flat key=value format.
+// Only non-zero / non-NoPin fields are emitted. The output round-trips
+// through Parse when called on a Default()-initialised destination.
 func (c *Config) Marshal() ([]byte, error) {
 	var buf []byte
 
 	buf = append(buf, "# See example.config.ini for full documentation.\n"...)
 
-	// [device]
-	var err error
-	buf, err = appendDevice(buf, &c.Device)
-	if err != nil {
-		return nil, err
-	}
-
-	// groups
-	for i := range c.Groups {
-		var gerr error
-		buf, gerr = appendGroup(buf, &c.Groups[i])
-		if gerr != nil {
-			return nil, gerr
-		}
-	}
-
-	return buf, nil
-}
-
-func appendDevice(buf []byte, dev *Device) ([]byte, error) {
-	buf = append(buf, "\n[device]\n"...)
-
-	if len(dev.LogSinks) > 0 {
+	// Device keys
+	if len(c.Device.LogSinks) > 0 {
 		buf = append(buf, "log_sinks = "...)
-		for i, s := range dev.LogSinks {
+		for i, s := range c.Device.LogSinks {
 			if i > 0 {
 				buf = append(buf, ", "...)
 			}
@@ -55,9 +35,9 @@ func appendDevice(buf []byte, dev *Device) ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if len(dev.DataSinks) > 0 {
+	if len(c.Device.DataSinks) > 0 {
 		buf = append(buf, "data_sinks = "...)
-		for i, s := range dev.DataSinks {
+		for i, s := range c.Device.DataSinks {
 			if i > 0 {
 				buf = append(buf, ", "...)
 			}
@@ -66,36 +46,22 @@ func appendDevice(buf []byte, dev *Device) ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if dev.LedPin != hal.NoPin {
+	if c.Device.LedPin != hal.NoPin {
 		buf = append(buf, "led_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(dev.LedPin), 10)
+		buf = strconv.AppendUint(buf, uint64(c.Device.LedPin), 10)
 		buf = append(buf, '\n')
 	}
 
-	return buf, nil
-}
-
-func appendGroup(buf []byte, g *Group) ([]byte, error) {
-	buf = append(buf, '\n')
-	buf = append(buf, '[')
-	buf = append(buf, g.Name...)
-	buf = append(buf, "]\n"...)
-
-	if g.Interval > 0 {
+	// Sample keys
+	if c.Sample.Interval > 0 {
 		buf = append(buf, "interval = "...)
-		buf = appendDuration(buf, g.Interval)
+		buf = appendDuration(buf, c.Sample.Interval)
 		buf = append(buf, '\n')
 	}
 
-	if g.ExternalIntPin != hal.NoPin {
-		buf = append(buf, "external_int_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(g.ExternalIntPin), 10)
-		buf = append(buf, '\n')
-	}
-
-	if len(g.Sensors) > 0 {
+	if len(c.Sample.Sensors) > 0 {
 		buf = append(buf, "sensors = "...)
-		for i, s := range g.Sensors {
+		for i, s := range c.Sample.Sensors {
 			if i > 0 {
 				buf = append(buf, ", "...)
 			}
@@ -104,24 +70,37 @@ func appendGroup(buf []byte, g *Group) ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if g.BlinkLED {
-		buf = append(buf, "blink_led = true\n"...)
-	}
-
-	if g.Host != "" {
-		buf = append(buf, "host = "...)
-		buf = append(buf, g.Host...)
+	if c.Sample.ExtPin != hal.NoPin {
+		buf = append(buf, "ext_pin = "...)
+		buf = strconv.AppendUint(buf, uint64(c.Sample.ExtPin), 10)
 		buf = append(buf, '\n')
 	}
 
-	if g.Payload != PayloadNone {
+	// Heartbeat keys
+	if c.Heartbeat.Interval > 0 {
+		buf = append(buf, "heartbeat = "...)
+		buf = appendDuration(buf, c.Heartbeat.Interval)
+		buf = append(buf, '\n')
+	}
+
+	if c.Heartbeat.Host != "" {
+		buf = append(buf, "host = "...)
+		buf = append(buf, c.Heartbeat.Host...)
+		buf = append(buf, '\n')
+	}
+
+	if c.Heartbeat.Payload != PayloadNone {
 		buf = append(buf, "payload = "...)
-		ps, err := payloadString(g.Payload)
+		ps, err := payloadString(c.Heartbeat.Payload)
 		if err != nil {
 			return nil, err
 		}
 		buf = append(buf, ps...)
 		buf = append(buf, '\n')
+	}
+
+	if c.Heartbeat.BlinkLED {
+		buf = append(buf, "blink_led = true\n"...)
 	}
 
 	return buf, nil

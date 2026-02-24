@@ -20,31 +20,35 @@ func TestDefault(t *testing.T) {
 	if len(cfg.Device.DataSinks) != 0 {
 		t.Errorf("DataSinks = %v, want empty", cfg.Device.DataSinks)
 	}
-	if len(cfg.Groups) != 1 {
-		t.Fatalf("Groups = %d, want 1", len(cfg.Groups))
+	if cfg.Device.LedPin != hal.NoPin {
+		t.Errorf("LedPin = %d, want NoPin", cfg.Device.LedPin)
 	}
-	g := cfg.Groups[0]
-	if g.Name != "sample" {
-		t.Errorf("Groups[0].Name = %q, want sample", g.Name)
+
+	if cfg.Sample.Interval != 5*time.Second {
+		t.Errorf("Sample.Interval = %v, want 5s", cfg.Sample.Interval)
 	}
-	if g.Interval != 5*time.Second {
-		t.Errorf("Groups[0].Interval = %v, want 5s", g.Interval)
+	if len(cfg.Sample.Sensors) != 1 || cfg.Sample.Sensors[0] != "vbat" {
+		t.Errorf("Sample.Sensors = %v, want [vbat]", cfg.Sample.Sensors)
 	}
-	if len(g.Sensors) != 1 || g.Sensors[0] != "vbat" {
-		t.Errorf("Groups[0].Sensors = %v, want [vbat]", g.Sensors)
+	if cfg.Sample.ExtPin != hal.NoPin {
+		t.Errorf("Sample.ExtPin = %d, want NoPin", cfg.Sample.ExtPin)
 	}
-	if !g.BlinkLED {
-		t.Error("Groups[0].BlinkLED = false, want true")
+
+	if cfg.Heartbeat.Interval != 0 {
+		t.Errorf("Heartbeat.Interval = %v, want 0 (disabled)", cfg.Heartbeat.Interval)
+	}
+	if cfg.Heartbeat.BlinkLED {
+		t.Error("Heartbeat.BlinkLED = true, want false")
 	}
 }
 
-// --- Device section ---
+// --- Device keys ---
 
-func TestParse_DeviceSection(t *testing.T) {
+func TestParse_DeviceKeys(t *testing.T) {
 	input := []byte(`
-[device]
 log_sinks = sd:error
 data_sinks = sd
+led_pin = 13
 `)
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
@@ -57,20 +61,16 @@ data_sinks = sd
 	if cfg.Device.LogSinks[0].Name != "sd" || cfg.Device.LogSinks[0].Level != log.LevelError {
 		t.Errorf("LogSinks[0] = %+v, want sd:error", cfg.Device.LogSinks[0])
 	}
-
-	if len(cfg.Device.DataSinks) != 1 {
-		t.Fatalf("DataSinks = %v, want 1 entry", cfg.Device.DataSinks)
+	if len(cfg.Device.DataSinks) != 1 || cfg.Device.DataSinks[0] != "sd" {
+		t.Errorf("DataSinks = %v, want [sd]", cfg.Device.DataSinks)
 	}
-	if cfg.Device.DataSinks[0] != "sd" {
-		t.Errorf("DataSinks[0] = %q, want sd", cfg.Device.DataSinks[0])
+	if cfg.Device.LedPin != hal.Pin(13) {
+		t.Errorf("LedPin = %d, want 13", cfg.Device.LedPin)
 	}
 }
 
 func TestParse_LogSinksDefaultLevel(t *testing.T) {
-	input := []byte(`
-[device]
-log_sinks = sd
-`)
+	input := []byte("log_sinks = sd\n")
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
@@ -83,10 +83,7 @@ log_sinks = sd
 }
 
 func TestParse_LogSinksInvalidLevel(t *testing.T) {
-	input := []byte(`
-[device]
-log_sinks = sd:verbose
-`)
+	input := []byte("log_sinks = sd:verbose\n")
 	cfg := Default()
 	err := Parse(input, &cfg)
 	if err == nil {
@@ -97,207 +94,217 @@ log_sinks = sd:verbose
 	}
 }
 
+// --- Sample keys ---
+
+func TestParse_SampleInterval(t *testing.T) {
+	input := []byte("interval = 5m\n")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if cfg.Sample.Interval != 5*time.Minute {
+		t.Errorf("Sample.Interval = %v, want 5m", cfg.Sample.Interval)
+	}
+}
+
+func TestParse_SampleSensors(t *testing.T) {
+	input := []byte("sensors = vbat, temp\n")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(cfg.Sample.Sensors) != 2 || cfg.Sample.Sensors[0] != "vbat" || cfg.Sample.Sensors[1] != "temp" {
+		t.Errorf("Sample.Sensors = %v, want [vbat temp]", cfg.Sample.Sensors)
+	}
+}
+
+func TestParse_SampleExtPin(t *testing.T) {
+	// ext_pin alone (no interval) satisfies validation.
+	input := []byte("ext_pin = 7\nsensors = rain\n")
+	cfg := Config{Sample: Sample{ExtPin: hal.NoPin}}
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if cfg.Sample.ExtPin != hal.Pin(7) {
+		t.Errorf("Sample.ExtPin = %d, want 7", cfg.Sample.ExtPin)
+	}
+	if cfg.Sample.Interval != 0 {
+		t.Errorf("Sample.Interval = %v, want 0", cfg.Sample.Interval)
+	}
+}
+
+func TestParse_SampleBothTriggers(t *testing.T) {
+	input := []byte("interval = 5m\next_pin = 7\nsensors = rain\n")
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if cfg.Sample.Interval != 5*time.Minute {
+		t.Errorf("Sample.Interval = %v, want 5m", cfg.Sample.Interval)
+	}
+	if cfg.Sample.ExtPin != hal.Pin(7) {
+		t.Errorf("Sample.ExtPin = %d, want 7", cfg.Sample.ExtPin)
+	}
+}
+
+// --- Heartbeat keys ---
+
+func TestParse_HeartbeatKeys(t *testing.T) {
+	input := []byte(`
+heartbeat = 2m
+host = http://example.com/ingest
+payload = min
+blink_led = true
+`)
+	cfg := Default()
+	if err := Parse(input, &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if cfg.Heartbeat.Interval != 2*time.Minute {
+		t.Errorf("Heartbeat.Interval = %v, want 2m", cfg.Heartbeat.Interval)
+	}
+	if cfg.Heartbeat.Host != "http://example.com/ingest" {
+		t.Errorf("Heartbeat.Host = %q", cfg.Heartbeat.Host)
+	}
+	if cfg.Heartbeat.Payload != PayloadMin {
+		t.Errorf("Heartbeat.Payload = %d, want PayloadMin", cfg.Heartbeat.Payload)
+	}
+	if !cfg.Heartbeat.BlinkLED {
+		t.Error("Heartbeat.BlinkLED = false, want true")
+	}
+}
+
+func TestParse_HeartbeatDisabled(t *testing.T) {
+	cfg := Default()
+	if err := Parse([]byte(""), &cfg); err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if cfg.Heartbeat.Interval != 0 {
+		t.Errorf("Heartbeat.Interval = %v, want 0 (disabled)", cfg.Heartbeat.Interval)
+	}
+}
+
 func TestParse_BlinkLED(t *testing.T) {
 	for _, val := range []string{"true", "True", "TRUE", "yes", "1"} {
-		input := []byte("[sample]\ninterval = 5s\nblink_led = " + val)
-		cfg := Config{}
+		input := []byte("blink_led = " + val)
+		cfg := Default()
 		if err := Parse(input, &cfg); err != nil {
 			t.Fatalf("Parse(blink_led=%s) error: %v", val, err)
 		}
-		if !cfg.Groups[0].BlinkLED {
+		if !cfg.Heartbeat.BlinkLED {
 			t.Errorf("blink_led = %s: want true", val)
 		}
 	}
 
-	input := []byte("[sample]\ninterval = 5s\nblink_led = false")
-	cfg := Config{}
+	input := []byte("blink_led = false")
+	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse(blink_led=false) error: %v", err)
 	}
-	if cfg.Groups[0].BlinkLED {
+	if cfg.Heartbeat.BlinkLED {
 		t.Error("blink_led = false: want false")
 	}
 }
 
-func TestParse_DeviceUnknownKey(t *testing.T) {
-	input := []byte("[device]\nbad_key = 1\n")
+// --- ParseMap (env.get body interface) ---
+
+func TestParseMap_AllKeys(t *testing.T) {
+	body := map[string]interface{}{
+		"log_sinks":  "sd:warn",
+		"data_sinks": "sd",
+		"led_pin":    "13",
+		"interval":   "5m",
+		"sensors":    "vbat,temp",
+		"ext_pin":    "7",
+		"heartbeat":  "1h",
+		"host":       "http://example.com",
+		"payload":    "full",
+		"blink_led":  true, // native bool from Notecard JSON decoder
+	}
 	cfg := Default()
-	err := Parse(input, &cfg)
+	if err := ParseMap(&cfg, body); err != nil {
+		t.Fatalf("ParseMap() error: %v", err)
+	}
+
+	if cfg.Device.LedPin != hal.Pin(13) {
+		t.Errorf("LedPin = %d, want 13", cfg.Device.LedPin)
+	}
+	if cfg.Sample.Interval != 5*time.Minute {
+		t.Errorf("Sample.Interval = %v, want 5m", cfg.Sample.Interval)
+	}
+	if cfg.Sample.ExtPin != hal.Pin(7) {
+		t.Errorf("Sample.ExtPin = %d, want 7", cfg.Sample.ExtPin)
+	}
+	if cfg.Heartbeat.Interval != time.Hour {
+		t.Errorf("Heartbeat.Interval = %v, want 1h", cfg.Heartbeat.Interval)
+	}
+	if cfg.Heartbeat.Payload != PayloadFull {
+		t.Errorf("Heartbeat.Payload = %d, want PayloadFull", cfg.Heartbeat.Payload)
+	}
+	if !cfg.Heartbeat.BlinkLED {
+		t.Error("Heartbeat.BlinkLED = false, want true")
+	}
+}
+
+func TestParseMap_SkipsNotehubSystemKeys(t *testing.T) {
+	body := map[string]interface{}{
+		"_tri_mins":  "15",
+		"_some_flag": true,
+		"interval":   "5m",
+	}
+	cfg := Default()
+	if err := ParseMap(&cfg, body); err != nil {
+		t.Fatalf("ParseMap() error: %v", err)
+	}
+	if cfg.Sample.Interval != 5*time.Minute {
+		t.Errorf("Sample.Interval = %v, want 5m", cfg.Sample.Interval)
+	}
+}
+
+func TestParseMap_UnknownKey(t *testing.T) {
+	body := map[string]interface{}{"bad_key": "x"}
+	cfg := Default()
+	err := ParseMap(&cfg, body)
 	if err == nil {
-		t.Fatal("expected error for unknown device key, got nil")
+		t.Fatal("expected error for unknown key, got nil")
 	}
-	if !strings.Contains(err.Error(), "[device] unknown key: bad_key") {
+	if !strings.Contains(err.Error(), "unknown key: bad_key") {
 		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-// --- Group parsing ---
-
-func TestParse_MultipleGroups(t *testing.T) {
-	input := []byte(`
-[weather]
-interval = 1m
-sensors = temp, humidity
-
-[heartbeat]
-interval = 1h
-host = http://localhost:4000
-payload = full
-`)
-	cfg := Default()
-	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-
-	if len(cfg.Groups) != 2 {
-		t.Fatalf("Groups = %d, want 2", len(cfg.Groups))
-	}
-
-	w := cfg.Groups[0]
-	if w.Name != "weather" {
-		t.Errorf("Groups[0].Name = %q, want weather", w.Name)
-	}
-	if w.Interval != time.Minute {
-		t.Errorf("weather interval = %v, want 1m", w.Interval)
-	}
-	if len(w.Sensors) != 2 || w.Sensors[0] != "temp" || w.Sensors[1] != "humidity" {
-		t.Errorf("weather sensors = %v, want [temp humidity]", w.Sensors)
-	}
-
-	h := cfg.Groups[1]
-	if h.Name != "heartbeat" {
-		t.Errorf("Groups[1].Name = %q, want heartbeat", h.Name)
-	}
-	if h.Interval != time.Hour {
-		t.Errorf("heartbeat interval = %v, want 1h", h.Interval)
-	}
-	if h.Host != "http://localhost:4000" {
-		t.Errorf("heartbeat host = %q", h.Host)
-	}
-	if h.Payload != PayloadFull {
-		t.Errorf("heartbeat payload = %d, want PayloadFull", h.Payload)
-	}
-}
-
-func TestParse_ExternalIntPin(t *testing.T) {
-	input := []byte(`
-[device]
-data_sinks = sd
-
-[rain]
-external_int_pin = 7
-sensors = tipping_bucket
-`)
-	cfg := Default()
-	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-
-	g := cfg.Groups[0]
-	if g.ExternalIntPin != hal.Pin(7) {
-		t.Errorf("ExternalIntPin = %d, want 7", g.ExternalIntPin)
-	}
-	if g.Interval != 0 {
-		t.Errorf("Interval = %v, want 0", g.Interval)
-	}
-}
-
-func TestParse_GroupWithBothTriggers(t *testing.T) {
-	input := []byte(`
-[device]
-data_sinks = sd
-
-[rain]
-interval = 5m
-external_int_pin = 7
-sensors = tipping_bucket
-`)
-	cfg := Default()
-	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-
-	g := cfg.Groups[0]
-	if g.Interval != 5*time.Minute {
-		t.Errorf("Interval = %v, want 5m", g.Interval)
-	}
-	if g.ExternalIntPin != hal.Pin(7) {
-		t.Errorf("ExternalIntPin = %d, want 7", g.ExternalIntPin)
-	}
-}
-
-func TestParse_RepeatedSection(t *testing.T) {
-	input := []byte(`
-[weather]
-interval = 1m
-
-[weather]
-sensors = temp
-`)
-	cfg := Default()
-	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-
-	if len(cfg.Groups) != 1 {
-		t.Fatalf("Groups = %d, want 1", len(cfg.Groups))
-	}
-	g := cfg.Groups[0]
-	if g.Interval != time.Minute {
-		t.Errorf("Interval = %v, want 1m", g.Interval)
-	}
-	if len(g.Sensors) != 1 || g.Sensors[0] != "temp" {
-		t.Errorf("Sensors = %v, want [temp]", g.Sensors)
 	}
 }
 
 // --- Inline comments ---
 
 func TestParse_InlineComments(t *testing.T) {
-	input := []byte(`
-[weather]
-interval = 5m # every five minutes
-sensors = temp
-`)
+	input := []byte("interval = 5m # every five minutes\n")
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
-
-	if cfg.Groups[0].Interval != 5*time.Minute {
-		t.Errorf("Interval = %v, want 5m (inline comment should be stripped)", cfg.Groups[0].Interval)
+	if cfg.Sample.Interval != 5*time.Minute {
+		t.Errorf("Interval = %v, want 5m (inline comment should be stripped)", cfg.Sample.Interval)
 	}
 }
 
 func TestParse_PayloadInlineComment(t *testing.T) {
-	input := []byte(`
-[heartbeat]
-interval = 1h
-payload = full # none | full | min
-`)
+	input := []byte("heartbeat = 1h\npayload = full # none | full | min\n")
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
-
-	if cfg.Groups[0].Payload != PayloadFull {
-		t.Errorf("Payload = %d, want PayloadFull", cfg.Groups[0].Payload)
+	if cfg.Heartbeat.Payload != PayloadFull {
+		t.Errorf("Payload = %d, want PayloadFull", cfg.Heartbeat.Payload)
 	}
 }
 
 func TestParse_URLWithFragment(t *testing.T) {
-	input := []byte(`
-[heartbeat]
-interval = 1h
-host = http://example.com/path#section
-`)
+	input := []byte("host = http://example.com/path#section\n")
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
-
-	if cfg.Groups[0].Host != "http://example.com/path#section" {
-		t.Errorf("Host = %q, want URL with fragment preserved", cfg.Groups[0].Host)
+	if cfg.Heartbeat.Host != "http://example.com/path#section" {
+		t.Errorf("Host = %q, want URL with fragment preserved", cfg.Heartbeat.Host)
 	}
 }
 
@@ -307,11 +314,9 @@ func TestParse_CommentsAndBlanks(t *testing.T) {
 	input := []byte(`
 # This is a comment
 
-[device]
 # Another comment
 log_sinks = sd
 
-[sample]
 interval = 3s
 sensors = vbat
 `)
@@ -323,8 +328,8 @@ sensors = vbat
 	if len(cfg.Device.LogSinks) != 1 || cfg.Device.LogSinks[0].Name != "sd" {
 		t.Errorf("LogSinks = %v, want [sd]", cfg.Device.LogSinks)
 	}
-	if cfg.Groups[0].Interval != 3*time.Second {
-		t.Errorf("Interval = %v, want 3s", cfg.Groups[0].Interval)
+	if cfg.Sample.Interval != 3*time.Second {
+		t.Errorf("Interval = %v, want 3s", cfg.Sample.Interval)
 	}
 }
 
@@ -333,64 +338,43 @@ func TestParse_EmptyInput(t *testing.T) {
 	if err := Parse([]byte(""), &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
-
-	if len(cfg.Device.LogSinks) != 0 {
-		t.Error("LogSinks should be empty")
+	// Default sample settings preserved.
+	if cfg.Sample.Interval != 5*time.Second {
+		t.Errorf("Sample.Interval = %v, want 5s", cfg.Sample.Interval)
 	}
-	if len(cfg.Groups) != 0 {
-		t.Errorf("Groups = %d, want 0 (empty config defines no groups)", len(cfg.Groups))
+	// Heartbeat stays disabled.
+	if cfg.Heartbeat.Interval != 0 {
+		t.Errorf("Heartbeat.Interval = %v, want 0", cfg.Heartbeat.Interval)
 	}
 }
 
 // --- Validation ---
 
-func TestParse_GroupMissingTrigger(t *testing.T) {
-	input := []byte(`
-[weather]
-sensors = temp
-`)
-	cfg := Default()
+func TestParse_ValidationMissingTrigger(t *testing.T) {
+	// No interval, no ext_pin → validation fails.
+	input := []byte("sensors = vbat\n")
+	cfg := Config{Sample: Sample{ExtPin: hal.NoPin}}
 	err := Parse(input, &cfg)
 	if err == nil {
-		t.Fatal("expected error for group without interval or ext pin, got nil")
+		t.Fatal("expected error for sample without interval or ext_pin, got nil")
 	}
-	if !strings.Contains(err.Error(), "must have interval or external_int_pin") {
+	if !strings.Contains(err.Error(), "must have interval or ext_pin") {
 		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-
-func TestParse_GroupNoSensorsNoSinks_OK(t *testing.T) {
-	input := []byte(`
-[heartbeat]
-interval = 1h
-host = http://example.com
-payload = full
-`)
-	cfg := Config{}
-	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-
-	g := cfg.Groups[0]
-	if len(g.Sensors) != 0 {
-		t.Errorf("Sensors = %v, want empty", g.Sensors)
 	}
 }
 
 // --- Error handling ---
 
 func TestParse_InvalidDuration(t *testing.T) {
-	input := []byte("[sample]\ninterval = bad\nsensors = x\n")
+	input := []byte("interval = bad\n")
 	cfg := Default()
-	err := Parse(input, &cfg)
-	if err == nil {
+	if err := Parse(input, &cfg); err == nil {
 		t.Fatal("expected error for invalid duration, got nil")
 	}
 }
 
 func TestParse_NegativeDuration(t *testing.T) {
-	input := []byte("[sample]\ninterval = -5s\nsensors = x\n")
+	input := []byte("interval = -5s\n")
 	cfg := Default()
 	err := Parse(input, &cfg)
 	if err == nil {
@@ -402,25 +386,23 @@ func TestParse_NegativeDuration(t *testing.T) {
 }
 
 func TestParse_InvalidPin(t *testing.T) {
-	input := []byte("[rain]\nexternal_int_pin = abc\n")
+	input := []byte("ext_pin = abc\n")
 	cfg := Default()
-	err := Parse(input, &cfg)
-	if err == nil {
+	if err := Parse(input, &cfg); err == nil {
 		t.Fatal("expected error for invalid pin, got nil")
 	}
 }
 
 func TestParse_PinOverflow(t *testing.T) {
-	input := []byte("[rain]\nexternal_int_pin = 256\n")
+	input := []byte("ext_pin = 256\n")
 	cfg := Default()
-	err := Parse(input, &cfg)
-	if err == nil {
+	if err := Parse(input, &cfg); err == nil {
 		t.Fatal("expected error for pin overflow, got nil")
 	}
 }
 
 func TestParse_UnknownPayload(t *testing.T) {
-	input := []byte("[heartbeat]\ninterval = 1h\npayload = mega\n")
+	input := []byte("payload = mega\n")
 	cfg := Default()
 	err := Parse(input, &cfg)
 	if err == nil {
@@ -431,32 +413,20 @@ func TestParse_UnknownPayload(t *testing.T) {
 	}
 }
 
-func TestParse_UnknownGroupKey(t *testing.T) {
-	input := []byte("[weather]\ninterval = 1m\nbad_key = x\nsensors = temp\n")
+func TestParse_UnknownKey(t *testing.T) {
+	input := []byte("bad_key = x\n")
 	cfg := Default()
 	err := Parse(input, &cfg)
 	if err == nil {
-		t.Fatal("expected error for unknown group key, got nil")
+		t.Fatal("expected error for unknown key, got nil")
 	}
 	if !strings.Contains(err.Error(), "unknown key: bad_key") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
-func TestParse_KeyOutsideSection(t *testing.T) {
-	input := []byte("interval = 1m\n")
-	cfg := Default()
-	err := Parse(input, &cfg)
-	if err == nil {
-		t.Fatal("expected error for key outside section, got nil")
-	}
-	if !strings.Contains(err.Error(), "key outside of section") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
 func TestParse_MultipleErrors(t *testing.T) {
-	input := []byte("[device]\nbad_key1 = x\nbad_key2 = y\n")
+	input := []byte("bad_key1 = x\nbad_key2 = y\n")
 	cfg := Default()
 	err := Parse(input, &cfg)
 	if err == nil {
@@ -468,15 +438,6 @@ func TestParse_MultipleErrors(t *testing.T) {
 	}
 	if !strings.Contains(msg, "bad_key2") {
 		t.Errorf("error should mention bad_key2, got: %s", msg)
-	}
-}
-
-func TestParse_EmptySectionName(t *testing.T) {
-	input := []byte("[]\ninterval = 1m\n")
-	cfg := Default()
-	err := Parse(input, &cfg)
-	if err == nil {
-		t.Fatal("expected error for empty section name, got nil")
 	}
 }
 
@@ -492,13 +453,13 @@ func TestParse_PayloadVariants(t *testing.T) {
 		{"full", PayloadFull},
 	}
 	for _, tt := range tests {
-		input := []byte("[hb]\ninterval = 1h\npayload = " + tt.value + "\n")
+		input := []byte("heartbeat = 1h\npayload = " + tt.value + "\n")
 		cfg := Default()
 		if err := Parse(input, &cfg); err != nil {
 			t.Fatalf("Parse(payload=%s) error: %v", tt.value, err)
 		}
-		if cfg.Groups[0].Payload != tt.want {
-			t.Errorf("payload=%s: got %d, want %d", tt.value, cfg.Groups[0].Payload, tt.want)
+		if cfg.Heartbeat.Payload != tt.want {
+			t.Errorf("payload=%s: got %d, want %d", tt.value, cfg.Heartbeat.Payload, tt.want)
 		}
 	}
 }
@@ -507,23 +468,19 @@ func TestParse_PayloadVariants(t *testing.T) {
 
 func TestParse_FullExample(t *testing.T) {
 	input := []byte(`
-[device]
+# Full flat config example
 log_sinks = sd:error
 data_sinks = sd
+led_pin = 13
 
-[weather]
 interval = 1m
 sensors = temperature, humidity
-blink_led = true
+ext_pin = 7
 
-[rain]
-external_int_pin = 7
-sensors = tipping_bucket
-
-[heartbeat]
-interval = 1h
+heartbeat = 1h
 host = http://localhost:4000/heartbeat
 payload = full
+blink_led = true
 `)
 	cfg := Default()
 	if err := Parse(input, &cfg); err != nil {
@@ -531,48 +488,38 @@ payload = full
 	}
 
 	// Device
-	if len(cfg.Device.LogSinks) != 1 {
-		t.Fatalf("LogSinks = %d, want 1", len(cfg.Device.LogSinks))
+	if len(cfg.Device.LogSinks) != 1 || cfg.Device.LogSinks[0].Level != log.LevelError {
+		t.Errorf("LogSinks = %v", cfg.Device.LogSinks)
 	}
-	if len(cfg.Device.DataSinks) != 1 {
-		t.Fatalf("DataSinks = %d, want 1", len(cfg.Device.DataSinks))
+	if len(cfg.Device.DataSinks) != 1 || cfg.Device.DataSinks[0] != "sd" {
+		t.Errorf("DataSinks = %v", cfg.Device.DataSinks)
 	}
-
-	// Groups
-	if len(cfg.Groups) != 3 {
-		t.Fatalf("Groups = %d, want 3", len(cfg.Groups))
+	if cfg.Device.LedPin != hal.Pin(13) {
+		t.Errorf("LedPin = %d, want 13", cfg.Device.LedPin)
 	}
 
-	// Weather
-	w := cfg.Groups[0]
-	if w.Interval != time.Minute {
-		t.Errorf("weather interval = %v, want 1m", w.Interval)
+	// Sample
+	if cfg.Sample.Interval != time.Minute {
+		t.Errorf("Sample.Interval = %v, want 1m", cfg.Sample.Interval)
 	}
-	if len(w.Sensors) != 2 {
-		t.Errorf("weather sensors = %v, want [temperature humidity]", w.Sensors)
+	if len(cfg.Sample.Sensors) != 2 {
+		t.Errorf("Sample.Sensors = %v, want [temperature humidity]", cfg.Sample.Sensors)
 	}
-	if !w.BlinkLED {
-		t.Error("weather blink_led = false, want true")
-	}
-
-	// Rain has ext pin, no blink_led
-	r := cfg.Groups[1]
-	if r.ExternalIntPin != hal.Pin(7) {
-		t.Errorf("rain ext pin = %d, want 7", r.ExternalIntPin)
-	}
-	if r.BlinkLED {
-		t.Error("rain blink_led = true, want false")
+	if cfg.Sample.ExtPin != hal.Pin(7) {
+		t.Errorf("Sample.ExtPin = %d, want 7", cfg.Sample.ExtPin)
 	}
 
 	// Heartbeat
-	h := cfg.Groups[2]
-	if h.Interval != time.Hour {
-		t.Errorf("heartbeat interval = %v, want 1h", h.Interval)
+	if cfg.Heartbeat.Interval != time.Hour {
+		t.Errorf("Heartbeat.Interval = %v, want 1h", cfg.Heartbeat.Interval)
 	}
-	if h.Payload != PayloadFull {
-		t.Errorf("heartbeat payload = %d, want PayloadFull", h.Payload)
+	if cfg.Heartbeat.Host != "http://localhost:4000/heartbeat" {
+		t.Errorf("Heartbeat.Host = %q", cfg.Heartbeat.Host)
 	}
-	if h.Host != "http://localhost:4000/heartbeat" {
-		t.Errorf("heartbeat host = %q", h.Host)
+	if cfg.Heartbeat.Payload != PayloadFull {
+		t.Errorf("Heartbeat.Payload = %d, want PayloadFull", cfg.Heartbeat.Payload)
+	}
+	if !cfg.Heartbeat.BlinkLED {
+		t.Error("Heartbeat.BlinkLED = false, want true")
 	}
 }

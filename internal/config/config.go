@@ -27,35 +27,40 @@ type LogSinkEntry struct {
 	Level log.Level
 }
 
-// Device holds user-configurable logging and data output settings,
-// parsed from the [device] INI section. Hardware pin and rail
-// configuration lives on the Board struct in the main package.
+// Device holds user-configurable logging and data output settings.
+// ID is populated at runtime from the Notecard DeviceUID (not configurable via INI or env vars).
 type Device struct {
+	ID        string
 	LogSinks  []LogSinkEntry
 	DataSinks []string
 	LedPin    hal.Pin
 }
 
-// Group defines a scheduled task with its own sensors and optional
-// payload delivery. A group fires on a timer (Interval), an external
-// interrupt (ExternalIntPin), or both.
-type Group struct {
-	Name           string
-	Interval       time.Duration
-	ExternalIntPin hal.Pin
-	BlinkLED       bool
-	Sensors        []string
-	Host           string
-	Payload        Payload
+// Sample defines the periodic or interrupt-driven sensor measurement schedule.
+type Sample struct {
+	Interval time.Duration
+	Sensors  []string
+	ExtPin   hal.Pin
+}
+
+// Heartbeat defines an optional keep-alive / payload delivery schedule.
+// Interval = 0 disables the heartbeat entirely.
+type Heartbeat struct {
+	Interval time.Duration
+	Host     string
+	Payload  Payload
+	BlinkLED bool
 }
 
 // Config holds the complete parsed configuration.
 type Config struct {
-	Device Device
-	Groups []Group
+	Device    Device
+	Sample    Sample
+	Heartbeat Heartbeat
 }
 
 // Default returns a Config with debug-friendly defaults.
+// Sample is enabled with a 5s interval; heartbeat is disabled.
 func Default() Config {
 	return Config{
 		Device: Device{
@@ -63,29 +68,24 @@ func Default() Config {
 			DataSinks: []string{},
 			LedPin:    hal.NoPin,
 		},
-		Groups: []Group{
-			{
-				Name:           "sample",
-				Interval:       5 * time.Second,
-				ExternalIntPin: hal.NoPin,
-				Sensors:        []string{"vbat"},
-				BlinkLED:       true,
-			},
+		Sample: Sample{
+			Interval: 5 * time.Second,
+			Sensors:  []string{"vbat"},
+			ExtPin:   hal.NoPin,
 		},
 	}
 }
 
-// Parse reads an INI-format config from data into cfg. Sections map to
-// [device] or named groups. All parse errors are collected and returned
+// Parse reads a flat key=value config from data into cfg.
+// Section headers (lines starting with '[') are silently skipped for
+// backwards compatibility. All parse errors are collected and returned
 // together via errors.Join so the caller can report every problem at once.
+// Validation requires Sample to have Interval > 0 or ExtPin != NoPin.
+//
+// Parse should be called on a Default()-initialised cfg so that fields
+// absent from the file keep their sensible defaults (including NoPin sentinels).
 func Parse(data []byte, cfg *Config) error {
 	var errs []error
-
-	var (
-		section    string
-		groups     []Group
-		groupIndex = make(map[string]int)
-	)
 
 	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -93,17 +93,8 @@ func Parse(data []byte, cfg *Config) error {
 			continue
 		}
 
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section = strings.TrimSpace(line[1 : len(line)-1])
-			if section == "" {
-				errs = append(errs, errors.New("empty section name"))
-			}
-			if section != "device" {
-				if _, exists := groupIndex[section]; !exists {
-					groupIndex[section] = len(groups)
-					groups = append(groups, Group{Name: section, ExternalIntPin: hal.NoPin})
-				}
-			}
+		// Skip section headers (ignored in flat format).
+		if strings.HasPrefix(line, "[") {
 			continue
 		}
 
@@ -121,93 +112,112 @@ func Parse(data []byte, cfg *Config) error {
 			value = strings.TrimSpace(value[:i])
 		}
 
-		switch section {
-		case "":
-			errs = append(errs, errors.New("key outside of section: "+key))
-		case "device":
-			if err := parseDeviceKey(&cfg.Device, key, value); err != nil {
-				errs = append(errs, err)
-			}
-		default:
-			idx := groupIndex[section]
-			if err := parseGroupKey(&groups[idx], key, value); err != nil {
-				errs = append(errs, err)
-			}
+		if err := parseKey(cfg, key, value); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
-	cfg.Groups = groups
-
-	for i := range cfg.Groups {
-		if err := validateGroup(&cfg.Groups[i]); err != nil {
-			errs = append(errs, err)
-		}
+	if err := validateSample(&cfg.Sample); err != nil {
+		errs = append(errs, err)
 	}
 
 	return errors.Join(errs...)
 }
 
-func parseDeviceKey(dev *Device, key, value string) error {
+// ParseMap applies a Notecard env.get response body to cfg.
+// Keys prefixed with '_' (Notehub-internal) are silently skipped.
+// Native bool values are handled directly; other types are coerced to string
+// before dispatching through the same logic used by Parse.
+// No structural validation is performed — the caller is responsible for
+// ensuring the resulting cfg is sane (e.g. via the wake-source guard in main.go).
+func ParseMap(cfg *Config, body map[string]interface{}) error {
+	var errs []error
+	for k, v := range body {
+		if len(k) > 0 && k[0] == '_' {
+			continue
+		}
+		var vstr string
+		switch tv := v.(type) {
+		case string:
+			vstr = tv
+		case bool:
+			if tv {
+				vstr = "true"
+			} else {
+				vstr = "false"
+			}
+		default:
+			continue
+		}
+		if vstr == "" {
+			continue
+		}
+		if err := parseKey(cfg, k, vstr); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func parseKey(cfg *Config, key, value string) error {
 	switch key {
 	case "log_sinks":
 		sinks, err := parseLogSinks(value)
 		if err != nil {
 			return err
 		}
-		dev.LogSinks = sinks
+		cfg.Device.LogSinks = sinks
 	case "data_sinks":
 		names, err := parseDataSinks(value)
 		if err != nil {
 			return err
 		}
-		dev.DataSinks = names
+		cfg.Device.DataSinks = names
 	case "led_pin":
 		pin, err := parsePin(key, value)
 		if err != nil {
 			return err
 		}
-		dev.LedPin = pin
-	default:
-		return errors.New("[device] unknown key: " + key)
-	}
-	return nil
-}
-
-func parseGroupKey(g *Group, key, value string) error {
-	switch key {
+		cfg.Device.LedPin = pin
 	case "interval":
 		d, err := parseDuration(key, value)
 		if err != nil {
 			return err
 		}
-		g.Interval = d
-	case "external_int_pin":
+		cfg.Sample.Interval = d
+	case "sensors":
+		cfg.Sample.Sensors = parseStringList(value)
+	case "ext_pin":
 		pin, err := parsePin(key, value)
 		if err != nil {
 			return err
 		}
-		g.ExternalIntPin = pin
-	case "blink_led":
-		g.BlinkLED = parseBool(value)
-	case "sensors":
-		g.Sensors = parseStringList(value)
+		cfg.Sample.ExtPin = pin
+	case "heartbeat":
+		d, err := parseDuration(key, value)
+		if err != nil {
+			return err
+		}
+		cfg.Heartbeat.Interval = d
 	case "host":
-		g.Host = value
+		cfg.Heartbeat.Host = value
 	case "payload":
 		p, err := parsePayload(value)
 		if err != nil {
 			return err
 		}
-		g.Payload = p
+		cfg.Heartbeat.Payload = p
+	case "blink_led":
+		cfg.Heartbeat.BlinkLED = parseBool(value)
 	default:
-		return errors.New("[" + g.Name + "] unknown key: " + key)
+		return errors.New("unknown key: " + key)
 	}
 	return nil
 }
 
-func validateGroup(g *Group) error {
-	if g.Interval <= 0 && g.ExternalIntPin == hal.NoPin {
-		return errors.New("[" + g.Name + "] must have interval or external_int_pin")
+func validateSample(s *Sample) error {
+	if s.Interval <= 0 && s.ExtPin == hal.NoPin {
+		return errors.New("sample: must have interval or ext_pin")
 	}
 	return nil
 }
