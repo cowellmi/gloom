@@ -418,11 +418,11 @@ func TestParseINI_MultipleErrors(t *testing.T) {
 func TestParseINI_PayloadVariants(t *testing.T) {
 	tests := []struct {
 		value string
-		want  HBPayload
+		want  Payload
 	}{
-		{"none", HBPayloadNone},
-		{"min", HBPayloadMin},
-		{"full", HBPayloadFull},
+		{"none", PayloadNone},
+		{"min", PayloadMin},
+		{"full", PayloadFull},
 	}
 	for _, tt := range tests {
 		input := []byte("heartbeat_interval = 1h\nheartbeat_payload = " + tt.value + "\nsample_interval = 9s\n")
