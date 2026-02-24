@@ -40,7 +40,15 @@ func main() {
 	board.MCU.EnableWatchdog()
 	debug.W = board.Serial
 
-	board.MCU.PetWatchdog()
+	// Sensors
+	sensorRegistry := make(map[string]func() sensor.Sensor)
+
+	if board.ADCPin != hal.NoPin {
+		sensorRegistry["vbat"] = func() sensor.Sensor {
+			return vbat.NewDevice(board.ADCPin)
+		}
+		board.MCU.PetWatchdog()
+	}
 
 	// Power rails
 	rails := initRails()
@@ -108,22 +116,7 @@ func main() {
 	}
 
 	board.MCU.PetWatchdog()
-
-	// Sensors
-	sensorRegistry := make(map[string]func() sensor.Sensor)
-
-	if board.ADCPin != hal.NoPin {
-		sensorRegistry["vbat"] = func() sensor.Sensor {
-			return vbat.NewDevice(board.ADCPin)
-		}
-		board.MCU.PetWatchdog()
-	}
-
-	board.MCU.PetWatchdog()
-
-	cfg := config.Default()
-
-	board.MCU.PetWatchdog()
+	debug.Log("probing notecard...")
 
 	// Blues Notecard
 	var hasNotecard bool
@@ -131,8 +124,7 @@ func main() {
 	notecard, err := tinynote.OpenI2C(tinynote.DefaultI2CAddress, board.I2C.TxFn)
 	if err != nil {
 		initWarns = append(initWarns, err)
-	}
-	if notecard != nil {
+	} else if notecard != nil {
 		req := tinynote.NewRequest("card.version")
 		res, err := notecard.RequestResponse(req)
 		if tinynote.IsError(err, res) {
@@ -144,6 +136,9 @@ func main() {
 		}
 		board.MCU.PetWatchdog()
 	}
+
+	// Config
+	cfg := config.Default()
 
 	if hasNotecard {
 		// Send env.template every boot — idempotent, defines expected
