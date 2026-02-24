@@ -322,7 +322,7 @@ func main() {
 		logger.Debug("sd: NONE")
 	}
 
-	if notecardPresent {
+	if hasNotecard {
 		logger.Debug("notecard: " + notecardUID)
 	} else {
 		logger.Debug("notecard: NONE")
