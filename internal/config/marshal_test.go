@@ -17,7 +17,7 @@ func TestMarshal_RoundTrip(t *testing.T) {
 		SampleSensors:     []string{"temperature", "humidity"},
 		SampleExtPin:      hal.NoPin,
 		HeartbeatInterval: time.Hour,
-		HeartbeatPayload:  HBPayloadFull,
+		HeartbeatPayload:  PayloadFull,
 		HeartbeatLedPin:   hal.Pin(16),
 	}
 
@@ -49,8 +49,8 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	if got.HeartbeatInterval != time.Hour {
 		t.Errorf("HeartbeatInterval = %v, want 1h", got.HeartbeatInterval)
 	}
-	if got.HeartbeatPayload != HBPayloadFull {
-		t.Errorf("HeartbeatPayload = %d, want HBPayloadFull", got.HeartbeatPayload)
+	if got.HeartbeatPayload != PayloadFull {
+		t.Errorf("HeartbeatPayload = %d, want PayloadFull", got.HeartbeatPayload)
 	}
 	if got.HeartbeatLedPin != hal.Pin(16) {
 		t.Errorf("HeartbeatLedPin = %d, want 16", got.HeartbeatLedPin)
@@ -59,10 +59,10 @@ func TestMarshal_RoundTrip(t *testing.T) {
 
 func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:    log.LevelDebug,
-		BluesLogLevel: log.LevelDebug,
-		SampleInterval: 5 * time.Second,
-		SampleExtPin:   hal.NoPin,
+		SDLogLevel:      log.LevelDebug,
+		BluesLogLevel:   log.LevelDebug,
+		SampleInterval:  5 * time.Second,
+		SampleExtPin:    hal.NoPin,
 		HeartbeatLedPin: hal.NoPin,
 	}
 
@@ -137,8 +137,8 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 
 	for _, tt := range tests {
 		cfg := Config{
-			SDLogLevel:    log.LevelDebug,
-			BluesLogLevel: log.LevelDebug,
+			SDLogLevel:     log.LevelDebug,
+			BluesLogLevel:  log.LevelDebug,
 			SampleInterval: tt.d,
 			SampleExtPin:   hal.NoPin,
 		}
@@ -180,7 +180,7 @@ func TestMarshalMap(t *testing.T) {
 		SampleSensors:     []string{"vbat", "temp"},
 		SampleExtPin:      hal.Pin(7),
 		HeartbeatInterval: time.Hour,
-		HeartbeatPayload:  HBPayloadFull,
+		HeartbeatPayload:  PayloadFull,
 		HeartbeatLedPin:   hal.Pin(16),
 	}
 

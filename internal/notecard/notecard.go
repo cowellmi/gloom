@@ -2,10 +2,16 @@ package notecard
 
 import (
 	"errors"
+	"strings"
 
 	tinynote "github.com/blues/note-tinygo"
-	"github.com/cowellmi/gloom/internal/config"
 )
+
+// Requester is the minimal transport interface for Blues API requests.
+type Requester interface {
+	Request(req map[string]any) error
+	RequestResponse(req map[string]any) (map[string]any, error)
+}
 
 type Device struct {
 	UID string
@@ -30,53 +36,26 @@ func New(tx tinynote.I2CTxFn) (*Device, error) {
 	return &d, nil
 }
 
-func (d *Device) Configure(cfg *config.Config) error {
-	req := tinynote.NewRequest("env.template")
-	req["body"] = cfg.MarshalMap()
-	if err := d.ctx.Request(req); err != nil {
-		return err
-	}
-
-	req = tinynote.NewRequest("env.get")
+// Request sends a Notecard request and discards the response body.
+func (d *Device) Request(req map[string]any) error {
 	rsp, err := d.ctx.RequestResponse(req)
 	if tinynote.IsError(err, rsp) {
 		return errors.New(tinynote.ErrorString(err, rsp))
 	}
-
-	body, ok := rsp["body"].(map[string]any)
-	if !ok {
-		return errors.New("invalid response")
-	}
-
-	schema := cfg.MarshalMap() // key set defines accepted keys
-	env := make(map[string]any)
-	for k, v := range body {
-		if len(k) > 0 && k[0] == '_' {
-			continue // reserved
-		}
-		if _, known := schema[k]; !known {
-			continue // unkown key; ignore silently
-		}
-		if s, ok := v.(string); ok && s == "" {
-			continue
-		}
-		env[k] = v
-	}
-
-	if len(env) > 0 {
-		return config.ParseMap(cfg, env)
-	}
-
-	for k, v := range cfg.MarshalMap() {
-		if vStr, ok := v.(string); ok {
-			req := tinynote.NewRequest("env.default")
-			req["name"] = k
-			req["text"] = vStr
-			if err := d.ctx.Request(req); err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
+}
+
+// RequestResponse sends a Notecard request and returns the response map.
+func (d *Device) RequestResponse(req map[string]any) (map[string]any, error) {
+	rsp, err := d.ctx.RequestResponse(req)
+	if tinynote.IsError(err, rsp) {
+		return nil, errors.New(tinynote.ErrorString(err, rsp))
+	}
+	return rsp, nil
+}
+
+// IsNotFound reports whether err is a Blues "note does not exist" response,
+// used to distinguish an empty Notefile from a real transport failure.
+func IsNotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "note-noexist")
 }

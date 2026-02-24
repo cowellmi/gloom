@@ -172,9 +172,3 @@ func isExistError(err error) bool {
 	}
 	return false
 }
-
-// Remove deletes a file from the filesystem. Intended for future use
-// by retention/pruning logic.
-func (c *Card) Remove(name string) error {
-	return c.fs.Remove(name)
-}

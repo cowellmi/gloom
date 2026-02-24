@@ -89,7 +89,8 @@ func (l *Logger) SetTime(t time.Time) {
 func (l *Logger) Log(level Level, msg string) {
 	for i := range l.targets {
 		if level >= l.targets[i].minLevel {
-			if err := l.targets[i].sink.WriteLog(l.t, level, msg); err != nil {
+			err := l.targets[i].sink.WriteLog(l.t, level, msg)
+			if err != nil {
 				// Route to debug (UART) instead of logging through
 				// ourselves to avoid a recursive log loop.
 				debug.Log("sink error: " + err.Error())

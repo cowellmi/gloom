@@ -10,13 +10,13 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 )
 
-// HBPayload identifies a predefined heartbeat payload profile.
-type HBPayload uint8
+// Payload identifies a predefined heartbeat payload profile.
+type Payload uint8
 
 const (
-	HBPayloadNone HBPayload = iota
-	HBPayloadMin
-	HBPayloadFull
+	PayloadNone Payload = iota
+	PayloadMin
+	PayloadFull
 )
 
 // Config holds the complete parsed configuration.
@@ -27,23 +27,23 @@ type Config struct {
 	SampleSensors     []string
 	SampleExtPin      hal.Pin
 	HeartbeatInterval time.Duration
-	HeartbeatPayload  HBPayload
+	HeartbeatPayload  Payload
 	HeartbeatLedPin   hal.Pin
 }
 
 // Default returns a Config seeded with board-supplied hardware defaults.
 // ledPin is the board's LED pin (use hal.NoPin if absent).
 // sensors is the board's default sensor list (may be nil).
-// Sample is enabled with a 9s interval; heartbeat is enabled with a 3s interval.
+// Sample is disabled by default (interval=0); heartbeat is enabled with a 3s interval.
 func Default(ledPin hal.Pin, sensors []string) Config {
 	return Config{
 		SDLogLevel:        log.LevelDebug,
 		BluesLogLevel:     log.LevelInfo,
-		SampleInterval:    9 * time.Second,
+		SampleInterval:    0,
 		SampleSensors:     sensors,
 		SampleExtPin:      hal.NoPin,
 		HeartbeatInterval: 3 * time.Second,
-		HeartbeatPayload:  HBPayloadNone,
+		HeartbeatPayload:  PayloadNone,
 		HeartbeatLedPin:   ledPin,
 	}
 }
@@ -52,7 +52,7 @@ func Default(ledPin hal.Pin, sensors []string) Config {
 // Section headers (lines starting with '[') are silently skipped for
 // backwards compatibility. All parse errors are collected and returned
 // together via errors.Join so the caller can report every problem at once.
-// Validation requires SampleInterval > 0 or SampleExtPin != NoPin.
+// After parsing, validates that at least one wake source is configured.
 //
 // ParseINI should be called on a Default()-initialised cfg so that fields
 // absent from the file keep their sensible defaults (including NoPin sentinels).
@@ -89,7 +89,7 @@ func ParseINI(data []byte, cfg *Config) error {
 		}
 	}
 
-	if err := validateSample(cfg); err != nil {
+	if err := validate(cfg); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -181,9 +181,9 @@ func parseKey(cfg *Config, key string, v interface{}) error {
 	return nil
 }
 
-func validateSample(c *Config) error {
-	if c.SampleInterval <= 0 && c.SampleExtPin == hal.NoPin {
-		return errors.New("sample: must have sample_interval or sample_ext_pin")
+func validate(cfg *Config) error {
+	if cfg.SampleInterval <= 0 && cfg.SampleExtPin == hal.NoPin && cfg.HeartbeatInterval <= 0 {
+		return errors.New("config: no wake sources (needs sample_interval, sample_ext_pin, or heartbeat_interval)")
 	}
 	return nil
 }
@@ -205,16 +205,16 @@ func parseLevel(s string) (log.Level, error) {
 	}
 }
 
-func parsePayload(value string) (HBPayload, error) {
+func parsePayload(value string) (Payload, error) {
 	switch value {
 	case "none", "":
-		return HBPayloadNone, nil
+		return PayloadNone, nil
 	case "min":
-		return HBPayloadMin, nil
+		return PayloadMin, nil
 	case "full":
-		return HBPayloadFull, nil
+		return PayloadFull, nil
 	default:
-		return HBPayloadNone, errors.New("unknown payload: " + value)
+		return PayloadNone, errors.New("unknown payload: " + value)
 	}
 }
 

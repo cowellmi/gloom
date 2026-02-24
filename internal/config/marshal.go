@@ -17,6 +17,7 @@ func (c *Config) MarshalINI() ([]byte, error) {
 
 	buf = append(buf, "# See example.config.ini for full documentation.\n"...)
 
+	// SD
 	sdLvl, err := levelString(c.SDLogLevel)
 	if err != nil {
 		return nil, err
@@ -25,6 +26,7 @@ func (c *Config) MarshalINI() ([]byte, error) {
 	buf = append(buf, sdLvl...)
 	buf = append(buf, '\n')
 
+	// Blues
 	bluesLvl, err := levelString(c.BluesLogLevel)
 	if err != nil {
 		return nil, err
@@ -33,6 +35,7 @@ func (c *Config) MarshalINI() ([]byte, error) {
 	buf = append(buf, bluesLvl...)
 	buf = append(buf, '\n')
 
+	// Sample
 	if c.SampleInterval > 0 {
 		buf = append(buf, "sample_interval = "...)
 		buf = appendDuration(buf, c.SampleInterval)
@@ -56,13 +59,14 @@ func (c *Config) MarshalINI() ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
+	// Heartbeat
 	if c.HeartbeatInterval > 0 {
 		buf = append(buf, "heartbeat_interval = "...)
 		buf = appendDuration(buf, c.HeartbeatInterval)
 		buf = append(buf, '\n')
 	}
 
-	if c.HeartbeatPayload != HBPayloadNone {
+	if c.HeartbeatPayload != PayloadNone {
 		buf = append(buf, "heartbeat_payload = "...)
 		ps, err := payloadString(c.HeartbeatPayload)
 		if err != nil {
@@ -116,20 +120,20 @@ func levelString(l log.Level) (string, error) {
 	}
 }
 
-func payloadString(p HBPayload) (string, error) {
+func payloadString(p Payload) (string, error) {
 	switch p {
-	case HBPayloadNone:
+	case PayloadNone:
 		return "none", nil
-	case HBPayloadMin:
+	case PayloadMin:
 		return "min", nil
-	case HBPayloadFull:
+	case PayloadFull:
 		return "full", nil
 	default:
 		return "", errors.New("unknown payload: " + strconv.Itoa(int(p)))
 	}
 }
 
-// MarshalMap serializes the Config to a map suitable for a Notecard env.update body.
+// MarshalMap serializes the Config to a map suitable for a Notecard note.add body.
 func (c *Config) MarshalMap() map[string]interface{} {
 	m := make(map[string]interface{})
 
@@ -164,7 +168,7 @@ func (c *Config) MarshalMap() map[string]interface{} {
 		m["heartbeat_interval"] = durationString(c.HeartbeatInterval)
 	}
 
-	if c.HeartbeatPayload != HBPayloadNone {
+	if c.HeartbeatPayload != PayloadNone {
 		ps, _ := payloadString(c.HeartbeatPayload)
 		m["heartbeat_payload"] = ps
 	}

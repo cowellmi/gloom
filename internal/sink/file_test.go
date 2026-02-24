@@ -1,4 +1,4 @@
-package file
+package sink
 
 import (
 	"bytes"
@@ -36,11 +36,19 @@ func (o *memOpener) Open(name string) (AppendFile, error) {
 	return f, nil
 }
 
+func fileNames(o *memOpener) []string {
+	names := make([]string, 0, len(o.files))
+	for n := range o.files {
+		names = append(names, n)
+	}
+	return names
+}
+
 func TestNew_OpensFilesForDate(t *testing.T) {
 	o := newMemOpener()
 	now := time.Date(2026, 2, 14, 10, 0, 0, 0, time.UTC)
 
-	_, err := New("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{"logs", ".log"}, now)
+	_, err := NewRotaryFileSink("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{"logs", ".log"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +65,7 @@ func TestRecord_WritesCSV(t *testing.T) {
 	o := newMemOpener()
 	now := time.Date(2026, 2, 14, 10, 30, 0, 0, time.UTC)
 
-	s, err := New("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{}, now)
+	s, err := NewRotaryFileSink("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +87,7 @@ func TestRecord_NegativeValue(t *testing.T) {
 	o := newMemOpener()
 	now := time.Date(2026, 2, 14, 10, 30, 0, 0, time.UTC)
 
-	s, err := New("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{}, now)
+	s, err := NewRotaryFileSink("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +109,7 @@ func TestWriteLog_WritesEntry(t *testing.T) {
 	o := newMemOpener()
 	now := time.Date(2026, 2, 14, 10, 30, 0, 0, time.UTC)
 
-	s, err := New("test", o.Open, FileSpec{}, FileSpec{"logs", ".log"}, now)
+	s, err := NewRotaryFileSink("test", o.Open, FileSpec{}, FileSpec{"logs", ".log"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,24 +130,21 @@ func TestRotation_OnDateChange(t *testing.T) {
 	o := newMemOpener()
 	day1 := time.Date(2026, 2, 14, 23, 59, 0, 0, time.UTC)
 
-	s, err := New("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{"logs", ".log"}, day1)
+	s, err := NewRotaryFileSink("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{"logs", ".log"}, day1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Write on day 1.
 	readings := []sensor.Reading{{Label: "temp", Value: 20000, Unit: "mC"}}
 	if err := s.Record(day1, "dev", readings); err != nil {
 		t.Fatal(err)
 	}
 
-	// Advance to day 2.
 	day2 := time.Date(2026, 2, 15, 0, 1, 0, 0, time.UTC)
 	if err := s.WriteLog(day2, log.LevelInfo, "new day"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Day 1 files should be closed.
 	day1Data := o.files["data/20260214.csv"]
 	day1Log := o.files["logs/20260214.log"]
 	if !day1Data.closed {
@@ -149,7 +154,6 @@ func TestRotation_OnDateChange(t *testing.T) {
 		t.Error("day1 log file was not closed on rotation")
 	}
 
-	// Day 2 files should exist.
 	if _, ok := o.files["data/20260215.csv"]; !ok {
 		t.Errorf("expected data/20260215.csv after rotation, got files: %v", fileNames(o))
 	}
@@ -166,12 +170,11 @@ func TestRotation_SameDateNoReopen(t *testing.T) {
 	o := newMemOpener()
 	now := time.Date(2026, 2, 14, 10, 0, 0, 0, time.UTC)
 
-	s, err := New("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{}, now)
+	s, err := NewRotaryFileSink("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Write twice on the same day.
 	readings := []sensor.Reading{{Label: "a", Value: 1, Unit: ""}}
 	_ = s.Record(now, "dev", readings)
 
@@ -179,12 +182,10 @@ func TestRotation_SameDateNoReopen(t *testing.T) {
 	readings[0].Value = 2
 	_ = s.Record(later, "dev", readings)
 
-	// Should still be the same file (only 1 entry in opener map).
 	if len(o.files) != 1 {
 		t.Errorf("expected 1 file, got %d: %v", len(o.files), fileNames(o))
 	}
 
-	// Both rows should be in the same file.
 	f := o.files["data/20260214.csv"]
 	lines := strings.Split(strings.TrimSpace(f.buf.String()), "\n")
 	if len(lines) != 2 {
@@ -196,7 +197,7 @@ func TestFlush_SyncsOpenFiles(t *testing.T) {
 	o := newMemOpener()
 	now := time.Date(2026, 2, 14, 10, 0, 0, 0, time.UTC)
 
-	s, err := New("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{"logs", ".log"}, now)
+	s, err := NewRotaryFileSink("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{"logs", ".log"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,8 +218,7 @@ func TestEmptyDir_SkipsFile(t *testing.T) {
 	o := newMemOpener()
 	now := time.Date(2026, 2, 14, 10, 0, 0, 0, time.UTC)
 
-	// Only data, no log.
-	s, err := New("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{}, now)
+	s, err := NewRotaryFileSink("test", o.Open, FileSpec{"data", ".csv"}, FileSpec{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,6 @@ func TestEmptyDir_SkipsFile(t *testing.T) {
 		t.Errorf("expected 1 file, got %d: %v", len(o.files), fileNames(o))
 	}
 
-	// WriteLog should be a no-op.
 	if err := s.WriteLog(now, log.LevelInfo, "hi"); err != nil {
 		t.Fatal(err)
 	}
@@ -249,12 +248,4 @@ func TestBuildFilename(t *testing.T) {
 			t.Errorf("buildFilename(%v, %v) = %q, want %q", tt.spec, tt.t, got, tt.want)
 		}
 	}
-}
-
-func fileNames(o *memOpener) []string {
-	names := make([]string, 0, len(o.files))
-	for n := range o.files {
-		names = append(names, n)
-	}
-	return names
 }

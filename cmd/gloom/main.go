@@ -21,9 +21,7 @@ import (
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sensor/vbat"
-	"github.com/cowellmi/gloom/internal/sink/file"
-	"github.com/cowellmi/gloom/internal/sink/notehub"
-	"github.com/cowellmi/gloom/internal/sink/serial"
+	"github.com/cowellmi/gloom/internal/sink"
 	"github.com/cowellmi/gloom/internal/sleeper"
 	"github.com/cowellmi/gloom/internal/wait"
 )
@@ -86,6 +84,14 @@ func main() {
 	nc, err := notecard.New(board.I2C.TxFn)
 	if err != nil {
 		initWarns = append(initWarns, err)
+	} else {
+		debug.Log("notecard: hub.sync")
+		err := nc.Request(map[string]any{
+			"req": "hub.sync",
+		})
+		if err != nil {
+			initErrs = append(initErrs, err)
+		}
 	}
 
 	runtime.GC()
@@ -106,9 +112,9 @@ func main() {
 			if len(cards) == 0 {
 				initWarns = append(initWarns, errors.New("CS "+pin+": "+err.Error()))
 			}
-			continue
+		} else {
+			cards = append(cards, sdEntry{card: c, cs: cs})
 		}
-		cards = append(cards, sdEntry{card: c, cs: cs})
 	}
 
 	var card *sdcard.Card
@@ -117,43 +123,64 @@ func main() {
 	}
 
 	board.MCU.PetWatchdog()
-	debug.Log("loading config...")
 
-	// Config
+	// Load config
 	cfg := config.Default(board.LED.Pin(), board.Sensors)
 
 	if nc != nil {
-		if err := nc.Configure(&cfg); err != nil {
-			initErrs = append(initErrs, err)
+		debug.Log("loading config from Notehub...")
+		rsp, rErr := nc.RequestResponse(map[string]any{
+			"req":  "note.get",
+			"file": "config.db",
+			"note": "config",
+		})
+		switch {
+		case rErr == nil:
+			if body, ok := rsp["body"].(map[string]any); ok {
+				if pErr := config.ParseMap(&cfg, body); pErr != nil {
+					initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
+				}
+			}
+		case notecard.IsNotFound(rErr):
+			debug.Log("sending default config to Notehub...")
+			if _, wErr := nc.RequestResponse(map[string]any{
+				"req":  "note.add",
+				"file": "config.db",
+				"note": "config",
+				"body": cfg.MarshalMap(),
+				"sync": true,
+			}); wErr != nil {
+				initErrs = append(initErrs, errors.New("notecard: config.db: "+wErr.Error()))
+			}
+		default:
+			initErrs = append(initErrs, errors.New("notecard: config.db: "+rErr.Error()))
 		}
 		board.MCU.PetWatchdog()
-	}
-
-	if nc == nil && card != nil {
+	} else if card != nil {
+		debug.Log("loading config from SD card...")
 		raw, err := card.ReadFile("CONFIG.INI")
-		if err != nil {
+		if err == nil {
+			if pErr := config.ParseINI(raw, &cfg); pErr != nil {
+				if joined, ok := pErr.(interface{ Unwrap() []error }); ok {
+					for _, e := range joined.Unwrap() {
+						initErrs = append(initErrs, errors.New("config: "+e.Error()))
+					}
+				} else {
+					initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
+				}
+			}
+		} else { // TODO: check for specific file not found err
 			// No CONFIG.INI on SD card; attempt to make one.
 			if ini, mErr := cfg.MarshalINI(); mErr != nil {
 				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
 			} else if wErr := card.WriteFile("CONFIG.INI", ini); wErr != nil {
 				initErrs = append(initErrs, errors.New("sd: "+wErr.Error()))
 			}
-		} else if raw != nil {
-			// Found CONFIG.INI on SD card; attempt to parse it.
-			if err := config.ParseINI(raw, &cfg); err != nil {
-				if joined, ok := err.(interface{ Unwrap() []error }); ok {
-					for _, e := range joined.Unwrap() {
-						initErrs = append(initErrs, errors.New("config: "+e.Error()))
-					}
-				} else {
-					initErrs = append(initErrs, errors.New("config: "+err.Error()))
-				}
-			}
 		}
 	}
 
-	if cfg.Heartbeat.LedPin != hal.NoPin {
-		board.LED = led.New(cfg.Heartbeat.LedPin)
+	if cfg.HeartbeatLedPin != hal.NoPin {
+		board.LED = led.New(cfg.HeartbeatLedPin)
 	}
 
 	// Read the current time once — used for both the file sink
@@ -167,66 +194,42 @@ func main() {
 		}
 	}
 
-	var sdCardFileSink *file.Sink
+	// Setup log and recorder sinks.
+	logger := log.NewLogger(now)
+
+	// Automatically add serial sink.
+	serialSink := sink.NewSerial(board.Serial)
+	logger.AddSink(serialSink, log.LevelDebug)
+	recorders := []sensor.Recorder{serialSink}
+
+	if nc != nil {
+		notehubSink := sink.NewNotehubSink(nc, "data.qo", "log.qo")
+		recorders = append(recorders, notehubSink)
+		logger.AddSink(notehubSink, cfg.BluesLogLevel)
+		board.MCU.PetWatchdog()
+	}
+
 	if card != nil {
 		if err := card.Mkdir("GLOOM"); err != nil {
 			initErrs = append(initErrs, errors.New("sd: "+err.Error()))
 		}
-		opener := func(name string) (file.AppendFile, error) {
+		opener := func(name string) (sink.AppendFile, error) {
 			return card.OpenAppend(name)
 		}
-		sdCardFileSink, err = file.New("sd", opener, file.FileSpec{
+		sdCardFileSink, err := sink.NewRotaryFileSink("sd", opener, sink.FileSpec{
 			Dir: "GLOOM",
 			Ext: ".CSV",
-		}, file.FileSpec{
+		}, sink.FileSpec{
 			Dir: "GLOOM",
 			Ext: ".LOG",
 		}, now)
 		if err != nil {
 			initErrs = append(initErrs, errors.New("file: "+err.Error()))
+		} else {
+			logger.AddSink(sdCardFileSink, cfg.SDLogLevel)
 		}
 		board.MCU.PetWatchdog()
 	}
-
-	var notehubSink *notehub.Sink
-	if nc != nil {
-		notehubSink, err = notehub.New(nc)
-		if err != nil {
-			initErrs = append(initErrs, errors.New("notehub: "+err.Error()))
-		}
-		board.MCU.PetWatchdog()
-	}
-
-	serialSink := serial.NewSink(board.Serial)
-
-	// Logger and recorders
-	logger := log.NewLogger(now)
-	logger.AddSink(serialSink, log.LevelDebug)
-	recorders := []sensor.Recorder{serialSink}
-	if notehubSink != nil {
-		logger.AddSink(notehubSink, cfg.Blues.LogLevel)
-		recorders = append(recorders, notehubSink)
-	}
-	if sdCardFileSink != nil {
-		logger.AddSink(sdCardFileSink, cfg.SD.LogLevel)
-	}
-
-	// Sensors
-	sensorRegistry := make(map[string]sensor.Sensor)
-	if board.ADCPin != hal.NoPin {
-		sensorRegistry["vbat"] = vbat.NewDevice(board.ADCPin)
-		board.MCU.PetWatchdog()
-	}
-
-	var sensors []sensor.Sensor
-	for _, id := range cfg.Sample.Sensors {
-		dev, ok := sensorRegistry[id]
-		if ok {
-			sensors = append(sensors, dev)
-		}
-	}
-
-	board.LED.Off()
 
 	// Report init warnings and errors
 	for _, w := range initWarns {
@@ -247,6 +250,24 @@ func main() {
 			logger.Error("init: " + e.Error())
 		}
 	}
+
+	// Sensors
+	var sensors []sensor.Sensor
+	for _, id := range cfg.SampleSensors {
+		switch id {
+		case "vbat":
+			if board.ADCPin != hal.NoPin {
+				sensors = append(sensors, vbat.NewDevice(board.ADCPin))
+			} else {
+				logger.Warn("sensors: vbat: no ADC pin")
+			}
+		default:
+			logger.Warn("sensors: unknown id: " + id)
+		}
+		board.MCU.PetWatchdog()
+	}
+
+	board.LED.Off()
 
 	// Boot banner
 	logger.Debug("mcu: " + board.MCU.Identifier())
@@ -294,18 +315,18 @@ func main() {
 	man := manager.New(sleeper, cfg, sensors, recorders, logger)
 
 	// Register sample's external interrupt pin with the sleeper.
-	if cfg.Sample.ExtPin != hal.NoPin {
-		sleeper.AddWakePin(cfg.Sample.ExtPin)
+	if cfg.SampleExtPin != hal.NoPin {
+		sleeper.AddWakePin(cfg.SampleExtPin)
 	}
 
 	// Validate there is at least one wake source.
-	if cfg.Sample.Interval <= 0 && cfg.Sample.ExtPin == hal.NoPin {
-		err := errors.New("config: no wake sources configured (sample needs interval > 0 or ext_pin)")
+	if cfg.SampleInterval <= 0 && cfg.SampleExtPin == hal.NoPin && cfg.HeartbeatInterval <= 0 {
+		err := errors.New("config: no wake sources configured (needs sample_interval, sample_ext_pin, or heartbeat_interval)")
 		logger.Error(err.Error())
 		fatal(err, board.LED)
 	}
 
-	if cfg.Heartbeat.Interval > 0 && cfg.Heartbeat.LedPin != hal.NoPin {
+	if cfg.HeartbeatInterval > 0 && cfg.HeartbeatLedPin != hal.NoPin {
 		man.SetBlinkLED(board.LED.Blink)
 	}
 	man.EnableWatchdog(board.MCU.PetWatchdog)
