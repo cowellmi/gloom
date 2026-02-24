@@ -189,3 +189,66 @@ func TestMarshal_BlinkLED(t *testing.T) {
 		t.Errorf("expected blink_led = true in output:\n%s", data)
 	}
 }
+
+func TestMarshalMap(t *testing.T) {
+	cfg := Config{
+		Device: Device{
+			LogSinks:  []LogSinkEntry{{Name: "sd", Level: log.LevelError}},
+			DataSinks: []string{"sd"},
+			LedPin:    hal.Pin(13),
+		},
+		Sample: Sample{
+			Interval: time.Minute,
+			Sensors:  []string{"vbat", "temp"},
+			ExtPin:   hal.Pin(7),
+		},
+		Heartbeat: Heartbeat{
+			Interval: time.Hour,
+			Payload:  PayloadFull,
+			BlinkLED: true,
+		},
+	}
+
+	m := cfg.MarshalMap()
+
+	if m["log_sinks"] != "sd:error" {
+		t.Errorf("log_sinks = %v, want sd:error", m["log_sinks"])
+	}
+	if m["data_sinks"] != "sd" {
+		t.Errorf("data_sinks = %v, want sd", m["data_sinks"])
+	}
+	if m["led_pin"] != "13" {
+		t.Errorf("led_pin = %v, want 13", m["led_pin"])
+	}
+	if m["interval"] != "1m" {
+		t.Errorf("interval = %v, want 1m", m["interval"])
+	}
+	if m["sensors"] != "vbat, temp" {
+		t.Errorf("sensors = %v, want vbat, temp", m["sensors"])
+	}
+	if m["ext_pin"] != "7" {
+		t.Errorf("ext_pin = %v, want 7", m["ext_pin"])
+	}
+	if m["heartbeat"] != "1h" {
+		t.Errorf("heartbeat = %v, want 1h", m["heartbeat"])
+	}
+	if m["payload"] != "full" {
+		t.Errorf("payload = %v, want full", m["payload"])
+	}
+	if m["blink_led"] != true {
+		t.Errorf("blink_led = %v, want true", m["blink_led"])
+	}
+}
+
+func TestMarshalMap_NoPin(t *testing.T) {
+	cfg := Default()
+
+	m := cfg.MarshalMap()
+
+	if m["led_pin"] != "none" {
+		t.Errorf("led_pin = %v, want none", m["led_pin"])
+	}
+	if m["ext_pin"] != "none" {
+		t.Errorf("ext_pin = %v, want none", m["ext_pin"])
+	}
+}

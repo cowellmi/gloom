@@ -147,3 +147,85 @@ func payloadString(p Payload) (string, error) {
 		return "", errors.New("unknown payload: " + strconv.Itoa(int(p)))
 	}
 }
+
+func (c *Config) MarshalMap() map[string]interface{} {
+	m := make(map[string]interface{})
+
+	if len(c.Device.LogSinks) > 0 {
+		var s string
+		for i, ls := range c.Device.LogSinks {
+			if i > 0 {
+				s += ", "
+			}
+			s += ls.Name
+			s += ":"
+			lvl, _ := levelString(ls.Level)
+			s += lvl
+		}
+		m["log_sinks"] = s
+	}
+
+	if len(c.Device.DataSinks) > 0 {
+		var s string
+		for i, ds := range c.Device.DataSinks {
+			if i > 0 {
+				s += ", "
+			}
+			s += ds
+		}
+		m["data_sinks"] = s
+	}
+
+	if c.Device.LedPin != hal.NoPin {
+		m["led_pin"] = strconv.FormatUint(uint64(c.Device.LedPin), 10)
+	} else {
+		m["led_pin"] = "none"
+	}
+
+	if c.Sample.Interval > 0 {
+		m["interval"] = durationString(c.Sample.Interval)
+	}
+
+	if len(c.Sample.Sensors) > 0 {
+		var s string
+		for i, sensor := range c.Sample.Sensors {
+			if i > 0 {
+				s += ", "
+			}
+			s += sensor
+		}
+		m["sensors"] = s
+	}
+
+	if c.Sample.ExtPin != hal.NoPin {
+		m["ext_pin"] = strconv.FormatUint(uint64(c.Sample.ExtPin), 10)
+	} else {
+		m["ext_pin"] = "none"
+	}
+
+	if c.Heartbeat.Interval > 0 {
+		m["heartbeat"] = durationString(c.Heartbeat.Interval)
+	}
+
+	if c.Heartbeat.Payload != PayloadNone {
+		ps, _ := payloadString(c.Heartbeat.Payload)
+		m["payload"] = ps
+	}
+
+	m["blink_led"] = c.Heartbeat.BlinkLED
+
+	return m
+}
+
+func durationString(d time.Duration) string {
+	switch {
+	case d%time.Hour == 0 && d >= time.Hour:
+		return strconv.FormatInt(int64(d/time.Hour), 10) + "h"
+	case d%time.Minute == 0 && d >= time.Minute:
+		return strconv.FormatInt(int64(d/time.Minute), 10) + "m"
+	case d%time.Second == 0 && d >= time.Second:
+		return strconv.FormatInt(int64(d/time.Second), 10) + "s"
+	default:
+		return d.String()
+	}
+}

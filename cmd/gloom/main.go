@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	tinynote "github.com/blues/note-tinygo"
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/fmtbuf"
@@ -16,6 +15,7 @@ import (
 	"github.com/cowellmi/gloom/internal/led"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
+	"github.com/cowellmi/gloom/internal/notecard"
 	"github.com/cowellmi/gloom/internal/rtc/ds3231"
 	"github.com/cowellmi/gloom/internal/rtc/pcf8523"
 	"github.com/cowellmi/gloom/internal/sdcard"
@@ -39,16 +39,6 @@ func main() {
 	board.MCU.PaintStack()
 	board.MCU.EnableWatchdog()
 	debug.W = board.Serial
-
-	// Sensors
-	sensorRegistry := make(map[string]func() sensor.Sensor)
-
-	if board.ADCPin != hal.NoPin {
-		sensorRegistry["vbat"] = func() sensor.Sensor {
-			return vbat.NewDevice(board.ADCPin)
-		}
-		board.MCU.PetWatchdog()
-	}
 
 	// Power rails
 	rails := initRails()
@@ -119,59 +109,24 @@ func main() {
 	debug.Log("probing notecard...")
 
 	// Blues Notecard
-	var hasNotecard bool
-	var notecardUID string
-	notecard, err := tinynote.OpenI2C(tinynote.DefaultI2CAddress, board.I2C.TxFn)
+	runtime.GC()
+	nc, err := notecard.New(board.I2C.TxFn)
 	if err != nil {
 		initWarns = append(initWarns, err)
-	} else if notecard != nil {
-		req := tinynote.NewRequest("card.version")
-		res, err := notecard.RequestResponse(req)
-		if tinynote.IsError(err, res) {
-			err = errors.New(tinynote.ErrorString(err, res))
-			initErrs = append(initErrs, err)
-		} else {
-			hasNotecard = true
-			notecardUID, _ = res["device"].(string)
-		}
-		board.MCU.PetWatchdog()
 	}
+	board.MCU.PetWatchdog()
 
 	// Config
 	cfg := config.Default()
 
-	if hasNotecard {
-		// Send env.template every boot — idempotent, defines expected
-		// env var keys and their types for the Notehub UI.
-		tmplReq := tinynote.NewRequest("env.template")
-		tmplBody := tinynote.NewBody()
-		tmplBody["log_sinks"] = "a"
-		tmplBody["data_sinks"] = "a"
-		tmplBody["led_pin"] = 21
-		tmplBody["interval"] = "a"
-		tmplBody["sensors"] = "a"
-		tmplBody["ext_pin"] = 21
-		tmplBody["heartbeat"] = "a"
-		tmplBody["payload"] = "a"
-		tmplBody["blink_led"] = true
-		tmplReq["body"] = tmplBody
-		notecard.Request(tmplReq)
-		board.MCU.PetWatchdog()
-
-		// Fetch env vars and apply to config.
-		req := tinynote.NewRequest("env.get")
-		res, err := notecard.RequestResponse(req)
-		board.MCU.PetWatchdog()
-		if err == nil && !tinynote.IsError(err, res) {
-			if body, ok := res["body"].(map[string]interface{}); ok {
-				if err := config.ParseMap(&cfg, body); err != nil {
-					initWarns = append(initWarns, errors.New("env: "+err.Error()))
-				}
-			}
+	if nc != nil {
+		if err := nc.Configure(&cfg); err != nil {
+			initErrs = append(initErrs, err)
 		}
+		board.MCU.PetWatchdog()
 	}
 
-	if !hasNotecard && card != nil {
+	if nc == nil && card != nil {
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
 			// No CONFIG.INI on SD card; attempt to make one.
@@ -266,7 +221,15 @@ func main() {
 		}
 	}
 
-	// Resolve sensor IDs from config into sensor instances for the manager.
+	// Sensors
+	sensorRegistry := make(map[string]func() sensor.Sensor)
+
+	if board.ADCPin != hal.NoPin {
+		sensorRegistry["vbat"] = func() sensor.Sensor {
+			return vbat.NewDevice(board.ADCPin)
+		}
+		board.MCU.PetWatchdog()
+	}
 
 	sensorPool := make(map[string]sensor.Sensor)
 	var sensors []sensor.Sensor
@@ -289,10 +252,22 @@ func main() {
 
 	// Report init warnings and errors
 	for _, w := range initWarns {
-		logger.Warn("init: " + w.Error())
+		if joined, ok := w.(interface{ Unwrap() []error }); ok {
+			for _, sub := range joined.Unwrap() {
+				logger.Warn("init: " + sub.Error())
+			}
+		} else {
+			logger.Warn("init: " + w.Error())
+		}
 	}
 	for _, e := range initErrs {
-		logger.Error("init: " + e.Error())
+		if joined, ok := e.(interface{ Unwrap() []error }); ok {
+			for _, sub := range joined.Unwrap() {
+				logger.Error("init: " + sub.Error())
+			}
+		} else {
+			logger.Error("init: " + e.Error())
+		}
 	}
 
 	// Boot banner
@@ -317,8 +292,8 @@ func main() {
 		logger.Debug("sd: NONE")
 	}
 
-	if hasNotecard {
-		logger.Debug("notecard: " + notecardUID)
+	if nc != nil {
+		logger.Debug("notecard: " + nc.UID)
 	} else {
 		logger.Debug("notecard: NONE")
 	}

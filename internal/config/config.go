@@ -134,12 +134,6 @@ func Parse(data []byte, cfg *Config) error {
 func ParseMap(cfg *Config, body map[string]interface{}) error {
 	var errs []error
 	for k, v := range body {
-		if len(k) > 0 && k[0] == '_' {
-			continue // Reserved vars start with _.
-		}
-		if s, ok := v.(string); ok && s == "" {
-			continue // Skip vars with no value.
-		}
 		if err := parseKey(cfg, k, v); err != nil {
 			errs = append(errs, err)
 		}
@@ -343,6 +337,9 @@ func parseDuration(key, value string) (time.Duration, error) {
 }
 
 func parsePin(key, value string) (hal.Pin, error) {
+	if strings.ToLower(value) == "none" {
+		return hal.NoPin, nil
+	}
 	n, err := strconv.ParseUint(value, 10, 8)
 	if err != nil {
 		return hal.NoPin, errors.New(key + ": invalid pin number: " + value)
