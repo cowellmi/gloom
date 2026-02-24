@@ -126,8 +126,8 @@ func TestEarliestDeadline(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
 	}
 	cfg := config.Config{
-		Sample:    config.Sample{Interval: 10 * time.Second},
-		Heartbeat: config.Heartbeat{Interval: 5 * time.Second},
+		SampleInterval:    10 * time.Second,
+		HeartbeatInterval: 5 * time.Second,
 	}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 
@@ -146,7 +146,7 @@ func TestStep_SampleFires(t *testing.T) {
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
 	}
-	cfg := config.Config{Sample: config.Sample{Interval: 10 * time.Second}}
+	cfg := config.Config{SampleInterval: 10 * time.Second}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
 
@@ -162,7 +162,7 @@ func TestStep_HeartbeatFires(t *testing.T) {
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
-	cfg := config.Config{Heartbeat: config.Heartbeat{Interval: 5 * time.Second}}
+	cfg := config.Config{HeartbeatInterval: 5 * time.Second}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
 
@@ -180,8 +180,8 @@ func TestStep_OnlyEarliestFires(t *testing.T) {
 	}
 	// sample has 1m interval, hb has 5s interval; only hb fires at T+6s.
 	cfg := config.Config{
-		Sample:    config.Sample{Interval: time.Minute},
-		Heartbeat: config.Heartbeat{Interval: 5 * time.Second},
+		SampleInterval:    time.Minute,
+		HeartbeatInterval: 5 * time.Second,
 	}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
@@ -199,8 +199,8 @@ func TestStep_BothFire(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
 	}
 	cfg := config.Config{
-		Sample:    config.Sample{Interval: 10 * time.Second},
-		Heartbeat: config.Heartbeat{Interval: 10 * time.Second},
+		SampleInterval:    10 * time.Second,
+		HeartbeatInterval: 10 * time.Second,
 	}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
@@ -222,7 +222,7 @@ func TestStep_DeadlineAdvances(t *testing.T) {
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
 	}
-	cfg := config.Config{Sample: config.Sample{Interval: 10 * time.Second}}
+	cfg := config.Config{SampleInterval: 10 * time.Second}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 
 	sampleFired, _ := man.doSleep()
@@ -241,7 +241,7 @@ func TestStep_ExternalPinFires(t *testing.T) {
 		firedPins: map[hal.Pin]bool{7: true},
 	}
 	// Sample with no interval — fires only via ext pin.
-	cfg := config.Config{Sample: config.Sample{ExtPin: hal.Pin(7)}}
+	cfg := config.Config{SampleExtPin: hal.Pin(7)}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	sampleFired, _ := man.doSleep()
 
@@ -255,7 +255,7 @@ func TestStep_ExtPinNoFire(t *testing.T) {
 		sleepFn:   afterDeadlineSleep(T.Add(time.Second)),
 		firedPins: map[hal.Pin]bool{},
 	}
-	cfg := config.Config{Sample: config.Sample{ExtPin: hal.Pin(7)}}
+	cfg := config.Config{SampleExtPin: hal.Pin(7)}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	sampleFired, _ := man.doSleep()
 
@@ -270,8 +270,9 @@ func TestStep_SampleAndHbSimultaneous(t *testing.T) {
 		firedPins: map[hal.Pin]bool{7: true},
 	}
 	cfg := config.Config{
-		Sample:    config.Sample{Interval: 10 * time.Second, ExtPin: hal.Pin(7)},
-		Heartbeat: config.Heartbeat{Interval: 10 * time.Second},
+		SampleInterval:    10 * time.Second,
+		SampleExtPin:      hal.Pin(7),
+		HeartbeatInterval: 10 * time.Second,
 	}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
@@ -292,7 +293,7 @@ func TestDoSleep_TargetPassedToSleep(t *testing.T) {
 			return T.Add(6 * time.Second), nil
 		},
 	}
-	cfg := config.Config{Sample: config.Sample{Interval: 5 * time.Second}}
+	cfg := config.Config{SampleInterval: 5 * time.Second}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	man.doSleep()
 
@@ -315,7 +316,7 @@ func TestStep_SampleSensorMeasured(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Sample: config.Sample{Interval: 5 * time.Second}}
+	cfg := config.Config{SampleInterval: 5 * time.Second}
 	man, _ := newTestManager(sys, cfg, []sensor.Sensor{dev}, []sensor.Recorder{recorder})
 	man.step()
 
@@ -348,7 +349,7 @@ func TestStep_MultipleSensorsBothMeasured(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Sample: config.Sample{Interval: 5 * time.Second}}
+	cfg := config.Config{SampleInterval: 5 * time.Second}
 	man, _ := newTestManager(sys, cfg, []sensor.Sensor{temp, humidity}, []sensor.Recorder{recorder})
 	man.step()
 
@@ -375,8 +376,9 @@ func TestStep_SampleAndHeartbeatFire(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		Sample:    config.Sample{Interval: 5 * time.Second},
-		Heartbeat: config.Heartbeat{Interval: 5 * time.Second, Payload: config.PayloadMin},
+		SampleInterval:    5 * time.Second,
+		HeartbeatInterval: 5 * time.Second,
+		HeartbeatPayload:  config.PayloadMin,
 	}
 	man, mo := newTestManager(sys, cfg, []sensor.Sensor{weatherSensor}, []sensor.Recorder{rec})
 	man.step()
@@ -398,7 +400,8 @@ func TestStep_OnlyHeartbeatFires(t *testing.T) {
 
 	// Sample has no interval and no ext pin — never fires.
 	cfg := config.Config{
-		Heartbeat: config.Heartbeat{Interval: 5 * time.Second, Payload: config.PayloadFull},
+		HeartbeatInterval: 5 * time.Second,
+		HeartbeatPayload:  config.PayloadFull,
 	}
 	man, mo := newTestManager(sys, cfg, []sensor.Sensor{weatherSensor}, nil)
 	man.step()
@@ -434,7 +437,7 @@ func TestStep_SensorMeasureError(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Sample: config.Sample{Interval: 5 * time.Second}}
+	cfg := config.Config{SampleInterval: 5 * time.Second}
 	man, mo := newTestManager(sys, cfg, []sensor.Sensor{dev}, nil)
 	man.step()
 
@@ -453,7 +456,7 @@ func TestStep_LEDOnBlinkLED(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Heartbeat: config.Heartbeat{Interval: 5 * time.Second, LedPin: hal.Pin(16)}}
+	cfg := config.Config{HeartbeatInterval: 5 * time.Second, HeartbeatLedPin: hal.Pin(16)}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	man.SetBlinkLED(func() { blinked = true })
 	man.step()
@@ -470,7 +473,7 @@ func TestStep_NoLEDWhenLedPinNone(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Heartbeat: config.Heartbeat{Interval: 5 * time.Second, LedPin: hal.NoPin}}
+	cfg := config.Config{HeartbeatInterval: 5 * time.Second, HeartbeatLedPin: hal.NoPin}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	man.SetBlinkLED(func() { blinked = true })
 	man.step()
@@ -488,7 +491,7 @@ func TestStep_NoLEDWhenHeartbeatDisabled(t *testing.T) {
 	}
 
 	// Heartbeat disabled (Interval=0) — never fires — no blink regardless of LedPin.
-	cfg := config.Config{Heartbeat: config.Heartbeat{LedPin: hal.Pin(16)}}
+	cfg := config.Config{HeartbeatLedPin: hal.Pin(16)}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	man.SetBlinkLED(func() { blinked = true })
 	man.step()
@@ -508,7 +511,7 @@ func TestStep_PowerOnSensorRailsCalledWhenNeeded(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Sample: config.Sample{Interval: 5 * time.Second}}
+	cfg := config.Config{SampleInterval: 5 * time.Second}
 	man, _ := newTestManager(sys, cfg, []sensor.Sensor{dev}, nil)
 	man.step()
 
@@ -522,7 +525,7 @@ func TestStep_NoSensorRailsWhenNoSensors(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Heartbeat: config.Heartbeat{Interval: 5 * time.Second, Payload: config.PayloadFull}}
+	cfg := config.Config{HeartbeatInterval: 5 * time.Second, HeartbeatPayload: config.PayloadFull}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	man.step()
 
@@ -552,7 +555,7 @@ func TestStep_FlushBeforeSleep(t *testing.T) {
 	}
 
 	rec := &mockOutput{name: "rec"}
-	cfg := config.Config{Sample: config.Sample{Interval: 5 * time.Second}}
+	cfg := config.Config{SampleInterval: 5 * time.Second}
 	man, mo := newTestManager(sys, cfg, nil, []sensor.Recorder{rec})
 	man.step()
 
@@ -578,7 +581,7 @@ func TestStep_MultipleMeasurements(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Sample: config.Sample{Interval: 5 * time.Second}}
+	cfg := config.Config{SampleInterval: 5 * time.Second}
 	man, _ := newTestManager(sys, cfg, []sensor.Sensor{dev}, []sensor.Recorder{rec})
 	man.step()
 

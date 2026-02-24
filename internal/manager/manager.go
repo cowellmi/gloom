@@ -62,8 +62,8 @@ func New(sleeper sleeper, cfg config.Config, sensors []sensor.Sensor, recorders 
 		sensors:        sensors,
 		recorders:      recorders,
 		logger:         logger,
-		sampleDeadline: deadline{interval: cfg.Sample.Interval},
-		hbDeadline:     deadline{interval: cfg.Heartbeat.Interval},
+		sampleDeadline: deadline{interval: cfg.SampleInterval},
+		hbDeadline:     deadline{interval: cfg.HeartbeatInterval},
 	}
 }
 
@@ -126,7 +126,7 @@ func (m *Manager) step() {
 		m.sleeper.PowerOnSensorRails()
 	}
 
-	if hbFired && m.cfg.Heartbeat.LedPin != hal.NoPin && m.blinkLED != nil {
+	if hbFired && m.cfg.HeartbeatLedPin != hal.NoPin && m.blinkLED != nil {
 		m.blinkLED()
 	}
 
@@ -186,7 +186,7 @@ func (m *Manager) doSleep() (sampleFired, hbFired bool) {
 
 	sampleFired = m.sampleDeadline.fired(wakeTime)
 	hbFired = m.hbDeadline.fired(wakeTime)
-	if m.cfg.Sample.ExtPin != hal.NoPin && m.sleeper.PinFired(m.cfg.Sample.ExtPin) {
+	if m.cfg.SampleExtPin != hal.NoPin && m.sleeper.PinFired(m.cfg.SampleExtPin) {
 		sampleFired = true
 	}
 

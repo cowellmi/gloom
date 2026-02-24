@@ -172,8 +172,8 @@ func main() {
 		}
 	}
 
-	if cfg.Heartbeat.LedPin != hal.NoPin {
-		board.LED = led.New(cfg.Heartbeat.LedPin)
+	if cfg.HeartbeatLedPin != hal.NoPin {
+		board.LED = led.New(cfg.HeartbeatLedPin)
 	}
 
 	// Read the current time once — used for both the file sink
@@ -187,19 +187,18 @@ func main() {
 		}
 	}
 
-	serialSink := sink.NewSerial(board.Serial)
-
 	// Setup log and recorder sinks.
 	logger := log.NewLogger(now)
 
 	// Automatically add serial sink.
+	serialSink := sink.NewSerial(board.Serial)
 	logger.AddSink(serialSink, log.LevelDebug)
 	recorders := []sensor.Recorder{serialSink}
 
 	if nc != nil {
 		notehubSink := sink.NewNotehubSink(nc, "data.qo", "log.qo")
 		recorders = append(recorders, notehubSink)
-		logger.AddSink(notehubSink, cfg.Blues.LogLevel)
+		logger.AddSink(notehubSink, cfg.BluesLogLevel)
 		board.MCU.PetWatchdog()
 	}
 
@@ -220,7 +219,7 @@ func main() {
 		if err != nil {
 			initErrs = append(initErrs, errors.New("file: "+err.Error()))
 		} else {
-			logger.AddSink(sdCardFileSink, cfg.SD.LogLevel)
+			logger.AddSink(sdCardFileSink, cfg.SDLogLevel)
 		}
 		board.MCU.PetWatchdog()
 	}
@@ -233,7 +232,7 @@ func main() {
 	}
 
 	var sensors []sensor.Sensor
-	for _, id := range cfg.Sample.Sensors {
+	for _, id := range cfg.SampleSensors {
 		dev, ok := sensorRegistry[id]
 		if ok {
 			sensors = append(sensors, dev)
@@ -290,12 +289,6 @@ func main() {
 		logger.Debug("notecard: NONE")
 	}
 
-	p, err := cfg.MarshalINI()
-	if err == nil {
-		debug.Log("config:")
-		debug.W.Write(p)
-	}
-
 	var bootBuf [256]byte
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
@@ -317,18 +310,18 @@ func main() {
 	man := manager.New(sleeper, cfg, sensors, recorders, logger)
 
 	// Register sample's external interrupt pin with the sleeper.
-	if cfg.Sample.ExtPin != hal.NoPin {
-		sleeper.AddWakePin(cfg.Sample.ExtPin)
+	if cfg.SampleExtPin != hal.NoPin {
+		sleeper.AddWakePin(cfg.SampleExtPin)
 	}
 
 	// Validate there is at least one wake source.
-	if cfg.Sample.Interval <= 0 && cfg.Sample.ExtPin == hal.NoPin {
+	if cfg.SampleInterval <= 0 && cfg.SampleExtPin == hal.NoPin {
 		err := errors.New("config: no wake sources configured (sample needs interval > 0 or ext_pin)")
 		logger.Error(err.Error())
 		fatal(err, board.LED)
 	}
 
-	if cfg.Heartbeat.Interval > 0 && cfg.Heartbeat.LedPin != hal.NoPin {
+	if cfg.HeartbeatInterval > 0 && cfg.HeartbeatLedPin != hal.NoPin {
 		man.SetBlinkLED(board.LED.Blink)
 	}
 	man.EnableWatchdog(board.MCU.PetWatchdog)
