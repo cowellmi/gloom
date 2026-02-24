@@ -266,14 +266,10 @@ func main() {
 		}
 	}
 
-	// Resolve config into manager groups.
-	// Sample is always groups[0]; heartbeat (if enabled) is groups[1].
+	// Resolve sensor IDs from config into sensor instances for the manager.
 
 	sensorPool := make(map[string]sensor.Sensor)
-	sampleGroup := manager.Group{
-		Name:     "sample",
-		Interval: cfg.Sample.Interval,
-	}
+	var sensors []sensor.Sensor
 	for _, id := range cfg.Sample.Sensors {
 		dev, ok := sensorPool[id]
 		if !ok {
@@ -286,18 +282,7 @@ func main() {
 			sensorPool[id] = dev
 			board.MCU.PetWatchdog()
 		}
-		sampleGroup.Sensors = append(sampleGroup.Sensors, dev)
-	}
-
-	groups := []manager.Group{sampleGroup} // sample is always groups[0]
-
-	if cfg.Heartbeat.Interval > 0 {
-		groups = append(groups, manager.Group{
-			Name:     "heartbeat",
-			Interval: cfg.Heartbeat.Interval,
-			BlinkLED: cfg.Heartbeat.BlinkLED,
-			Payload:  cfg.Heartbeat.Payload,
-		})
+		sensors = append(sensors, dev)
 	}
 
 	board.LED.Off()
@@ -395,12 +380,11 @@ func main() {
 
 	// Manager
 	sleeper := sleeper.New(board.MCU, clock, rails)
-	man := manager.New(sleeper, groups, recorders, logger)
+	man := manager.New(sleeper, cfg, sensors, recorders, logger)
 
-	// Register sample's external interrupt pin.
+	// Register sample's external interrupt pin with the sleeper.
 	if cfg.Sample.ExtPin != hal.NoPin {
 		sleeper.AddWakePin(cfg.Sample.ExtPin)
-		man.RegisterExternalPin(cfg.Sample.ExtPin, 0) // sample is always groups[0]
 	}
 
 	// Validate there is at least one wake source.
