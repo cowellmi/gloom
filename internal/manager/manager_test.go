@@ -419,28 +419,6 @@ func TestStep_SharedSensorOnlyFiredGroupsCounted(t *testing.T) {
 	}
 }
 
-func TestStep_GroupWithHostFires(t *testing.T) {
-	sys := &mockSystem{
-		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
-	}
-
-	groups := []Group{{
-		Name:     "heartbeat",
-		Interval: 5 * time.Second,
-		Host:     "http://localhost:4000",
-		Payload:  config.PayloadFull,
-	}}
-
-	man, mo := newTestManager(sys, groups, nil)
-	man.step()
-
-	if !mo.hasLog("wake: heartbeat") {
-		t.Errorf("expected groups log, got: %v", mo.logEntries)
-	}
-	if !mo.hasLog("payload: http://localhost:4000") {
-		t.Errorf("expected payload log, got: %v", mo.logEntries)
-	}
-}
 
 func TestStep_MultipleGroups(t *testing.T) {
 	weatherSensor := &mockSensor{
@@ -462,7 +440,6 @@ func TestStep_MultipleGroups(t *testing.T) {
 		{
 			Name:     "heartbeat",
 			Interval: 5 * time.Second,
-			Host:     "http://localhost",
 			Payload:  config.PayloadMin,
 		},
 	}
@@ -494,7 +471,6 @@ func TestStep_OnlyFiredGroupsRun(t *testing.T) {
 		{
 			Name:     "heartbeat",
 			Interval: 5 * time.Second,
-			Host:     "http://localhost",
 			Payload:  config.PayloadFull,
 		},
 	}
@@ -558,7 +534,7 @@ func TestStep_LEDOnBlinkLEDGroup(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	groups := []Group{{Name: "sample", Interval: 5 * time.Second, BlinkLED: true, Host: "http://x"}}
+	groups := []Group{{Name: "sample", Interval: 5 * time.Second, BlinkLED: true}}
 
 	man, _ := newTestManager(sys, groups, nil)
 	man.SetBlinkLED(func() { blinked = true })
@@ -576,7 +552,7 @@ func TestStep_NoLEDWhenBlinkLEDFalse(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	groups := []Group{{Name: "hb", Interval: 5 * time.Second, BlinkLED: false, Host: "http://x"}}
+	groups := []Group{{Name: "hb", Interval: 5 * time.Second, BlinkLED: false}}
 
 	man, _ := newTestManager(sys, groups, nil)
 	man.SetBlinkLED(func() { blinked = true })
@@ -630,12 +606,12 @@ func TestStep_PowerOnSensorRailsCalledWhenNeeded(t *testing.T) {
 	}
 }
 
-func TestStep_NoSensorRailsForHostOnly(t *testing.T) {
+func TestStep_NoSensorRailsWithNoSensors(t *testing.T) {
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	groups := []Group{{Name: "hb", Interval: 5 * time.Second, Host: "http://x", Payload: config.PayloadFull}}
+	groups := []Group{{Name: "hb", Interval: 5 * time.Second, Payload: config.PayloadFull}}
 
 	man, _ := newTestManager(sys, groups, nil)
 	man.step()
@@ -652,7 +628,7 @@ func TestStep_SleepError(t *testing.T) {
 		},
 	}
 
-	groups := []Group{{Name: "x", Host: "http://x"}}
+	groups := []Group{{Name: "x"}}
 	man, mo := newTestManager(sys, groups, nil)
 	man.step()
 
@@ -667,7 +643,7 @@ func TestStep_FlushBeforeSleep(t *testing.T) {
 	}
 
 	rec := &mockOutput{name: "rec"}
-	groups := []Group{{Name: "x", Interval: 5 * time.Second, Host: "http://x"}}
+	groups := []Group{{Name: "x", Interval: 5 * time.Second}}
 
 	man, mo := newTestManager(sys, groups, []sensor.Recorder{rec})
 	man.step()
@@ -716,7 +692,7 @@ func TestStep_NilCallbacks(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T),
 	}
 
-	groups := []Group{{Name: "x", Host: "http://x"}}
+	groups := []Group{{Name: "x"}}
 	man, _ := newTestManager(sys, groups, nil)
 	man.step() // should not panic
 }

@@ -24,8 +24,8 @@ func TestDefault(t *testing.T) {
 		t.Errorf("LedPin = %d, want NoPin", cfg.Device.LedPin)
 	}
 
-	if cfg.Sample.Interval != 5*time.Second {
-		t.Errorf("Sample.Interval = %v, want 5s", cfg.Sample.Interval)
+	if cfg.Sample.Interval != 9*time.Second {
+		t.Errorf("Sample.Interval = %v, want 9s", cfg.Sample.Interval)
 	}
 	if len(cfg.Sample.Sensors) != 1 || cfg.Sample.Sensors[0] != "vbat" {
 		t.Errorf("Sample.Sensors = %v, want [vbat]", cfg.Sample.Sensors)
@@ -34,11 +34,11 @@ func TestDefault(t *testing.T) {
 		t.Errorf("Sample.ExtPin = %d, want NoPin", cfg.Sample.ExtPin)
 	}
 
-	if cfg.Heartbeat.Interval != 0 {
-		t.Errorf("Heartbeat.Interval = %v, want 0 (disabled)", cfg.Heartbeat.Interval)
+	if cfg.Heartbeat.Interval != 3*time.Second {
+		t.Errorf("Heartbeat.Interval = %v, want 3s", cfg.Heartbeat.Interval)
 	}
-	if cfg.Heartbeat.BlinkLED {
-		t.Error("Heartbeat.BlinkLED = true, want false")
+	if !cfg.Heartbeat.BlinkLED {
+		t.Error("Heartbeat.BlinkLED = false, want true")
 	}
 }
 
@@ -152,7 +152,6 @@ func TestParse_SampleBothTriggers(t *testing.T) {
 func TestParse_HeartbeatKeys(t *testing.T) {
 	input := []byte(`
 heartbeat = 2m
-host = http://example.com/ingest
 payload = min
 blink_led = true
 `)
@@ -163,9 +162,6 @@ blink_led = true
 	if cfg.Heartbeat.Interval != 2*time.Minute {
 		t.Errorf("Heartbeat.Interval = %v, want 2m", cfg.Heartbeat.Interval)
 	}
-	if cfg.Heartbeat.Host != "http://example.com/ingest" {
-		t.Errorf("Heartbeat.Host = %q", cfg.Heartbeat.Host)
-	}
 	if cfg.Heartbeat.Payload != PayloadMin {
 		t.Errorf("Heartbeat.Payload = %d, want PayloadMin", cfg.Heartbeat.Payload)
 	}
@@ -174,9 +170,11 @@ blink_led = true
 	}
 }
 
-func TestParse_HeartbeatDisabled(t *testing.T) {
+func TestParse_HeartbeatDisabledByConfig(t *testing.T) {
+	// Explicitly setting heartbeat = 0s disables it even when Default has it enabled.
+	input := []byte("heartbeat = 0s\n")
 	cfg := Default()
-	if err := Parse([]byte(""), &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.Heartbeat.Interval != 0 {
@@ -217,7 +215,6 @@ func TestParseMap_AllKeys(t *testing.T) {
 		"sensors":    "vbat,temp",
 		"ext_pin":    "7",
 		"heartbeat":  "1h",
-		"host":       "http://example.com",
 		"payload":    "full",
 		"blink_led":  true, // native bool from Notecard JSON decoder
 	}
@@ -297,17 +294,6 @@ func TestParse_PayloadInlineComment(t *testing.T) {
 	}
 }
 
-func TestParse_URLWithFragment(t *testing.T) {
-	input := []byte("host = http://example.com/path#section\n")
-	cfg := Default()
-	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-	if cfg.Heartbeat.Host != "http://example.com/path#section" {
-		t.Errorf("Host = %q, want URL with fragment preserved", cfg.Heartbeat.Host)
-	}
-}
-
 // --- Comments and blanks ---
 
 func TestParse_CommentsAndBlanks(t *testing.T) {
@@ -338,13 +324,12 @@ func TestParse_EmptyInput(t *testing.T) {
 	if err := Parse([]byte(""), &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
-	// Default sample settings preserved.
-	if cfg.Sample.Interval != 5*time.Second {
-		t.Errorf("Sample.Interval = %v, want 5s", cfg.Sample.Interval)
+	// Default settings preserved when nothing is parsed.
+	if cfg.Sample.Interval != 9*time.Second {
+		t.Errorf("Sample.Interval = %v, want 9s", cfg.Sample.Interval)
 	}
-	// Heartbeat stays disabled.
-	if cfg.Heartbeat.Interval != 0 {
-		t.Errorf("Heartbeat.Interval = %v, want 0", cfg.Heartbeat.Interval)
+	if cfg.Heartbeat.Interval != 3*time.Second {
+		t.Errorf("Heartbeat.Interval = %v, want 3s", cfg.Heartbeat.Interval)
 	}
 }
 
@@ -478,7 +463,6 @@ sensors = temperature, humidity
 ext_pin = 7
 
 heartbeat = 1h
-host = http://localhost:4000/heartbeat
 payload = full
 blink_led = true
 `)
@@ -512,9 +496,6 @@ blink_led = true
 	// Heartbeat
 	if cfg.Heartbeat.Interval != time.Hour {
 		t.Errorf("Heartbeat.Interval = %v, want 1h", cfg.Heartbeat.Interval)
-	}
-	if cfg.Heartbeat.Host != "http://localhost:4000/heartbeat" {
-		t.Errorf("Heartbeat.Host = %q", cfg.Heartbeat.Host)
 	}
 	if cfg.Heartbeat.Payload != PayloadFull {
 		t.Errorf("Heartbeat.Payload = %d, want PayloadFull", cfg.Heartbeat.Payload)

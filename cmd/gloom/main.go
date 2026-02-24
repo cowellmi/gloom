@@ -127,6 +127,7 @@ func main() {
 
 	// Blues Notecard — probe via card.version; failure means no notecard.
 	var notecardPresent bool
+	var notecardUID string
 	nc, _ := tinynote.OpenI2C(tinynote.DefaultI2CAddress, board.I2C.TxFn)
 	if nc != nil {
 		verReq := tinynote.NewRequest("card.version")
@@ -134,9 +135,7 @@ func main() {
 		board.MCU.PetWatchdog()
 		if err == nil && !tinynote.IsError(err, verRsp) {
 			notecardPresent = true
-			if uid, ok := verRsp["device"].(string); ok {
-				cfg.Device.ID = uid
-			}
+			notecardUID, _ = verRsp["device"].(string)
 		}
 	}
 
@@ -152,7 +151,6 @@ func main() {
 		tmplBody["sensors"] = "a"
 		tmplBody["ext_pin"] = 21
 		tmplBody["heartbeat"] = "a"
-		tmplBody["host"] = "a"
 		tmplBody["payload"] = "a"
 		tmplBody["blink_led"] = true
 		tmplReq["body"] = tmplBody
@@ -298,7 +296,6 @@ func main() {
 			Name:     "heartbeat",
 			Interval: cfg.Heartbeat.Interval,
 			BlinkLED: cfg.Heartbeat.BlinkLED,
-			Host:     cfg.Heartbeat.Host,
 			Payload:  cfg.Heartbeat.Payload,
 		})
 	}
@@ -336,7 +333,7 @@ func main() {
 	}
 
 	if notecardPresent {
-		logger.Debug("notecard: " + cfg.Device.ID)
+		logger.Debug("notecard: " + notecardUID)
 	} else {
 		logger.Debug("notecard: NONE")
 	}

@@ -28,9 +28,7 @@ type LogSinkEntry struct {
 }
 
 // Device holds user-configurable logging and data output settings.
-// ID is populated at runtime from the Notecard DeviceUID (not configurable via INI or env vars).
 type Device struct {
-	ID        string
 	LogSinks  []LogSinkEntry
 	DataSinks []string
 	LedPin    hal.Pin
@@ -47,7 +45,6 @@ type Sample struct {
 // Interval = 0 disables the heartbeat entirely.
 type Heartbeat struct {
 	Interval time.Duration
-	Host     string
 	Payload  Payload
 	BlinkLED bool
 }
@@ -69,9 +66,14 @@ func Default() Config {
 			LedPin:    hal.NoPin,
 		},
 		Sample: Sample{
-			Interval: 5 * time.Second,
+			Interval: 9 * time.Second,
 			Sensors:  []string{"vbat"},
 			ExtPin:   hal.NoPin,
+		},
+		Heartbeat: Heartbeat{
+			Interval: 3 * time.Second,
+			Payload:  PayloadNone,
+			BlinkLED: true,
 		},
 	}
 }
@@ -126,40 +128,49 @@ func Parse(data []byte, cfg *Config) error {
 
 // ParseMap applies a Notecard env.get response body to cfg.
 // Keys prefixed with '_' (Notehub-internal) are silently skipped.
-// Native bool values are handled directly; other types are coerced to string
-// before dispatching through the same logic used by Parse.
+// Empty string values are skipped (env var unset in Notehub).
 // No structural validation is performed — the caller is responsible for
 // ensuring the resulting cfg is sane (e.g. via the wake-source guard in main.go).
 func ParseMap(cfg *Config, body map[string]interface{}) error {
 	var errs []error
 	for k, v := range body {
 		if len(k) > 0 && k[0] == '_' {
-			continue
+			continue // Reserved vars start with _.
 		}
-		var vstr string
-		switch tv := v.(type) {
-		case string:
-			vstr = tv
-		case bool:
-			if tv {
-				vstr = "true"
-			} else {
-				vstr = "false"
-			}
-		default:
-			continue
+		if s, ok := v.(string); ok && s == "" {
+			continue // Skip vars with no value.
 		}
-		if vstr == "" {
-			continue
-		}
-		if err := parseKey(cfg, k, vstr); err != nil {
+		if err := parseKey(cfg, k, v); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func parseKey(cfg *Config, key, value string) error {
+// parseKey dispatches a single key/value pair into cfg.
+// v must be a string for all keys except blink_led, which also accepts bool.
+// Called by Parse (v is always string) and ParseMap (v may be a native type).
+func parseKey(cfg *Config, key string, v interface{}) error {
+	// blink_led is the only key that can arrive as a native bool from the
+	// Notecard JSON decoder; all other keys expect a string.
+	if key == "blink_led" {
+		switch v := v.(type) {
+		case bool:
+			cfg.Heartbeat.BlinkLED = v
+			return nil
+		case string:
+			cfg.Heartbeat.BlinkLED = parseBool(v)
+			return nil
+		default:
+			return errors.New("blink_led: expected bool or string")
+		}
+	}
+
+	value, ok := v.(string)
+	if !ok {
+		return errors.New(key + ": expected string")
+	}
+
 	switch key {
 	case "log_sinks":
 		sinks, err := parseLogSinks(value)
@@ -199,16 +210,12 @@ func parseKey(cfg *Config, key, value string) error {
 			return err
 		}
 		cfg.Heartbeat.Interval = d
-	case "host":
-		cfg.Heartbeat.Host = value
 	case "payload":
 		p, err := parsePayload(value)
 		if err != nil {
 			return err
 		}
 		cfg.Heartbeat.Payload = p
-	case "blink_led":
-		cfg.Heartbeat.BlinkLED = parseBool(value)
 	default:
 		return errors.New("unknown key: " + key)
 	}

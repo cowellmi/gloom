@@ -21,14 +21,13 @@ type sleeper interface {
 }
 
 // Group is a resolved runtime group with sensors already wired up.
-// Built by the caller (main.go) from config.Group. Sensor instances
-// may be shared across groups — the manager deduplicates measurements.
+// Built by the caller (main.go) from config.Sample/Heartbeat. Sensor
+// instances may be shared across groups — the manager deduplicates measurements.
 type Group struct {
 	Name     string
 	Interval time.Duration
 	BlinkLED bool
 	Sensors  []sensor.Sensor
-	Host     string
 	Payload  config.Payload
 }
 
@@ -171,18 +170,6 @@ func (m *Manager) step() {
 	// Measure each unique sensor once across all fired groups.
 	if needSensors {
 		m.measureSensors(fired)
-	}
-
-	// Per-group host/payload dispatch.
-	for i, f := range fired {
-		if !f {
-			continue
-		}
-		g := &m.groups[i]
-		if g.Host != "" {
-			// TODO: POST payload to g.Host based on g.Payload
-			m.logger.Debug("payload: " + g.Host)
-		}
 	}
 
 	if !anyFired {

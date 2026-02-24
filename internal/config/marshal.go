@@ -83,12 +83,6 @@ func (c *Config) Marshal() ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if c.Heartbeat.Host != "" {
-		buf = append(buf, "host = "...)
-		buf = append(buf, c.Heartbeat.Host...)
-		buf = append(buf, '\n')
-	}
-
 	if c.Heartbeat.Payload != PayloadNone {
 		buf = append(buf, "payload = "...)
 		ps, err := payloadString(c.Heartbeat.Payload)

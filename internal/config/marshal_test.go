@@ -25,7 +25,6 @@ func TestMarshal_RoundTrip(t *testing.T) {
 		},
 		Heartbeat: Heartbeat{
 			Interval: time.Hour,
-			Host:     "http://example.com/hb",
 			Payload:  PayloadFull,
 		},
 	}
@@ -67,9 +66,6 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	// Heartbeat
 	if got.Heartbeat.Interval != time.Hour {
 		t.Errorf("Heartbeat.Interval = %v, want 1h", got.Heartbeat.Interval)
-	}
-	if got.Heartbeat.Host != "http://example.com/hb" {
-		t.Errorf("Heartbeat.Host = %q", got.Heartbeat.Host)
 	}
 	if got.Heartbeat.Payload != PayloadFull {
 		t.Errorf("Heartbeat.Payload = %d, want PayloadFull", got.Heartbeat.Payload)
