@@ -29,7 +29,7 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	// Start from Default so NoPin sentinels are correctly seeded for
 	// fields absent from the marshaled output.
 	got := testDefault()
-	if err := Parse(data, &got); err != nil {
+	if err := ParseINI(data, &got); err != nil {
 		t.Fatalf("Parse(MarshalINI()) error: %v\nINI:\n%s", err, data)
 	}
 
@@ -61,10 +61,10 @@ func TestMarshal_RoundTrip(t *testing.T) {
 
 func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:    log.LevelDebug,
-		BluesLogLevel: log.LevelDebug,
-		SampleInterval: 5 * time.Second,
-		SampleExtPin:  hal.NoPin,
+		SDLogLevel:      log.LevelDebug,
+		BluesLogLevel:   log.LevelDebug,
+		SampleInterval:  5 * time.Second,
+		SampleExtPin:    hal.NoPin,
 		HeartbeatLedPin: hal.NoPin,
 	}
 

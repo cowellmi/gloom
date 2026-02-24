@@ -34,12 +34,12 @@ type Config struct {
 // Default returns a Config seeded with board-supplied hardware defaults.
 // ledPin is the board's LED pin (use hal.NoPin if absent).
 // sensors is the board's default sensor list (may be nil).
-// Sample is enabled with a 9s interval; heartbeat is enabled with a 3s interval.
+// Sample is disabled by default (interval=0); heartbeat is enabled with a 3s interval.
 func Default(ledPin hal.Pin, sensors []string) Config {
 	return Config{
 		SDLogLevel:        log.LevelDebug,
-		BluesLogLevel:     log.LevelDebug,
-		SampleInterval:    9 * time.Second,
+		BluesLogLevel:     log.LevelInfo,
+		SampleInterval:    0,
 		SampleSensors:     sensors,
 		SampleExtPin:      hal.NoPin,
 		HeartbeatInterval: 3 * time.Second,
@@ -48,15 +48,15 @@ func Default(ledPin hal.Pin, sensors []string) Config {
 	}
 }
 
-// Parse reads a flat key=value config from data into cfg.
+// ParseINI reads a flat key=value config from data into cfg.
 // Section headers (lines starting with '[') are silently skipped for
 // backwards compatibility. All parse errors are collected and returned
 // together via errors.Join so the caller can report every problem at once.
-// Validation requires Sample to have Interval > 0 or ExtPin != NoPin.
+// After parsing, validates that at least one wake source is configured.
 //
-// Parse should be called on a Default()-initialised cfg so that fields
+// ParseINI should be called on a Default()-initialised cfg so that fields
 // absent from the file keep their sensible defaults (including NoPin sentinels).
-func Parse(data []byte, cfg *Config) error {
+func ParseINI(data []byte, cfg *Config) error {
 	var errs []error
 
 	for line := range strings.SplitSeq(string(data), "\n") {
@@ -89,7 +89,7 @@ func Parse(data []byte, cfg *Config) error {
 		}
 	}
 
-	if err := validateSample(cfg); err != nil {
+	if err := validate(cfg); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -113,7 +113,7 @@ func ParseMap(cfg *Config, body map[string]interface{}) error {
 
 // parseKey dispatches a single key/value pair into cfg.
 // v must be a string for all keys.
-// Called by Parse (v is always string) and ParseMap (v may be a native type).
+// Called by ParseINI (v is always string) and ParseMap (v may be a native type).
 func parseKey(cfg *Config, key string, v interface{}) error {
 	// Skip Notehub-internal keys.
 	if strings.HasPrefix(key, "_") {
@@ -181,9 +181,9 @@ func parseKey(cfg *Config, key string, v interface{}) error {
 	return nil
 }
 
-func validateSample(cfg *Config) error {
-	if cfg.SampleInterval <= 0 && cfg.SampleExtPin == hal.NoPin {
-		return errors.New("sample: must have sample_interval or sample_ext_pin")
+func validate(cfg *Config) error {
+	if cfg.SampleInterval <= 0 && cfg.SampleExtPin == hal.NoPin && cfg.HeartbeatInterval <= 0 {
+		return errors.New("config: no wake sources (needs sample_interval, sample_ext_pin, or heartbeat_interval)")
 	}
 	return nil
 }

@@ -19,6 +19,7 @@ func (q *queue) writeMap(body map[string]any) error {
 		"req":  "note.add",
 		"file": q.name,
 		"body": body,
+		"sync": true,
 	})
 }
 
