@@ -16,14 +16,13 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/notecard"
+	"github.com/cowellmi/gloom/internal/notefile"
 	"github.com/cowellmi/gloom/internal/rtc/ds3231"
 	"github.com/cowellmi/gloom/internal/rtc/pcf8523"
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sensor/vbat"
-	"github.com/cowellmi/gloom/internal/sink/file"
-	"github.com/cowellmi/gloom/internal/sink/notehub"
-	"github.com/cowellmi/gloom/internal/sink/serial"
+	"github.com/cowellmi/gloom/internal/sink"
 	"github.com/cowellmi/gloom/internal/sleeper"
 	"github.com/cowellmi/gloom/internal/wait"
 )
@@ -123,31 +122,40 @@ func main() {
 	cfg := config.Default(board.LED.Pin(), board.Sensors)
 
 	if nc != nil {
-		if err := nc.Configure(&cfg); err != nil {
+		debug.Log("notecard: config.db")
+		f, err := notefile.New(nc, "config.db")
+		if err != nil {
 			initErrs = append(initErrs, err)
+		} else {
+			p := make([]byte, 512)
+			n, err := f.Read(p)
+			if err != nil {
+				initErrs = append(initErrs, err)
+			} else {
+				debug.W.Write(p)
+				config.Parse(p[:n], &cfg)
+				f.Close()
+			}
 		}
 		board.MCU.PetWatchdog()
-	}
-
-	if nc == nil && card != nil {
+	} else if card != nil {
 		raw, err := card.ReadFile("CONFIG.INI")
-		if err != nil {
+		if err == nil {
+			if pErr := config.Parse(raw, &cfg); pErr != nil {
+				if joined, ok := pErr.(interface{ Unwrap() []error }); ok {
+					for _, e := range joined.Unwrap() {
+						initErrs = append(initErrs, errors.New("config: "+e.Error()))
+					}
+				} else {
+					initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
+				}
+			}
+		} else {
 			// No CONFIG.INI on SD card; attempt to make one.
 			if ini, mErr := cfg.MarshalINI(); mErr != nil {
 				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
 			} else if wErr := card.WriteFile("CONFIG.INI", ini); wErr != nil {
 				initErrs = append(initErrs, errors.New("sd: "+wErr.Error()))
-			}
-		} else if raw != nil {
-			// Found CONFIG.INI on SD card; attempt to parse it.
-			if err := config.ParseINI(raw, &cfg); err != nil {
-				if joined, ok := err.(interface{ Unwrap() []error }); ok {
-					for _, e := range joined.Unwrap() {
-						initErrs = append(initErrs, errors.New("config: "+e.Error()))
-					}
-				} else {
-					initErrs = append(initErrs, errors.New("config: "+err.Error()))
-				}
 			}
 		}
 	}
@@ -167,18 +175,18 @@ func main() {
 		}
 	}
 
-	var sdCardFileSink *file.Sink
+	var sdCardFileSink *sink.FileSink
 	if card != nil {
 		if err := card.Mkdir("GLOOM"); err != nil {
 			initErrs = append(initErrs, errors.New("sd: "+err.Error()))
 		}
-		opener := func(name string) (file.AppendFile, error) {
+		opener := func(name string) (sink.AppendFile, error) {
 			return card.OpenAppend(name)
 		}
-		sdCardFileSink, err = file.New("sd", opener, file.FileSpec{
+		sdCardFileSink, err = sink.NewFileSink("sd", opener, sink.FileSpec{
 			Dir: "GLOOM",
 			Ext: ".CSV",
-		}, file.FileSpec{
+		}, sink.FileSpec{
 			Dir: "GLOOM",
 			Ext: ".LOG",
 		}, now)
@@ -188,25 +196,30 @@ func main() {
 		board.MCU.PetWatchdog()
 	}
 
-	var notehubSink *notehub.Sink
-	if nc != nil {
-		notehubSink, err = notehub.New(nc)
-		if err != nil {
-			initErrs = append(initErrs, errors.New("notehub: "+err.Error()))
-		}
-		board.MCU.PetWatchdog()
-	}
-
-	serialSink := serial.NewSink(board.Serial)
+	serialSink := sink.NewSerial(board.Serial)
 
 	// Logger and recorders
 	logger := log.NewLogger(now)
 	logger.AddSink(serialSink, log.LevelDebug)
 	recorders := []sensor.Recorder{serialSink}
-	if notehubSink != nil {
-		logger.AddSink(notehubSink, cfg.Blues.LogLevel)
-		recorders = append(recorders, notehubSink)
+
+	if nc != nil {
+		dataFile, err := notefile.New(nc, "data.qo")
+		if err != nil {
+			initErrs = append(initErrs, err)
+		} else {
+			recorders = append(recorders, sink.NewCSVRecorder(dataFile))
+		}
+
+		logFile, err := notefile.New(nc, "log.qo")
+		if err != nil {
+			initErrs = append(initErrs, err)
+		} else {
+			logger.AddSink(sink.NewLogSink(logFile), cfg.Blues.LogLevel)
+		}
+		board.MCU.PetWatchdog()
 	}
+
 	if sdCardFileSink != nil {
 		logger.AddSink(sdCardFileSink, cfg.SD.LogLevel)
 	}

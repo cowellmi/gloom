@@ -126,7 +126,7 @@ func (m *Manager) step() {
 		m.sleeper.PowerOnSensorRails()
 	}
 
-	if m.cfg.Heartbeat.LedPin != hal.NoPin && m.blinkLED != nil {
+	if hbFired && m.cfg.Heartbeat.LedPin != hal.NoPin && m.blinkLED != nil {
 		m.blinkLED()
 	}
 

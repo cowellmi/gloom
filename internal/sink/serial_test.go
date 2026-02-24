@@ -1,4 +1,4 @@
-package serial
+package sink
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 var testTime = time.Date(2026, 2, 14, 9, 5, 7, 0, time.UTC)
 
 func TestNilWriter_Record(t *testing.T) {
-	s := NewSink(nil)
+	s := NewSerial(nil)
 	readings := []sensor.Reading{{Label: "temp", Value: 22, Unit: "C"}}
 	if err := s.Record(testTime, "bme280", readings); err != nil {
 		t.Fatalf("Record with nil writer: %v", err)
@@ -21,7 +21,7 @@ func TestNilWriter_Record(t *testing.T) {
 }
 
 func TestNilWriter_WriteLog(t *testing.T) {
-	s := NewSink(nil)
+	s := NewSerial(nil)
 	if err := s.WriteLog(testTime, log.LevelError, "fail"); err != nil {
 		t.Fatalf("WriteLog with nil writer: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestNilWriter_WriteLog(t *testing.T) {
 
 func TestRecord_FormatsLine(t *testing.T) {
 	var buf bytes.Buffer
-	s := NewSink(&buf)
+	s := NewSerial(&buf)
 
 	readings := []sensor.Reading{{Label: "temp", Value: 22500, Unit: "mC"}}
 	if err := s.Record(testTime, "bme280", readings); err != nil {
@@ -45,7 +45,7 @@ func TestRecord_FormatsLine(t *testing.T) {
 
 func TestRecord_MultipleMeasurements(t *testing.T) {
 	var buf bytes.Buffer
-	s := NewSink(&buf)
+	s := NewSerial(&buf)
 
 	readings := []sensor.Reading{
 		{Label: "temp", Value: 22, Unit: "C"},
@@ -71,9 +71,9 @@ func TestRecord_MultipleMeasurements(t *testing.T) {
 	}
 }
 
-func TestRecord_NegativeValue(t *testing.T) {
+func TestRecord_NegativeValue_Serial(t *testing.T) {
 	var buf bytes.Buffer
-	s := NewSink(&buf)
+	s := NewSerial(&buf)
 
 	readings := []sensor.Reading{{Label: "temp", Value: -5000, Unit: "mC"}}
 	if err := s.Record(testTime, "ds18b20", readings); err != nil {
@@ -99,7 +99,7 @@ func TestWriteLog_Levels(t *testing.T) {
 	}
 	for _, tt := range tests {
 		var buf bytes.Buffer
-		s := NewSink(&buf)
+		s := NewSerial(&buf)
 
 		if err := s.WriteLog(testTime, tt.level, "hello"); err != nil {
 			t.Fatalf("WriteLog(%s): %v", tt.tag, err)
@@ -113,21 +113,21 @@ func TestWriteLog_Levels(t *testing.T) {
 	}
 }
 
-func TestFlush_ReturnsNil(t *testing.T) {
-	s := NewSink(nil)
+func TestSerial_Flush_ReturnsNil(t *testing.T) {
+	s := NewSerial(nil)
 	if err := s.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 }
 
-func TestName(t *testing.T) {
-	s := NewSink(nil)
+func TestSerial_Name(t *testing.T) {
+	s := NewSerial(nil)
 	if got := s.Name(); got != "serial" {
 		t.Errorf("Name() = %q, want %q", got, "serial")
 	}
 }
 
-func TestAppendTimestamp(t *testing.T) {
+func TestAppendSerialTimestamp(t *testing.T) {
 	tests := []struct {
 		t    time.Time
 		want string
@@ -138,9 +138,9 @@ func TestAppendTimestamp(t *testing.T) {
 	}
 	for _, tt := range tests {
 		var buf [32]byte
-		got := string(appendTimestamp(buf[:0], tt.t))
+		got := string(appendSerialTimestamp(buf[:0], tt.t))
 		if got != tt.want {
-			t.Errorf("appendTimestamp(%v) = %q, want %q", tt.t, got, tt.want)
+			t.Errorf("appendSerialTimestamp(%v) = %q, want %q", tt.t, got, tt.want)
 		}
 	}
 }

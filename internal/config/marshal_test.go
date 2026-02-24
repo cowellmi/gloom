@@ -33,7 +33,7 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	// Start from Default so NoPin sentinels are correctly seeded for
 	// fields absent from the marshaled output.
 	got := testDefault()
-	if err := ParseINI(data, &got); err != nil {
+	if err := Parse(data, &got); err != nil {
 		t.Fatalf("Parse(MarshalINI()) error: %v\nINI:\n%s", err, data)
 	}
 

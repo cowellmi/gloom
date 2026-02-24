@@ -1,9 +1,4 @@
-// Package serial implements an output driver that writes human-readable
-// text lines to an io.Writer (typically machine.Serial).
-//
-// Implements log.Sink (for log entries) and sensor.Recorder (for
-// measurement batches).
-package serial
+package sink
 
 import (
 	"io"
@@ -14,29 +9,29 @@ import (
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
-// Sink writes formatted text lines to a serial io.Writer.
+// SerialSink writes formatted text lines to a serial io.Writer.
 // Write errors are ignored: serial is a diagnostic channel and
 // transient failures (e.g. USB CDC host not listening) should not
 // impact behaviour.
-type Sink struct {
+type SerialSink struct {
 	w   io.Writer
 	buf [128]byte
 }
 
-// NewSink creates a serial Sink. If w is nil, all writes are no-ops.
-func NewSink(w io.Writer) *Sink {
-	return &Sink{w: w}
+// NewSerial creates a SerialSink. If w is nil, all writes are no-ops.
+func NewSerial(w io.Writer) *SerialSink {
+	return &SerialSink{w: w}
 }
 
-func (*Sink) Name() string { return "serial" }
+func (*SerialSink) Name() string { return "serial" }
 
-func (s *Sink) Record(t time.Time, id string, readings []sensor.Reading) error {
+func (s *SerialSink) Record(t time.Time, id string, readings []sensor.Reading) error {
 	if s.w == nil {
 		return nil
 	}
 	for _, r := range readings {
 		b := s.buf[:0]
-		b = appendTimestamp(b, t)
+		b = appendSerialTimestamp(b, t)
 		b = fmtbuf.Append(b, "SEN | ")
 		b = fmtbuf.Append(b, id)
 		b = fmtbuf.Append(b, ": ")
@@ -52,12 +47,12 @@ func (s *Sink) Record(t time.Time, id string, readings []sensor.Reading) error {
 	return nil
 }
 
-func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
+func (s *SerialSink) WriteLog(t time.Time, level log.Level, msg string) error {
 	if s.w == nil {
 		return nil
 	}
 	b := s.buf[:0]
-	b = appendTimestamp(b, t)
+	b = appendSerialTimestamp(b, t)
 	b = log.AppendLevel(b, level)
 	b = fmtbuf.Append(b, " | ")
 	b = fmtbuf.Append(b, msg)
@@ -67,12 +62,12 @@ func (s *Sink) WriteLog(t time.Time, level log.Level, msg string) error {
 	return nil
 }
 
-func (s *Sink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
+func (s *SerialSink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
 	if s.w == nil {
 		return nil
 	}
 	b := s.buf[:0]
-	b = appendTimestamp(b, t)
+	b = appendSerialTimestamp(b, t)
 	b = log.AppendLevel(b, level)
 	b = fmtbuf.Append(b, " | ")
 	b = fmtbuf.AppendBytes(b, msg)
@@ -82,9 +77,9 @@ func (s *Sink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
 	return nil
 }
 
-func (*Sink) Flush() error { return nil }
+func (*SerialSink) Flush() error { return nil }
 
-func appendTimestamp(buf []byte, t time.Time) []byte {
+func appendSerialTimestamp(buf []byte, t time.Time) []byte {
 	buf = fmtbuf.AppendByte(buf, '[')
 	buf = appendTwoDigits(buf, t.Hour())
 	buf = fmtbuf.AppendByte(buf, ':')

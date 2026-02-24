@@ -56,7 +56,7 @@ blues_log_level = warn
 sample_interval = 9s
 `)
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.SD.LogLevel != log.LevelError {
@@ -70,7 +70,7 @@ sample_interval = 9s
 func TestParseINI_LogLevelInvalid(t *testing.T) {
 	input := []byte("sd_log_level = verbose\nsample_interval = 9s\n")
 	cfg := testDefault()
-	err := ParseINI(input, &cfg)
+	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid log level, got nil")
 	}
@@ -84,7 +84,7 @@ func TestParseINI_LogLevelInvalid(t *testing.T) {
 func TestParseINI_SampleInterval(t *testing.T) {
 	input := []byte("sample_interval = 5m\n")
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.Sample.Interval != 5*time.Minute {
@@ -95,7 +95,7 @@ func TestParseINI_SampleInterval(t *testing.T) {
 func TestParseINI_SampleSensors(t *testing.T) {
 	input := []byte("sample_sensors = vbat, temp\nsample_interval = 9s\n")
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if len(cfg.Sample.Sensors) != 2 || cfg.Sample.Sensors[0] != "vbat" || cfg.Sample.Sensors[1] != "temp" {
@@ -107,7 +107,7 @@ func TestParseINI_SampleExtPin(t *testing.T) {
 	// sample_ext_pin alone (no interval) satisfies validation.
 	input := []byte("sample_ext_pin = 7\nsample_sensors = rain\n")
 	cfg := Config{Sample: Sample{ExtPin: hal.NoPin}}
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.Sample.ExtPin != hal.Pin(7) {
@@ -121,7 +121,7 @@ func TestParseINI_SampleExtPin(t *testing.T) {
 func TestParseINI_SampleBothTriggers(t *testing.T) {
 	input := []byte("sample_interval = 5m\nsample_ext_pin = 7\nsample_sensors = rain\n")
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.Sample.Interval != 5*time.Minute {
@@ -142,7 +142,7 @@ heartbeat_payload = min
 heartbeat_led_pin = 16
 `)
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.Heartbeat.Interval != 2*time.Minute {
@@ -160,7 +160,7 @@ func TestParseINI_HeartbeatDisabledByConfig(t *testing.T) {
 	// Explicitly setting heartbeat_interval = 0s disables it even when Default has it enabled.
 	input := []byte("sample_interval = 9s\nheartbeat_interval = 0s\n")
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.Heartbeat.Interval != 0 {
@@ -172,7 +172,7 @@ func TestParseINI_HeartbeatLedPinNone(t *testing.T) {
 	input := []byte("sample_interval = 9s\nheartbeat_led_pin = none\n")
 	cfg := testDefault()
 	cfg.Heartbeat.LedPin = hal.Pin(13)
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.Heartbeat.LedPin != hal.NoPin {
@@ -252,7 +252,7 @@ func TestParseMap_UnknownKey(t *testing.T) {
 func TestParseINI_InlineComments(t *testing.T) {
 	input := []byte("sample_interval = 5m # every five minutes\n")
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.Sample.Interval != 5*time.Minute {
@@ -263,7 +263,7 @@ func TestParseINI_InlineComments(t *testing.T) {
 func TestParseINI_PayloadInlineComment(t *testing.T) {
 	input := []byte("heartbeat_interval = 1h\nheartbeat_payload = full # none | full | min\n")
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	if cfg.Heartbeat.Payload != PayloadFull {
@@ -284,7 +284,7 @@ sample_interval = 3s
 sample_sensors = vbat
 `)
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 
@@ -298,7 +298,7 @@ sample_sensors = vbat
 
 func TestParseINI_EmptyInput(t *testing.T) {
 	cfg := testDefault()
-	if err := ParseINI([]byte(""), &cfg); err != nil {
+	if err := Parse([]byte(""), &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 	// Default settings preserved when nothing is parsed.
@@ -316,7 +316,7 @@ func TestParseINI_ValidationMissingTrigger(t *testing.T) {
 	// No interval, no ext_pin → validation fails.
 	input := []byte("sample_sensors = vbat\n")
 	cfg := Config{Sample: Sample{ExtPin: hal.NoPin}}
-	err := ParseINI(input, &cfg)
+	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for sample without interval or ext_pin, got nil")
 	}
@@ -330,7 +330,7 @@ func TestParseINI_ValidationMissingTrigger(t *testing.T) {
 func TestParseINI_InvalidDuration(t *testing.T) {
 	input := []byte("sample_interval = bad\n")
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err == nil {
+	if err := Parse(input, &cfg); err == nil {
 		t.Fatal("expected error for invalid duration, got nil")
 	}
 }
@@ -338,7 +338,7 @@ func TestParseINI_InvalidDuration(t *testing.T) {
 func TestParseINI_NegativeDuration(t *testing.T) {
 	input := []byte("sample_interval = -5s\n")
 	cfg := testDefault()
-	err := ParseINI(input, &cfg)
+	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for negative duration, got nil")
 	}
@@ -350,7 +350,7 @@ func TestParseINI_NegativeDuration(t *testing.T) {
 func TestParseINI_InvalidPin(t *testing.T) {
 	input := []byte("sample_ext_pin = abc\nsample_interval = 9s\n")
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err == nil {
+	if err := Parse(input, &cfg); err == nil {
 		t.Fatal("expected error for invalid pin, got nil")
 	}
 }
@@ -358,7 +358,7 @@ func TestParseINI_InvalidPin(t *testing.T) {
 func TestParseINI_PinOverflow(t *testing.T) {
 	input := []byte("sample_ext_pin = 256\nsample_interval = 9s\n")
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err == nil {
+	if err := Parse(input, &cfg); err == nil {
 		t.Fatal("expected error for pin overflow, got nil")
 	}
 }
@@ -366,7 +366,7 @@ func TestParseINI_PinOverflow(t *testing.T) {
 func TestParseINI_UnknownPayload(t *testing.T) {
 	input := []byte("heartbeat_payload = mega\nsample_interval = 9s\n")
 	cfg := testDefault()
-	err := ParseINI(input, &cfg)
+	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown payload, got nil")
 	}
@@ -378,7 +378,7 @@ func TestParseINI_UnknownPayload(t *testing.T) {
 func TestParseINI_UnknownKey(t *testing.T) {
 	input := []byte("bad_key = x\nsample_interval = 9s\n")
 	cfg := testDefault()
-	err := ParseINI(input, &cfg)
+	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown key, got nil")
 	}
@@ -390,7 +390,7 @@ func TestParseINI_UnknownKey(t *testing.T) {
 func TestParseINI_MultipleErrors(t *testing.T) {
 	input := []byte("bad_key1 = x\nbad_key2 = y\n")
 	cfg := testDefault()
-	err := ParseINI(input, &cfg)
+	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected errors, got nil")
 	}
@@ -417,7 +417,7 @@ func TestParseINI_PayloadVariants(t *testing.T) {
 	for _, tt := range tests {
 		input := []byte("heartbeat_interval = 1h\nheartbeat_payload = " + tt.value + "\nsample_interval = 9s\n")
 		cfg := testDefault()
-		if err := ParseINI(input, &cfg); err != nil {
+		if err := Parse(input, &cfg); err != nil {
 			t.Fatalf("Parse(payload=%s) error: %v", tt.value, err)
 		}
 		if cfg.Heartbeat.Payload != tt.want {
@@ -443,7 +443,7 @@ heartbeat_payload = full
 heartbeat_led_pin = 16
 `)
 	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err != nil {
+	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 
