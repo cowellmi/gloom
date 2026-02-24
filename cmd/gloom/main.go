@@ -125,21 +125,27 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// Blues Notecard — probe via card.version; failure means no notecard.
-	var notecardPresent bool
+	// Blues Notecard
+	var hasNotecard bool
 	var notecardUID string
-	nc, _ := tinynote.OpenI2C(tinynote.DefaultI2CAddress, board.I2C.TxFn)
-	if nc != nil {
-		verReq := tinynote.NewRequest("card.version")
-		verRsp, err := nc.RequestResponse(verReq)
-		board.MCU.PetWatchdog()
-		if err == nil && !tinynote.IsError(err, verRsp) {
-			notecardPresent = true
-			notecardUID, _ = verRsp["device"].(string)
+	notecard, err := tinynote.OpenI2C(tinynote.DefaultI2CAddress, board.I2C.TxFn)
+	if err != nil {
+		initWarns = append(initWarns, err)
+	}
+	if notecard != nil {
+		req := tinynote.NewRequest("card.version")
+		res, err := notecard.RequestResponse(req)
+		if tinynote.IsError(err, res) {
+			err = errors.New(tinynote.ErrorString(err, res))
+			initErrs = append(initErrs, err)
+		} else {
+			hasNotecard = true
+			notecardUID, _ = res["device"].(string)
 		}
+		board.MCU.PetWatchdog()
 	}
 
-	if notecardPresent {
+	if hasNotecard {
 		// Send env.template every boot — idempotent, defines expected
 		// env var keys and their types for the Notehub UI.
 		tmplReq := tinynote.NewRequest("env.template")
@@ -154,15 +160,15 @@ func main() {
 		tmplBody["payload"] = "a"
 		tmplBody["blink_led"] = true
 		tmplReq["body"] = tmplBody
-		nc.Request(tmplReq)
+		notecard.Request(tmplReq)
 		board.MCU.PetWatchdog()
 
 		// Fetch env vars and apply to config.
-		envReq := tinynote.NewRequest("env.get")
-		envRsp, err := nc.RequestResponse(envReq)
+		req := tinynote.NewRequest("env.get")
+		res, err := notecard.RequestResponse(req)
 		board.MCU.PetWatchdog()
-		if err == nil && !tinynote.IsError(err, envRsp) {
-			if body, ok := envRsp["body"].(map[string]interface{}); ok {
+		if err == nil && !tinynote.IsError(err, res) {
+			if body, ok := res["body"].(map[string]interface{}); ok {
 				if err := config.ParseMap(&cfg, body); err != nil {
 					initWarns = append(initWarns, errors.New("env: "+err.Error()))
 				}
@@ -170,8 +176,7 @@ func main() {
 		}
 	}
 
-	// If no Notecard, fall back to SD card CONFIG.INI.
-	if !notecardPresent && card != nil {
+	if !hasNotecard && card != nil {
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err != nil {
 			// No CONFIG.INI on SD card; attempt to make one.
