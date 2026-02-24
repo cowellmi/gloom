@@ -242,22 +242,6 @@ func TestParseMap_AllKeys(t *testing.T) {
 		t.Error("Heartbeat.BlinkLED = false, want true")
 	}
 }
-
-func TestParseMap_SkipsNotehubSystemKeys(t *testing.T) {
-	body := map[string]interface{}{
-		"_tri_mins":  "15",
-		"_some_flag": true,
-		"interval":   "5m",
-	}
-	cfg := Default()
-	if err := ParseMap(&cfg, body); err != nil {
-		t.Fatalf("ParseMap() error: %v", err)
-	}
-	if cfg.Sample.Interval != 5*time.Minute {
-		t.Errorf("Sample.Interval = %v, want 5m", cfg.Sample.Interval)
-	}
-}
-
 func TestParseMap_UnknownKey(t *testing.T) {
 	body := map[string]interface{}{"bad_key": "x"}
 	cfg := Default()

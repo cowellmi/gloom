@@ -19,6 +19,8 @@ func New(pin hal.Pin) LED {
 	return LED(pin)
 }
 
+func (p LED) Pin() hal.Pin { return hal.Pin(p) }
+
 func (p LED) On() {
 	machine.Pin(p).High()
 }

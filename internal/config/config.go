@@ -19,19 +19,12 @@ const (
 	PayloadFull
 )
 
-// LogSinkEntry pairs a sink name with its minimum log level.
-// Parsed from the "name:level" syntax (e.g. "serial:debug").
-// When no level is specified, LevelDebug is assumed.
-type LogSinkEntry struct {
-	Name  string
-	Level log.Level
+type SD struct {
+	LogLevel log.Level
 }
 
-// Device holds user-configurable logging and data output settings.
-type Device struct {
-	LogSinks  []LogSinkEntry
-	DataSinks []string
-	LedPin    hal.Pin
+type Blues struct {
+	LogLevel log.Level
 }
 
 // Sample defines the periodic or interrupt-driven sensor measurement schedule.
@@ -46,34 +39,36 @@ type Sample struct {
 type Heartbeat struct {
 	Interval time.Duration
 	Payload  Payload
-	BlinkLED bool
+	LedPin   hal.Pin
 }
 
 // Config holds the complete parsed configuration.
 type Config struct {
-	Device    Device
+	SD        SD
+	Blues     Blues
 	Sample    Sample
 	Heartbeat Heartbeat
 }
 
 // Default returns a Config with debug-friendly defaults.
 // Sample is enabled with a 5s interval; heartbeat is disabled.
-func Default() Config {
+func Default(ledPin hal.Pin, sensors []string) Config {
 	return Config{
-		Device: Device{
-			LogSinks:  []LogSinkEntry{},
-			DataSinks: []string{},
-			LedPin:    hal.NoPin,
+		SD: SD{
+			LogLevel: log.LevelDebug,
+		},
+		Blues: Blues{
+			LogLevel: log.LevelInfo,
 		},
 		Sample: Sample{
 			Interval: 9 * time.Second,
-			Sensors:  []string{"vbat"},
+			Sensors:  sensors,
 			ExtPin:   hal.NoPin,
 		},
 		Heartbeat: Heartbeat{
 			Interval: 3 * time.Second,
 			Payload:  PayloadNone,
-			BlinkLED: true,
+			LedPin:   ledPin,
 		},
 	}
 }
@@ -145,21 +140,6 @@ func ParseMap(cfg *Config, body map[string]interface{}) error {
 // v must be a string for all keys except blink_led, which also accepts bool.
 // Called by Parse (v is always string) and ParseMap (v may be a native type).
 func parseKey(cfg *Config, key string, v interface{}) error {
-	// blink_led is the only key that can arrive as a native bool from the
-	// Notecard JSON decoder; all other keys expect a string.
-	if key == "blink_led" {
-		switch v := v.(type) {
-		case bool:
-			cfg.Heartbeat.BlinkLED = v
-			return nil
-		case string:
-			cfg.Heartbeat.BlinkLED = parseBool(v)
-			return nil
-		default:
-			return errors.New("blink_led: expected bool or string")
-		}
-	}
-
 	value, ok := v.(string)
 	if !ok {
 		return errors.New(key + ": expected string")

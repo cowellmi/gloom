@@ -22,6 +22,7 @@ import (
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sensor/vbat"
 	"github.com/cowellmi/gloom/internal/sink/file"
+	"github.com/cowellmi/gloom/internal/sink/notehub"
 	"github.com/cowellmi/gloom/internal/sink/serial"
 	"github.com/cowellmi/gloom/internal/sleeper"
 	"github.com/cowellmi/gloom/internal/wait"
@@ -79,6 +80,16 @@ func main() {
 	}
 
 	board.MCU.PetWatchdog()
+	debug.Log("probing notecard...")
+
+	// Blues Notecard
+	nc, err := notecard.New(board.I2C.TxFn)
+	if err != nil {
+		initWarns = append(initWarns, err)
+	}
+
+	runtime.GC()
+	board.MCU.PetWatchdog()
 	debug.Log("probing sd...")
 
 	// SD Card
@@ -106,18 +117,9 @@ func main() {
 	}
 
 	board.MCU.PetWatchdog()
-	debug.Log("probing notecard...")
-
-	// Blues Notecard
-	runtime.GC()
-	nc, err := notecard.New(board.I2C.TxFn)
-	if err != nil {
-		initWarns = append(initWarns, err)
-	}
-	board.MCU.PetWatchdog()
 
 	// Config
-	cfg := config.Default()
+	cfg := config.Default(board.LED.Pin(), board.Sensors)
 
 	if nc != nil {
 		if err := nc.Configure(&cfg); err != nil {
@@ -149,8 +151,8 @@ func main() {
 		}
 	}
 
-	if cfg.Device.LedPin != hal.NoPin {
-		board.LED = led.New(cfg.Device.LedPin)
+	if cfg.Heartbeat.LedPin != hal.NoPin {
+		board.LED = led.New(cfg.Heartbeat.LedPin)
 	}
 
 	// Log sinks
@@ -168,7 +170,7 @@ func main() {
 	}
 
 	var sdCardFileSink *file.Sink
-	if card != nil && needsSDSink(&cfg) {
+	if card != nil {
 		if err := card.Mkdir("GLOOM"); err != nil {
 			initErrs = append(initErrs, errors.New("sd: "+err.Error()))
 		}
@@ -176,76 +178,53 @@ func main() {
 		opener := func(name string) (file.AppendFile, error) {
 			return card.OpenAppend(name)
 		}
-		var fileErr error
-		sdCardFileSink, fileErr = file.New("sd", opener, file.FileSpec{
+		sdCardFileSink, err = file.New("sd", opener, file.FileSpec{
 			Dir: "GLOOM",
 			Ext: ".CSV",
 		}, file.FileSpec{
 			Dir: "GLOOM",
 			Ext: ".LOG",
 		}, now)
-		if fileErr != nil {
-			initErrs = append(initErrs, errors.New("sd: "+fileErr.Error()))
+		if err != nil {
+			initErrs = append(initErrs, errors.New("file: "+err.Error()))
+		}
+	}
+
+	var notehubSink *notehub.Sink
+	if nc != nil {
+		notehubSink, err = notehub.New(nc)
+		if err != nil {
+			initErrs = append(initErrs, errors.New("notehub: "+err.Error()))
 		}
 	}
 
 	board.MCU.PetWatchdog()
 
-	// Logger
+	// Logger and recorders
 	logger := log.NewLogger(now)
-
 	logger.AddSink(serialSink, log.LevelDebug)
-
-	for _, ls := range cfg.Device.LogSinks {
-		switch ls.Name {
-		case "sd":
-			if sdCardFileSink != nil {
-				logger.AddSink(sdCardFileSink, ls.Level)
-			} else {
-				initWarns = append(initWarns, errors.New("log sink 'sd' configured but no SD card"))
-			}
-		}
+	recorders := []sensor.Recorder{serialSink}
+	if notehubSink != nil {
+		logger.AddSink(notehubSink, cfg.Blues.LogLevel)
+		recorders = append(recorders, notehubSink)
 	}
-
-	board.MCU.PetWatchdog()
-
-	// Sensor data sinks
-	var recorders []sensor.Recorder
-	recorders = append(recorders, serialSink)
-	for _, name := range cfg.Device.DataSinks {
-		switch name {
-		case "sd":
-			if sdCardFileSink != nil {
-				recorders = append(recorders, sdCardFileSink)
-			}
-		}
+	if sdCardFileSink != nil {
+		logger.AddSink(sdCardFileSink, cfg.SD.LogLevel)
 	}
 
 	// Sensors
-	sensorRegistry := make(map[string]func() sensor.Sensor)
-
+	sensorRegistry := make(map[string]sensor.Sensor)
 	if board.ADCPin != hal.NoPin {
-		sensorRegistry["vbat"] = func() sensor.Sensor {
-			return vbat.NewDevice(board.ADCPin)
-		}
+		sensorRegistry["vbat"] = vbat.NewDevice(board.ADCPin)
 		board.MCU.PetWatchdog()
 	}
 
-	sensorPool := make(map[string]sensor.Sensor)
 	var sensors []sensor.Sensor
 	for _, id := range cfg.Sample.Sensors {
-		dev, ok := sensorPool[id]
-		if !ok {
-			newDevice, found := sensorRegistry[id]
-			if !found {
-				initErrs = append(initErrs, errors.New("config: unknown sensor: "+id))
-				continue
-			}
-			dev = newDevice()
-			sensorPool[id] = dev
-			board.MCU.PetWatchdog()
+		dev, ok := sensorRegistry[id]
+		if ok {
+			sensors = append(sensors, dev)
 		}
-		sensors = append(sensors, dev)
 	}
 
 	board.LED.Off()
@@ -285,9 +264,6 @@ func main() {
 			sd += " CS " + strconv.Itoa(int(e.cs))
 		}
 		logger.Debug(sd)
-		if !needsSDSink(&cfg) {
-			logger.Warn("sd: card detected but not configured as a sink.")
-		}
 	} else {
 		logger.Debug("sd: NONE")
 	}
@@ -298,46 +274,14 @@ func main() {
 		logger.Debug("notecard: NONE")
 	}
 
+	p, err := cfg.Marshal()
+	if err != nil {
+		logger.Error("marshal: " + err.Error())
+	} else {
+		_, _ = debug.W.Write(p)
+	}
+
 	var bootBuf [256]byte
-
-	if len(cfg.Device.LogSinks) > 0 {
-		b := bootBuf[:0]
-		b = fmtbuf.Append(b, "log sinks:")
-		for _, ls := range cfg.Device.LogSinks {
-			b = fmtbuf.AppendByte(b, ' ')
-			b = fmtbuf.Append(b, ls.Name)
-		}
-		logger.Debug(string(b))
-	}
-
-	if len(cfg.Device.DataSinks) > 0 {
-		b := bootBuf[:0]
-		b = fmtbuf.Append(b, "data sinks:")
-		for _, ds := range cfg.Device.DataSinks {
-			b = fmtbuf.AppendByte(b, ' ')
-			b = fmtbuf.Append(b, ds)
-		}
-		logger.Debug(string(b))
-	}
-
-	{
-		b := bootBuf[:0]
-		b = fmtbuf.Append(b, "sample: interval=")
-		b = fmtbuf.Append(b, cfg.Sample.Interval.String())
-		if cfg.Sample.ExtPin != hal.NoPin {
-			b = fmtbuf.Append(b, " ext_pin=")
-			b = fmtbuf.AppendUint(b, uint64(cfg.Sample.ExtPin), 10)
-		}
-		logger.Debug(string(b))
-	}
-
-	if cfg.Heartbeat.Interval > 0 {
-		b := bootBuf[:0]
-		b = fmtbuf.Append(b, "heartbeat: interval=")
-		b = fmtbuf.Append(b, cfg.Heartbeat.Interval.String())
-		logger.Debug(string(b))
-	}
-
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	b := bootBuf[:0]
@@ -369,7 +313,7 @@ func main() {
 		fatal(err, board.LED)
 	}
 
-	if cfg.Heartbeat.Interval > 0 && cfg.Heartbeat.BlinkLED {
+	if cfg.Heartbeat.Interval > 0 && cfg.Heartbeat.LedPin != hal.NoPin {
 		man.SetBlinkLED(board.LED.Blink)
 	}
 	man.EnableWatchdog(board.MCU.PetWatchdog)
@@ -383,20 +327,6 @@ func main() {
 		now = time.Now()
 	}
 	man.Run(now)
-}
-
-func needsSDSink(cfg *config.Config) bool {
-	for _, ls := range cfg.Device.LogSinks {
-		if ls.Name == "sd" {
-			return true
-		}
-	}
-	for _, ds := range cfg.Device.DataSinks {
-		if ds == "sd" {
-			return true
-		}
-	}
-	return false
 }
 
 // fatal blinks the LED forever to signal a hard failure when no

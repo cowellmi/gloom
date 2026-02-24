@@ -23,7 +23,25 @@ const (
 	LevelInfo  Level = 0
 	LevelWarn  Level = 4
 	LevelError Level = 8
+	LevelOff   Level = 32
 )
+
+func (l Level) String() string {
+	switch l {
+	case LevelDebug:
+		return "debug"
+	case LevelInfo:
+		return "info"
+	case LevelWarn:
+		return "warn"
+	case LevelError:
+		return "error"
+	case LevelOff:
+		return "off"
+	}
+
+	return strconv.Itoa(int(l))
+}
 
 // AppendLevel appends the short display string for a log level
 // ("DBG", "INF", "WRN", "ERR") to buf. Unknown levels are appended
@@ -68,7 +86,7 @@ type Logger struct {
 // NewLogger creates a Logger with no sinks. now seeds the initial
 // timestamp; the caller should pass the RTC time (or time.Now() as a
 // fallback). Call AddSink to register output destinations.
-func NewLogger(now time.Time) *Logger {
+func NewLogger(now time.Time, sinks ...Sink) *Logger {
 	return &Logger{t: now}
 }
 

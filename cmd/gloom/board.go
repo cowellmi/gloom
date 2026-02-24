@@ -38,4 +38,6 @@ type Board struct {
 	RTCWakePin hal.Pin
 
 	SDCSPins []hal.Pin
+
+	Sensors []string
 }

@@ -52,5 +52,8 @@ func initBoard() Board {
 	board.SDCSPins = []hal.Pin{hal.Pin(machine.D11), hal.Pin(machine.D10)}
 	board.RTCWakePin = hal.Pin(machine.D12)
 
+	// Sensors
+	board.Sensors = []string{"vbat"}
+
 	return board
 }
