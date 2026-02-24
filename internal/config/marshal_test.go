@@ -9,7 +9,6 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 )
 
-
 func TestMarshal_RoundTrip(t *testing.T) {
 	orig := Config{
 		SD:    SD{LogLevel: log.LevelError},
@@ -26,16 +25,16 @@ func TestMarshal_RoundTrip(t *testing.T) {
 		},
 	}
 
-	data, err := orig.Marshal()
+	data, err := orig.MarshalINI()
 	if err != nil {
-		t.Fatalf("Marshal() error: %v", err)
+		t.Fatalf("MarshalINI() error: %v", err)
 	}
 
 	// Start from Default so NoPin sentinels are correctly seeded for
 	// fields absent from the marshaled output.
 	got := testDefault()
-	if err := Parse(data, &got); err != nil {
-		t.Fatalf("Parse(Marshal()) error: %v\nINI:\n%s", err, data)
+	if err := ParseINI(data, &got); err != nil {
+		t.Fatalf("Parse(MarshalINI()) error: %v\nINI:\n%s", err, data)
 	}
 
 	if got.SD.LogLevel != log.LevelError {
@@ -77,9 +76,9 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 		},
 	}
 
-	data, err := cfg.Marshal()
+	data, err := cfg.MarshalINI()
 	if err != nil {
-		t.Fatalf("Marshal() error: %v", err)
+		t.Fatalf("MarshalINI() error: %v", err)
 	}
 
 	s := string(data)
@@ -107,9 +106,9 @@ func TestMarshal_ExtPin(t *testing.T) {
 		},
 	}
 
-	data, err := cfg.Marshal()
+	data, err := cfg.MarshalINI()
 	if err != nil {
-		t.Fatalf("Marshal() error: %v", err)
+		t.Fatalf("MarshalINI() error: %v", err)
 	}
 
 	if !strings.Contains(string(data), "sample_ext_pin = 7") {
@@ -129,9 +128,9 @@ func TestMarshal_HeartbeatDisabled(t *testing.T) {
 		Heartbeat: Heartbeat{LedPin: hal.NoPin},
 	}
 
-	data, err := cfg.Marshal()
+	data, err := cfg.MarshalINI()
 	if err != nil {
-		t.Fatalf("Marshal() error: %v", err)
+		t.Fatalf("MarshalINI() error: %v", err)
 	}
 
 	if strings.Contains(string(data), "heartbeat") {
@@ -159,9 +158,9 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 				ExtPin:   hal.NoPin,
 			},
 		}
-		data, err := cfg.Marshal()
+		data, err := cfg.MarshalINI()
 		if err != nil {
-			t.Fatalf("Marshal() error for %v: %v", tt.d, err)
+			t.Fatalf("MarshalINI() error for %v: %v", tt.d, err)
 		}
 		if !strings.Contains(string(data), "sample_interval = "+tt.want) {
 			t.Errorf("duration %v: want %q in output:\n%s", tt.d, tt.want, data)
@@ -183,9 +182,9 @@ func TestMarshal_LedPin(t *testing.T) {
 		},
 	}
 
-	data, err := cfg.Marshal()
+	data, err := cfg.MarshalINI()
 	if err != nil {
-		t.Fatalf("Marshal() error: %v", err)
+		t.Fatalf("MarshalINI() error: %v", err)
 	}
 
 	if !strings.Contains(string(data), "heartbeat_led_pin = 16") {

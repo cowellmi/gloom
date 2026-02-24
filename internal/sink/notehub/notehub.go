@@ -33,7 +33,7 @@ func (s *Sink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
 	return nil
 }
 
+// Nothing to do.
 func (s *Sink) Flush() error {
-	debug.Log("Flushed.")
 	return nil
 }

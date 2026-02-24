@@ -48,10 +48,14 @@ func (d *Device) Configure(cfg *config.Config) error {
 		return errors.New("invalid response")
 	}
 
+	schema := cfg.MarshalMap() // key set defines accepted keys
 	env := make(map[string]any)
 	for k, v := range body {
 		if len(k) > 0 && k[0] == '_' {
 			continue // reserved
+		}
+		if _, known := schema[k]; !known {
+			continue // unkown key; ignore silently
 		}
 		if s, ok := v.(string); ok && s == "" {
 			continue
