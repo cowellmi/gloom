@@ -10,44 +10,25 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 )
 
-// Payload identifies a predefined health-check payload profile.
-type Payload uint8
+// HBPayload identifies a predefined heartbeat payload profile.
+type HBPayload uint8
 
 const (
-	PayloadNone Payload = iota
-	PayloadMin
-	PayloadFull
+	HBPayloadNone HBPayload = iota
+	HBPayloadMin
+	HBPayloadFull
 )
-
-type SD struct {
-	LogLevel log.Level
-}
-
-type Blues struct {
-	LogLevel log.Level
-}
-
-// Sample defines the periodic or interrupt-driven sensor measurement schedule.
-type Sample struct {
-	Interval time.Duration
-	Sensors  []string
-	ExtPin   hal.Pin
-}
-
-// Heartbeat defines an optional keep-alive / payload delivery schedule.
-// Interval = 0 disables the heartbeat entirely.
-type Heartbeat struct {
-	Interval time.Duration
-	Payload  Payload
-	LedPin   hal.Pin
-}
 
 // Config holds the complete parsed configuration.
 type Config struct {
-	SD        SD
-	Blues     Blues
-	Sample    Sample
-	Heartbeat Heartbeat
+	SDLogLevel        log.Level
+	BluesLogLevel     log.Level
+	SampleInterval    time.Duration
+	SampleSensors     []string
+	SampleExtPin      hal.Pin
+	HeartbeatInterval time.Duration
+	HeartbeatPayload  HBPayload
+	HeartbeatLedPin   hal.Pin
 }
 
 // Default returns a Config seeded with board-supplied hardware defaults.
@@ -56,32 +37,24 @@ type Config struct {
 // Sample is enabled with a 9s interval; heartbeat is enabled with a 3s interval.
 func Default(ledPin hal.Pin, sensors []string) Config {
 	return Config{
-		SD: SD{
-			LogLevel: log.LevelDebug,
-		},
-		Blues: Blues{
-			LogLevel: log.LevelInfo,
-		},
-		Sample: Sample{
-			Interval: 9 * time.Second,
-			Sensors:  sensors,
-			ExtPin:   hal.NoPin,
-		},
-		Heartbeat: Heartbeat{
-			Interval: 3 * time.Second,
-			Payload:  PayloadNone,
-			LedPin:   ledPin,
-		},
+		SDLogLevel:        log.LevelDebug,
+		BluesLogLevel:     log.LevelInfo,
+		SampleInterval:    9 * time.Second,
+		SampleSensors:     sensors,
+		SampleExtPin:      hal.NoPin,
+		HeartbeatInterval: 3 * time.Second,
+		HeartbeatPayload:  HBPayloadNone,
+		HeartbeatLedPin:   ledPin,
 	}
 }
 
-// Parse reads a flat key=value config from data into cfg.
+// ParseINI reads a flat key=value config from data into cfg.
 // Section headers (lines starting with '[') are silently skipped for
 // backwards compatibility. All parse errors are collected and returned
 // together via errors.Join so the caller can report every problem at once.
-// Validation requires Sample to have Interval > 0 or ExtPin != NoPin.
+// Validation requires SampleInterval > 0 or SampleExtPin != NoPin.
 //
-// Parse should be called on a Default()-initialised cfg so that fields
+// ParseINI should be called on a Default()-initialised cfg so that fields
 // absent from the file keep their sensible defaults (including NoPin sentinels).
 func ParseINI(data []byte, cfg *Config) error {
 	var errs []error
@@ -116,7 +89,7 @@ func ParseINI(data []byte, cfg *Config) error {
 		}
 	}
 
-	if err := validateSample(&cfg.Sample); err != nil {
+	if err := validateSample(cfg); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -140,7 +113,7 @@ func ParseMap(cfg *Config, body map[string]interface{}) error {
 
 // parseKey dispatches a single key/value pair into cfg.
 // v must be a string for all keys.
-// Called by Parse (v is always string) and ParseMap (v may be a native type).
+// Called by ParseINI (v is always string) and ParseMap (v may be a native type).
 func parseKey(cfg *Config, key string, v interface{}) error {
 	// Skip Notehub-internal keys.
 	if strings.HasPrefix(key, "_") {
@@ -163,53 +136,53 @@ func parseKey(cfg *Config, key string, v interface{}) error {
 		if err != nil {
 			return err
 		}
-		cfg.SD.LogLevel = level
+		cfg.SDLogLevel = level
 	case "blues_log_level":
 		level, err := parseLevel(value)
 		if err != nil {
 			return err
 		}
-		cfg.Blues.LogLevel = level
+		cfg.BluesLogLevel = level
 	case "sample_interval":
 		d, err := parseDuration(key, value)
 		if err != nil {
 			return err
 		}
-		cfg.Sample.Interval = d
+		cfg.SampleInterval = d
 	case "sample_sensors":
-		cfg.Sample.Sensors = parseStringList(value)
+		cfg.SampleSensors = parseStringList(value)
 	case "sample_ext_pin":
 		pin, err := parsePin(key, value)
 		if err != nil {
 			return err
 		}
-		cfg.Sample.ExtPin = pin
+		cfg.SampleExtPin = pin
 	case "heartbeat_interval":
 		d, err := parseDuration(key, value)
 		if err != nil {
 			return err
 		}
-		cfg.Heartbeat.Interval = d
+		cfg.HeartbeatInterval = d
 	case "heartbeat_payload":
 		p, err := parsePayload(value)
 		if err != nil {
 			return err
 		}
-		cfg.Heartbeat.Payload = p
+		cfg.HeartbeatPayload = p
 	case "heartbeat_led_pin":
 		pin, err := parsePin(key, value)
 		if err != nil {
 			return err
 		}
-		cfg.Heartbeat.LedPin = pin
+		cfg.HeartbeatLedPin = pin
 	default:
 		return errors.New("unknown key: " + key)
 	}
 	return nil
 }
 
-func validateSample(s *Sample) error {
-	if s.Interval <= 0 && s.ExtPin == hal.NoPin {
+func validateSample(c *Config) error {
+	if c.SampleInterval <= 0 && c.SampleExtPin == hal.NoPin {
 		return errors.New("sample: must have sample_interval or sample_ext_pin")
 	}
 	return nil
@@ -232,16 +205,16 @@ func parseLevel(s string) (log.Level, error) {
 	}
 }
 
-func parsePayload(value string) (Payload, error) {
+func parsePayload(value string) (HBPayload, error) {
 	switch value {
 	case "none", "":
-		return PayloadNone, nil
+		return HBPayloadNone, nil
 	case "min":
-		return PayloadMin, nil
+		return HBPayloadMin, nil
 	case "full":
-		return PayloadFull, nil
+		return HBPayloadFull, nil
 	default:
-		return PayloadNone, errors.New("unknown payload: " + value)
+		return HBPayloadNone, errors.New("unknown payload: " + value)
 	}
 }
 

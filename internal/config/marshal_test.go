@@ -11,18 +11,14 @@ import (
 
 func TestMarshal_RoundTrip(t *testing.T) {
 	orig := Config{
-		SD:    SD{LogLevel: log.LevelError},
-		Blues: Blues{LogLevel: log.LevelWarn},
-		Sample: Sample{
-			Interval: time.Minute,
-			Sensors:  []string{"temperature", "humidity"},
-			ExtPin:   hal.NoPin,
-		},
-		Heartbeat: Heartbeat{
-			Interval: time.Hour,
-			Payload:  PayloadFull,
-			LedPin:   hal.Pin(16),
-		},
+		SDLogLevel:        log.LevelError,
+		BluesLogLevel:     log.LevelWarn,
+		SampleInterval:    time.Minute,
+		SampleSensors:     []string{"temperature", "humidity"},
+		SampleExtPin:      hal.NoPin,
+		HeartbeatInterval: time.Hour,
+		HeartbeatPayload:  HBPayloadFull,
+		HeartbeatLedPin:   hal.Pin(16),
 	}
 
 	data, err := orig.MarshalINI()
@@ -30,50 +26,44 @@ func TestMarshal_RoundTrip(t *testing.T) {
 		t.Fatalf("MarshalINI() error: %v", err)
 	}
 
-	// Start from Default so NoPin sentinels are correctly seeded for
-	// fields absent from the marshaled output.
 	got := testDefault()
 	if err := ParseINI(data, &got); err != nil {
-		t.Fatalf("Parse(MarshalINI()) error: %v\nINI:\n%s", err, data)
+		t.Fatalf("ParseINI(MarshalINI()) error: %v\nINI:\n%s", err, data)
 	}
 
-	if got.SD.LogLevel != log.LevelError {
-		t.Errorf("SD.LogLevel = %d, want LevelError", got.SD.LogLevel)
+	if got.SDLogLevel != log.LevelError {
+		t.Errorf("SDLogLevel = %d, want LevelError", got.SDLogLevel)
 	}
-	if got.Blues.LogLevel != log.LevelWarn {
-		t.Errorf("Blues.LogLevel = %d, want LevelWarn", got.Blues.LogLevel)
+	if got.BluesLogLevel != log.LevelWarn {
+		t.Errorf("BluesLogLevel = %d, want LevelWarn", got.BluesLogLevel)
 	}
-	if got.Sample.Interval != time.Minute {
-		t.Errorf("Sample.Interval = %v, want 1m", got.Sample.Interval)
+	if got.SampleInterval != time.Minute {
+		t.Errorf("SampleInterval = %v, want 1m", got.SampleInterval)
 	}
-	if len(got.Sample.Sensors) != 2 {
-		t.Errorf("Sample.Sensors = %v", got.Sample.Sensors)
+	if len(got.SampleSensors) != 2 {
+		t.Errorf("SampleSensors = %v", got.SampleSensors)
 	}
-	if got.Sample.ExtPin != hal.NoPin {
-		t.Errorf("Sample.ExtPin = %d, want NoPin", got.Sample.ExtPin)
+	if got.SampleExtPin != hal.NoPin {
+		t.Errorf("SampleExtPin = %d, want NoPin", got.SampleExtPin)
 	}
-	if got.Heartbeat.Interval != time.Hour {
-		t.Errorf("Heartbeat.Interval = %v, want 1h", got.Heartbeat.Interval)
+	if got.HeartbeatInterval != time.Hour {
+		t.Errorf("HeartbeatInterval = %v, want 1h", got.HeartbeatInterval)
 	}
-	if got.Heartbeat.Payload != PayloadFull {
-		t.Errorf("Heartbeat.Payload = %d, want PayloadFull", got.Heartbeat.Payload)
+	if got.HeartbeatPayload != HBPayloadFull {
+		t.Errorf("HeartbeatPayload = %d, want HBPayloadFull", got.HeartbeatPayload)
 	}
-	if got.Heartbeat.LedPin != hal.Pin(16) {
-		t.Errorf("Heartbeat.LedPin = %d, want 16", got.Heartbeat.LedPin)
+	if got.HeartbeatLedPin != hal.Pin(16) {
+		t.Errorf("HeartbeatLedPin = %d, want 16", got.HeartbeatLedPin)
 	}
 }
 
 func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 	cfg := Config{
-		SD:    SD{LogLevel: log.LevelDebug},
-		Blues: Blues{LogLevel: log.LevelDebug},
-		Sample: Sample{
-			Interval: 5 * time.Second,
-			ExtPin:   hal.NoPin,
-		},
-		Heartbeat: Heartbeat{
-			LedPin: hal.NoPin,
-		},
+		SDLogLevel:    log.LevelDebug,
+		BluesLogLevel: log.LevelDebug,
+		SampleInterval: 5 * time.Second,
+		SampleExtPin:   hal.NoPin,
+		HeartbeatLedPin: hal.NoPin,
 	}
 
 	data, err := cfg.MarshalINI()
@@ -98,12 +88,10 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 
 func TestMarshal_ExtPin(t *testing.T) {
 	cfg := Config{
-		SD:    SD{LogLevel: log.LevelDebug},
-		Blues: Blues{LogLevel: log.LevelDebug},
-		Sample: Sample{
-			ExtPin:  hal.Pin(7),
-			Sensors: []string{"bucket"},
-		},
+		SDLogLevel:    log.LevelDebug,
+		BluesLogLevel: log.LevelDebug,
+		SampleExtPin:  hal.Pin(7),
+		SampleSensors: []string{"bucket"},
 	}
 
 	data, err := cfg.MarshalINI()
@@ -118,14 +106,12 @@ func TestMarshal_ExtPin(t *testing.T) {
 
 func TestMarshal_HeartbeatDisabled(t *testing.T) {
 	cfg := Config{
-		SD:    SD{LogLevel: log.LevelDebug},
-		Blues: Blues{LogLevel: log.LevelDebug},
-		Sample: Sample{
-			Interval: 5 * time.Second,
-			ExtPin:   hal.NoPin,
-		},
-		// Heartbeat.Interval = 0 → disabled; LedPin explicit NoPin
-		Heartbeat: Heartbeat{LedPin: hal.NoPin},
+		SDLogLevel:      log.LevelDebug,
+		BluesLogLevel:   log.LevelDebug,
+		SampleInterval:  5 * time.Second,
+		SampleExtPin:    hal.NoPin,
+		HeartbeatLedPin: hal.NoPin,
+		// HeartbeatInterval = 0 → disabled
 	}
 
 	data, err := cfg.MarshalINI()
@@ -151,12 +137,10 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 
 	for _, tt := range tests {
 		cfg := Config{
-			SD:    SD{LogLevel: log.LevelDebug},
-			Blues: Blues{LogLevel: log.LevelDebug},
-			Sample: Sample{
-				Interval: tt.d,
-				ExtPin:   hal.NoPin,
-			},
+			SDLogLevel:    log.LevelDebug,
+			BluesLogLevel: log.LevelDebug,
+			SampleInterval: tt.d,
+			SampleExtPin:   hal.NoPin,
 		}
 		data, err := cfg.MarshalINI()
 		if err != nil {
@@ -170,16 +154,12 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 
 func TestMarshal_LedPin(t *testing.T) {
 	cfg := Config{
-		SD:    SD{LogLevel: log.LevelDebug},
-		Blues: Blues{LogLevel: log.LevelDebug},
-		Sample: Sample{
-			Interval: time.Minute,
-			ExtPin:   hal.NoPin,
-		},
-		Heartbeat: Heartbeat{
-			Interval: time.Hour,
-			LedPin:   hal.Pin(16),
-		},
+		SDLogLevel:        log.LevelDebug,
+		BluesLogLevel:     log.LevelDebug,
+		SampleInterval:    time.Minute,
+		SampleExtPin:      hal.NoPin,
+		HeartbeatInterval: time.Hour,
+		HeartbeatLedPin:   hal.Pin(16),
 	}
 
 	data, err := cfg.MarshalINI()
@@ -194,18 +174,14 @@ func TestMarshal_LedPin(t *testing.T) {
 
 func TestMarshalMap(t *testing.T) {
 	cfg := Config{
-		SD:    SD{LogLevel: log.LevelError},
-		Blues: Blues{LogLevel: log.LevelWarn},
-		Sample: Sample{
-			Interval: time.Minute,
-			Sensors:  []string{"vbat", "temp"},
-			ExtPin:   hal.Pin(7),
-		},
-		Heartbeat: Heartbeat{
-			Interval: time.Hour,
-			Payload:  PayloadFull,
-			LedPin:   hal.Pin(16),
-		},
+		SDLogLevel:        log.LevelError,
+		BluesLogLevel:     log.LevelWarn,
+		SampleInterval:    time.Minute,
+		SampleSensors:     []string{"vbat", "temp"},
+		SampleExtPin:      hal.Pin(7),
+		HeartbeatInterval: time.Hour,
+		HeartbeatPayload:  HBPayloadFull,
+		HeartbeatLedPin:   hal.Pin(16),
 	}
 
 	m := cfg.MarshalMap()

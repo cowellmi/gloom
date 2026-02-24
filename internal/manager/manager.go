@@ -116,6 +116,9 @@ func (m *Manager) step() {
 	if hbFired {
 		b = fmtbuf.AppendByte(b, ' ')
 		b = fmtbuf.Append(b, "heartbeat")
+		if m.cfg.Heartbeat.LedPin != hal.NoPin && m.blinkLED != nil {
+			m.blinkLED()
+		}
 	}
 
 	if sampleFired || hbFired {
@@ -124,10 +127,6 @@ func (m *Manager) step() {
 
 	if needSensors {
 		m.sleeper.PowerOnSensorRails()
-	}
-
-	if m.cfg.Heartbeat.LedPin != hal.NoPin && m.blinkLED != nil {
-		m.blinkLED()
 	}
 
 	if needSensors {

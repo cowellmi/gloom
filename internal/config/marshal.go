@@ -9,16 +9,15 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 )
 
-// Marshal serializes the Config to flat key=value format.
+// MarshalINI serializes the Config to flat key=value format.
 // Only non-zero / non-NoPin fields are emitted. The output round-trips
-// through Parse when called on a Default()-initialised destination.
+// through ParseINI when called on a Default()-initialised destination.
 func (c *Config) MarshalINI() ([]byte, error) {
 	var buf []byte
 
 	buf = append(buf, "# See example.config.ini for full documentation.\n"...)
 
-	// SD
-	sdLvl, err := levelString(c.SD.LogLevel)
+	sdLvl, err := levelString(c.SDLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -26,8 +25,7 @@ func (c *Config) MarshalINI() ([]byte, error) {
 	buf = append(buf, sdLvl...)
 	buf = append(buf, '\n')
 
-	// Blues
-	bluesLvl, err := levelString(c.Blues.LogLevel)
+	bluesLvl, err := levelString(c.BluesLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -35,16 +33,15 @@ func (c *Config) MarshalINI() ([]byte, error) {
 	buf = append(buf, bluesLvl...)
 	buf = append(buf, '\n')
 
-	// Sample
-	if c.Sample.Interval > 0 {
+	if c.SampleInterval > 0 {
 		buf = append(buf, "sample_interval = "...)
-		buf = appendDuration(buf, c.Sample.Interval)
+		buf = appendDuration(buf, c.SampleInterval)
 		buf = append(buf, '\n')
 	}
 
-	if len(c.Sample.Sensors) > 0 {
+	if len(c.SampleSensors) > 0 {
 		buf = append(buf, "sample_sensors = "...)
-		for i, s := range c.Sample.Sensors {
+		for i, s := range c.SampleSensors {
 			if i > 0 {
 				buf = append(buf, ", "...)
 			}
@@ -53,22 +50,21 @@ func (c *Config) MarshalINI() ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if c.Sample.ExtPin != hal.NoPin {
+	if c.SampleExtPin != hal.NoPin {
 		buf = append(buf, "sample_ext_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(c.Sample.ExtPin), 10)
+		buf = strconv.AppendUint(buf, uint64(c.SampleExtPin), 10)
 		buf = append(buf, '\n')
 	}
 
-	// Heartbeat
-	if c.Heartbeat.Interval > 0 {
+	if c.HeartbeatInterval > 0 {
 		buf = append(buf, "heartbeat_interval = "...)
-		buf = appendDuration(buf, c.Heartbeat.Interval)
+		buf = appendDuration(buf, c.HeartbeatInterval)
 		buf = append(buf, '\n')
 	}
 
-	if c.Heartbeat.Payload != PayloadNone {
+	if c.HeartbeatPayload != HBPayloadNone {
 		buf = append(buf, "heartbeat_payload = "...)
-		ps, err := payloadString(c.Heartbeat.Payload)
+		ps, err := payloadString(c.HeartbeatPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -76,9 +72,9 @@ func (c *Config) MarshalINI() ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if c.Heartbeat.LedPin != hal.NoPin {
+	if c.HeartbeatLedPin != hal.NoPin {
 		buf = append(buf, "heartbeat_led_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(c.Heartbeat.LedPin), 10)
+		buf = strconv.AppendUint(buf, uint64(c.HeartbeatLedPin), 10)
 		buf = append(buf, '\n')
 	}
 
@@ -120,13 +116,13 @@ func levelString(l log.Level) (string, error) {
 	}
 }
 
-func payloadString(p Payload) (string, error) {
+func payloadString(p HBPayload) (string, error) {
 	switch p {
-	case PayloadNone:
+	case HBPayloadNone:
 		return "none", nil
-	case PayloadMin:
+	case HBPayloadMin:
 		return "min", nil
-	case PayloadFull:
+	case HBPayloadFull:
 		return "full", nil
 	default:
 		return "", errors.New("unknown payload: " + strconv.Itoa(int(p)))
@@ -137,19 +133,19 @@ func payloadString(p Payload) (string, error) {
 func (c *Config) MarshalMap() map[string]interface{} {
 	m := make(map[string]interface{})
 
-	sdLvl, _ := levelString(c.SD.LogLevel)
+	sdLvl, _ := levelString(c.SDLogLevel)
 	m["sd_log_level"] = sdLvl
 
-	bluesLvl, _ := levelString(c.Blues.LogLevel)
+	bluesLvl, _ := levelString(c.BluesLogLevel)
 	m["blues_log_level"] = bluesLvl
 
-	if c.Sample.Interval > 0 {
-		m["sample_interval"] = durationString(c.Sample.Interval)
+	if c.SampleInterval > 0 {
+		m["sample_interval"] = durationString(c.SampleInterval)
 	}
 
-	if len(c.Sample.Sensors) > 0 {
+	if len(c.SampleSensors) > 0 {
 		var s string
-		for i, sensor := range c.Sample.Sensors {
+		for i, sensor := range c.SampleSensors {
 			if i > 0 {
 				s += ", "
 			}
@@ -158,23 +154,23 @@ func (c *Config) MarshalMap() map[string]interface{} {
 		m["sample_sensors"] = s
 	}
 
-	if c.Sample.ExtPin != hal.NoPin {
-		m["sample_ext_pin"] = strconv.FormatUint(uint64(c.Sample.ExtPin), 10)
+	if c.SampleExtPin != hal.NoPin {
+		m["sample_ext_pin"] = strconv.FormatUint(uint64(c.SampleExtPin), 10)
 	} else {
 		m["sample_ext_pin"] = "none"
 	}
 
-	if c.Heartbeat.Interval > 0 {
-		m["heartbeat_interval"] = durationString(c.Heartbeat.Interval)
+	if c.HeartbeatInterval > 0 {
+		m["heartbeat_interval"] = durationString(c.HeartbeatInterval)
 	}
 
-	if c.Heartbeat.Payload != PayloadNone {
-		ps, _ := payloadString(c.Heartbeat.Payload)
+	if c.HeartbeatPayload != HBPayloadNone {
+		ps, _ := payloadString(c.HeartbeatPayload)
 		m["heartbeat_payload"] = ps
 	}
 
-	if c.Heartbeat.LedPin != hal.NoPin {
-		m["heartbeat_led_pin"] = strconv.FormatUint(uint64(c.Heartbeat.LedPin), 10)
+	if c.HeartbeatLedPin != hal.NoPin {
+		m["heartbeat_led_pin"] = strconv.FormatUint(uint64(c.HeartbeatLedPin), 10)
 	} else {
 		m["heartbeat_led_pin"] = "none"
 	}
