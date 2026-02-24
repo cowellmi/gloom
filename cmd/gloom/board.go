@@ -20,9 +20,10 @@ type Board struct {
 	LED hal.LED
 
 	I2C struct {
-		Bus hal.I2C
-		SDA hal.Pin
-		SCL hal.Pin
+		Bus  hal.I2C
+		TxFn func(addr uint16, wb []byte, rb []byte) (err error)
+		SDA  hal.Pin
+		SCL  hal.Pin
 	}
 
 	SPI struct {

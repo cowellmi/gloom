@@ -10,20 +10,26 @@ TARGET	?= $(GLOOM_TARGET)
 PORT	?= $(GLOOM_PORT)
 SERIAL 	?= $(or $(GLOOM_SERIAL),$(PORT))
 TAGS	?= $(GLOOM_TAGS)
+PUID	?= $(GLOOM_PRODUCT_UID)
+
+ifeq ($(PUID),)
+	$(error PUID is not set: set GLOOM_PORT in your .env)
+endif
 
 SOURCES := $(shell find cmd internal -name '*.go')
+LDFLAGS := -X main.ProductUID=$(GLOOM_PRODUCT_UID)
 
 $(BIN): $(SOURCES)
-	tinygo build -size=short -stack-size=4KB -target=$(TARGET) -tags=$(TAGS) -o=$(BIN) $(MAIN)
+	tinygo build -size=short -stack-size=4KB -target=$(TARGET) -tags=$(TAGS) -ldflags="$(LDFLAGS)" -o=$(BIN) $(MAIN)
 
-$(I2CBIN): $(SOURCES)
+$(I2CBIN): $(SOURCES)set GLOOM_PORT in your .env
 	tinygo build -size=short -stack-size=4KB -target=$(TARGET) -tags=$(TAGS) -o=$(I2CBIN) $(I2CTEST)
 
 .PHONY: flash flash-i2ctest clean test vet monitor
 
 flash: $(BIN)
 ifeq ($(PORT),)
-	$(error PORT is not set: set GLOOM_PORT in your .env)
+	$(error PORT is not set: )
 endif
 	bossac --port="$(PORT)" --offset 0x2000 --erase --write --verify "$(BIN)"
 

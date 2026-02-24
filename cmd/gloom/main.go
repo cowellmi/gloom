@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	tinynote "github.com/blues/note-tinygo"
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/fmtbuf"
@@ -25,6 +26,8 @@ import (
 	"github.com/cowellmi/gloom/internal/sleeper"
 	"github.com/cowellmi/gloom/internal/wait"
 )
+
+var ProductUID string
 
 func main() {
 	var initErrs []error
@@ -144,12 +147,20 @@ func main() {
 		}
 	}
 
-	// Apply runtime LED pin override from config.
 	if cfg.Device.LedPin != hal.NoPin {
 		board.LED = led.New(cfg.Device.LedPin)
 	}
 
 	board.MCU.PetWatchdog()
+
+	// Blues Notecard
+	notecard, err := tinynote.OpenI2C(tinynote.DefaultI2CAddress, board.I2C.TxFn)
+	if err != nil {
+		initErrs = append(initErrs, err)
+	}
+
+	debug.Log("puid: " + ProductUID)
+	debug.Log("notecard: " + notecard.Identify())
 
 	// Log sinks
 	serialSink := serial.NewSink(board.Serial)
