@@ -15,7 +15,7 @@ import (
 // impact behaviour.
 type SerialSink struct {
 	w   io.Writer
-	buf [128]byte
+	buf [256]byte
 }
 
 // NewSerial creates a SerialSink. If w is nil, all writes are no-ops.

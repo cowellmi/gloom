@@ -2,12 +2,12 @@ package notecard
 
 import (
 	"errors"
+	"strings"
 
 	tinynote "github.com/blues/note-tinygo"
 )
 
-// Requester is the minimal transport interface that notefile uses to
-// send Blues API requests without importing tinynote directly.
+// Requester is the minimal transport interface for Blues API requests.
 type Requester interface {
 	Request(req map[string]any) error
 	RequestResponse(req map[string]any) (map[string]any, error)
@@ -52,4 +52,10 @@ func (d *Device) RequestResponse(req map[string]any) (map[string]any, error) {
 		return nil, errors.New(tinynote.ErrorString(err, rsp))
 	}
 	return rsp, nil
+}
+
+// IsNotFound reports whether err is a Blues "note does not exist" response,
+// used to distinguish an empty Notefile from a real transport failure.
+func IsNotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "note-noexist")
 }

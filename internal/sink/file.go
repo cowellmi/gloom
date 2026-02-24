@@ -1,9 +1,8 @@
 // Package sink provides output drivers for sensor data and log entries.
 //
-// FileSink writes to daily-rotating files on an SD card (or any
-// filesystem exposed via an Opener). CSVRecorder and LogSink wrap any
-// io.Writer with CSV/text formatting. SerialSink writes human-readable
-// lines to a serial io.Writer.
+// RotaryFileSink writes to daily-rotating files on an SD card (or any
+// filesystem exposed via an Opener). SerialSink and NotehubSink write
+// to serial and Blues Notehub respectively.
 package sink
 
 import (
@@ -11,6 +10,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
@@ -26,38 +26,100 @@ type AppendFile interface {
 type Opener func(name string) (AppendFile, error)
 
 // FileSpec describes the naming pattern for a rotating file.
-// FileSink generates filenames as "{Dir}/{YYYYMMDD}{Ext}",
+// RotaryFileSink generates filenames as "{Dir}/{YYYYMMDD}{Ext}",
 // e.g. "GLOOM/20260214.CSV".
 type FileSpec struct {
 	Dir string
 	Ext string
 }
 
-// FileSink writes sensor data as CSV and log entries as text to
-// daily-rotating files. It delegates format logic to internal
-// CSVRecorder and LogSink instances. Each stream self-disables on a
-// write error.
-type FileSink struct {
+// --- internal formatters ---
+
+// csvWriter formats sensor readings as CSV lines to an io.Writer.
+type csvWriter struct {
+	w   io.Writer
+	buf [256]byte
+}
+
+func newCSVWriter(w io.Writer) *csvWriter { return &csvWriter{w: w} }
+
+func (r *csvWriter) record(t time.Time, id string, readings []sensor.Reading) error {
+	for _, rd := range readings {
+		b := r.buf[:0]
+		b = appendTimestamp(b, t)
+		b = fmtbuf.AppendByte(b, ',')
+		b = fmtbuf.Append(b, id)
+		b = fmtbuf.AppendByte(b, ',')
+		b = fmtbuf.Append(b, rd.Label)
+		b = fmtbuf.AppendByte(b, ',')
+		b = fmtbuf.AppendInt(b, int64(rd.Value), 10)
+		b = fmtbuf.AppendByte(b, ',')
+		b = fmtbuf.Append(b, rd.Unit)
+		b = fmtbuf.AppendByte(b, '\n')
+		if _, err := r.w.Write(b); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// logWriter formats log entries as text lines to an io.Writer.
+type logWriter struct {
+	w   io.Writer
+	buf [256]byte
+}
+
+func newLogWriter(w io.Writer) *logWriter { return &logWriter{w: w} }
+
+func (w *logWriter) write(t time.Time, level log.Level, msg string) error {
+	b := w.buf[:0]
+	b = appendTimestamp(b, t)
+	b = fmtbuf.AppendByte(b, ' ')
+	b = log.AppendLevel(b, level)
+	b = fmtbuf.AppendByte(b, ' ')
+	b = fmtbuf.Append(b, msg)
+	b = fmtbuf.AppendByte(b, '\n')
+	_, err := w.w.Write(b)
+	return err
+}
+
+func (w *logWriter) writeBytes(t time.Time, level log.Level, msg []byte) error {
+	b := w.buf[:0]
+	b = appendTimestamp(b, t)
+	b = fmtbuf.AppendByte(b, ' ')
+	b = log.AppendLevel(b, level)
+	b = fmtbuf.AppendByte(b, ' ')
+	b = fmtbuf.AppendBytes(b, msg)
+	b = fmtbuf.AppendByte(b, '\n')
+	_, err := w.w.Write(b)
+	return err
+}
+
+// --- RotaryFileSink ---
+
+// RotaryFileSink writes sensor data as CSV and log entries as text to
+// daily-rotating files. Each stream self-disables on a write error.
+type RotaryFileSink struct {
 	name     string
 	open     Opener
 	dataSpec FileSpec
 	logSpec  FileSpec
 	dataFile AppendFile
 	logFile  AppendFile
-	dataRec  *CSVRecorder
-	logRec   *LogSink
+	dataRec  *csvWriter
+	logRec   *logWriter
 	curDate  uint32 // YYYYMMDD — zero means no file open yet
 }
 
-// NewFileSink creates a FileSink with daily-rotating files. data and
-// logSpec specify the naming patterns for sensor data and log output
-// respectively. An empty Dir in either spec disables that output.
+// NewRotaryFileSink creates a RotaryFileSink with daily-rotating files.
+// data and logSpec specify the naming patterns for sensor data and log
+// output respectively. An empty Dir in either spec disables that stream.
 //
-// The sink opens its initial files eagerly using now as the starting
-// date. Open errors are returned but the sink is still usable — the
-// failing stream is disabled while the other continues.
-func NewFileSink(name string, opener Opener, data, logSpec FileSpec, now time.Time) (*FileSink, error) {
-	s := &FileSink{
+// The sink opens its initial files eagerly using now as the starting date.
+// Open errors are returned but the sink is still usable — the failing
+// stream is disabled while the other continues.
+func NewRotaryFileSink(name string, opener Opener, data, logSpec FileSpec, now time.Time) (*RotaryFileSink, error) {
+	s := &RotaryFileSink{
 		name:     name,
 		open:     opener,
 		dataSpec: data,
@@ -67,17 +129,17 @@ func NewFileSink(name string, opener Opener, data, logSpec FileSpec, now time.Ti
 	return s, err
 }
 
-func (s *FileSink) Name() string { return s.name }
+func (s *RotaryFileSink) Name() string { return s.name }
 
 // Record formats each reading as a CSV row and writes it to the data file.
-func (s *FileSink) Record(t time.Time, id string, readings []sensor.Reading) error {
+func (s *RotaryFileSink) Record(t time.Time, id string, readings []sensor.Reading) error {
 	if s.dataRec == nil {
 		return nil
 	}
 	if err := s.maybeRotate(t); err != nil {
 		return err
 	}
-	if err := s.dataRec.Record(t, id, readings); err != nil {
+	if err := s.dataRec.record(t, id, readings); err != nil {
 		s.dataFile = nil
 		s.dataRec = nil
 		return err
@@ -86,14 +148,14 @@ func (s *FileSink) Record(t time.Time, id string, readings []sensor.Reading) err
 }
 
 // WriteLog formats a log line and writes it to the log file.
-func (s *FileSink) WriteLog(t time.Time, level log.Level, msg string) error {
+func (s *RotaryFileSink) WriteLog(t time.Time, level log.Level, msg string) error {
 	if s.logRec == nil {
 		return nil
 	}
 	if err := s.maybeRotate(t); err != nil {
 		return err
 	}
-	if err := s.logRec.WriteLog(t, level, msg); err != nil {
+	if err := s.logRec.write(t, level, msg); err != nil {
 		s.logFile = nil
 		s.logRec = nil
 		return err
@@ -102,14 +164,14 @@ func (s *FileSink) WriteLog(t time.Time, level log.Level, msg string) error {
 }
 
 // WriteBytes formats a log line from a byte slice and writes it to the log file.
-func (s *FileSink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
+func (s *RotaryFileSink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
 	if s.logRec == nil {
 		return nil
 	}
 	if err := s.maybeRotate(t); err != nil {
 		return err
 	}
-	if err := s.logRec.WriteBytes(t, level, msg); err != nil {
+	if err := s.logRec.writeBytes(t, level, msg); err != nil {
 		s.logFile = nil
 		s.logRec = nil
 		return err
@@ -118,7 +180,7 @@ func (s *FileSink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
 }
 
 // Flush syncs both open files to durable storage.
-func (s *FileSink) Flush() error {
+func (s *RotaryFileSink) Flush() error {
 	var errs []error
 	if s.dataFile != nil {
 		if err := s.dataFile.Sync(); err != nil {
@@ -133,15 +195,14 @@ func (s *FileSink) Flush() error {
 	return errors.Join(errs...)
 }
 
-func (s *FileSink) maybeRotate(t time.Time) error {
-	dk := dateKey(t)
-	if dk == s.curDate {
+func (s *RotaryFileSink) maybeRotate(t time.Time) error {
+	if dateKey(t) == s.curDate {
 		return nil
 	}
 	return s.openForDate(t)
 }
 
-func (s *FileSink) openForDate(t time.Time) error {
+func (s *RotaryFileSink) openForDate(t time.Time) error {
 	var errs []error
 
 	if s.dataFile != nil {
@@ -165,7 +226,7 @@ func (s *FileSink) openForDate(t time.Time) error {
 			errs = append(errs, err)
 		} else {
 			s.dataFile = f
-			s.dataRec = NewCSVRecorder(f)
+			s.dataRec = newCSVWriter(f)
 		}
 	}
 
@@ -175,7 +236,7 @@ func (s *FileSink) openForDate(t time.Time) error {
 			errs = append(errs, err)
 		} else {
 			s.logFile = f
-			s.logRec = NewLogSink(f)
+			s.logRec = newLogWriter(f)
 		}
 	}
 
@@ -206,4 +267,36 @@ func put4(b []byte, n int) {
 	b[1] = byte('0' + (n/100)%10)
 	b[2] = byte('0' + (n/10)%10)
 	b[3] = byte('0' + n%10)
+}
+
+// --- shared ISO timestamp helper (used by csvWriter and NotehubSink) ---
+
+func appendTimestamp(buf []byte, t time.Time) []byte {
+	y, mon, d := t.Date()
+	h, min, sec := t.Clock()
+	buf = append4(buf, y)
+	buf = fmtbuf.AppendByte(buf, '-')
+	buf = append2(buf, int(mon))
+	buf = fmtbuf.AppendByte(buf, '-')
+	buf = append2(buf, d)
+	buf = fmtbuf.AppendByte(buf, 'T')
+	buf = append2(buf, h)
+	buf = fmtbuf.AppendByte(buf, ':')
+	buf = append2(buf, min)
+	buf = fmtbuf.AppendByte(buf, ':')
+	buf = append2(buf, sec)
+	return buf
+}
+
+func append2(buf []byte, n int) []byte {
+	return append(buf, byte('0'+n/10), byte('0'+n%10))
+}
+
+func append4(buf []byte, n int) []byte {
+	return append(buf,
+		byte('0'+n/1000),
+		byte('0'+(n/100)%10),
+		byte('0'+(n/10)%10),
+		byte('0'+n%10),
+	)
 }

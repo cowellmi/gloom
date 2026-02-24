@@ -16,7 +16,6 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/notecard"
-	"github.com/cowellmi/gloom/internal/notefile"
 	"github.com/cowellmi/gloom/internal/rtc/ds3231"
 	"github.com/cowellmi/gloom/internal/rtc/pcf8523"
 	"github.com/cowellmi/gloom/internal/sdcard"
@@ -105,9 +104,9 @@ func main() {
 			if len(cards) == 0 {
 				initWarns = append(initWarns, errors.New("CS "+pin+": "+err.Error()))
 			}
-			continue
+		} else {
+			cards = append(cards, sdEntry{card: c, cs: cs})
 		}
-		cards = append(cards, sdEntry{card: c, cs: cs})
 	}
 
 	var card *sdcard.Card
@@ -122,20 +121,33 @@ func main() {
 	cfg := config.Default(board.LED.Pin(), board.Sensors)
 
 	if nc != nil {
-		debug.Log("notecard: config.db")
-		f, err := notefile.New(nc, "config.db")
-		if err != nil {
-			initErrs = append(initErrs, err)
-		} else {
-			p := make([]byte, 512)
-			n, err := f.Read(p)
-			if err != nil {
-				initErrs = append(initErrs, err)
-			} else {
-				debug.W.Write(p)
-				config.Parse(p[:n], &cfg)
-				f.Close()
+		// config.db stores config as a native JSON object so each key is
+		// editable as a distinct field in the Notehub UI.
+		rsp, rErr := nc.RequestResponse(map[string]any{
+			"req":  "note.get",
+			"file": "config.db",
+			"note": "config",
+		})
+		switch {
+		case rErr == nil:
+			if body, ok := rsp["body"].(map[string]any); ok {
+				if pErr := config.ParseMap(&cfg, body); pErr != nil {
+					initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
+				}
 			}
+		case notecard.IsNotFound(rErr):
+			// No config note yet — write defaults so Notehub can edit them.
+			if _, wErr := nc.RequestResponse(map[string]any{
+				"req":  "note.add",
+				"file": "config.db",
+				"note": "config",
+				"body": cfg.MarshalMap(),
+				"sync": true,
+			}); wErr != nil {
+				initErrs = append(initErrs, errors.New("config.db: "+wErr.Error()))
+			}
+		default:
+			initErrs = append(initErrs, errors.New("config.db: "+rErr.Error()))
 		}
 		board.MCU.PetWatchdog()
 	} else if card != nil {
@@ -175,7 +187,22 @@ func main() {
 		}
 	}
 
-	var sdCardFileSink *sink.FileSink
+	serialSink := sink.NewSerial(board.Serial)
+
+	// Setup log and recorder sinks.
+	logger := log.NewLogger(now)
+
+	// Automatically add serial sink.
+	logger.AddSink(serialSink, log.LevelDebug)
+	recorders := []sensor.Recorder{serialSink}
+
+	if nc != nil {
+		notehubSink := sink.NewNotehubSink(nc, "data.qo", "log.qo")
+		recorders = append(recorders, notehubSink)
+		logger.AddSink(notehubSink, cfg.Blues.LogLevel)
+		board.MCU.PetWatchdog()
+	}
+
 	if card != nil {
 		if err := card.Mkdir("GLOOM"); err != nil {
 			initErrs = append(initErrs, errors.New("sd: "+err.Error()))
@@ -183,7 +210,7 @@ func main() {
 		opener := func(name string) (sink.AppendFile, error) {
 			return card.OpenAppend(name)
 		}
-		sdCardFileSink, err = sink.NewFileSink("sd", opener, sink.FileSpec{
+		sdCardFileSink, err := sink.NewRotaryFileSink("sd", opener, sink.FileSpec{
 			Dir: "GLOOM",
 			Ext: ".CSV",
 		}, sink.FileSpec{
@@ -192,36 +219,10 @@ func main() {
 		}, now)
 		if err != nil {
 			initErrs = append(initErrs, errors.New("file: "+err.Error()))
+		} else {
+			logger.AddSink(sdCardFileSink, cfg.SD.LogLevel)
 		}
 		board.MCU.PetWatchdog()
-	}
-
-	serialSink := sink.NewSerial(board.Serial)
-
-	// Logger and recorders
-	logger := log.NewLogger(now)
-	logger.AddSink(serialSink, log.LevelDebug)
-	recorders := []sensor.Recorder{serialSink}
-
-	if nc != nil {
-		dataFile, err := notefile.New(nc, "data.qo")
-		if err != nil {
-			initErrs = append(initErrs, err)
-		} else {
-			recorders = append(recorders, sink.NewCSVRecorder(dataFile))
-		}
-
-		logFile, err := notefile.New(nc, "log.qo")
-		if err != nil {
-			initErrs = append(initErrs, err)
-		} else {
-			logger.AddSink(sink.NewLogSink(logFile), cfg.Blues.LogLevel)
-		}
-		board.MCU.PetWatchdog()
-	}
-
-	if sdCardFileSink != nil {
-		logger.AddSink(sdCardFileSink, cfg.SD.LogLevel)
 	}
 
 	// Sensors
@@ -236,6 +237,9 @@ func main() {
 		dev, ok := sensorRegistry[id]
 		if ok {
 			sensors = append(sensors, dev)
+		} else {
+			err := errors.New("unkown sensor: " + id)
+			initWarns = append(initWarns, err)
 		}
 	}
 
@@ -284,6 +288,12 @@ func main() {
 		logger.Debug("notecard: " + nc.UID)
 	} else {
 		logger.Debug("notecard: NONE")
+	}
+
+	p, err := cfg.MarshalINI()
+	if err == nil {
+		debug.Log("config:")
+		debug.W.Write(p)
 	}
 
 	var bootBuf [256]byte
