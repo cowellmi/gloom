@@ -105,7 +105,6 @@ func (m *Manager) step() {
 	b := m.buf[:0]
 	b = fmtbuf.Append(b, "wake:")
 	needSensors := false
-	wantLED := false
 
 	if sampleFired {
 		b = fmtbuf.AppendByte(b, ' ')
@@ -117,9 +116,6 @@ func (m *Manager) step() {
 	if hbFired {
 		b = fmtbuf.AppendByte(b, ' ')
 		b = fmtbuf.Append(b, "heartbeat")
-		if m.cfg.Heartbeat.BlinkLED {
-			wantLED = true
-		}
 	}
 
 	if sampleFired || hbFired {
@@ -130,7 +126,7 @@ func (m *Manager) step() {
 		m.sleeper.PowerOnSensorRails()
 	}
 
-	if wantLED && m.blinkLED != nil {
+	if m.cfg.Heartbeat.LedPin != hal.NoPin && m.blinkLED != nil {
 		m.blinkLED()
 	}
 

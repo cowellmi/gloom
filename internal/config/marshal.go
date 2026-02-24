@@ -17,50 +17,33 @@ func (c *Config) Marshal() ([]byte, error) {
 
 	buf = append(buf, "# See example.config.ini for full documentation.\n"...)
 
-	// Device keys
-	if len(c.Device.LogSinks) > 0 {
-		buf = append(buf, "log_sinks = "...)
-		for i, s := range c.Device.LogSinks {
-			if i > 0 {
-				buf = append(buf, ", "...)
-			}
-			buf = append(buf, s.Name...)
-			buf = append(buf, ':')
-			ls, err := levelString(s.Level)
-			if err != nil {
-				return nil, err
-			}
-			buf = append(buf, ls...)
-		}
-		buf = append(buf, '\n')
+	// SD
+	sdLvl, err := levelString(c.SD.LogLevel)
+	if err != nil {
+		return nil, err
 	}
+	buf = append(buf, "sd_log_level = "...)
+	buf = append(buf, sdLvl...)
+	buf = append(buf, '\n')
 
-	if len(c.Device.DataSinks) > 0 {
-		buf = append(buf, "data_sinks = "...)
-		for i, s := range c.Device.DataSinks {
-			if i > 0 {
-				buf = append(buf, ", "...)
-			}
-			buf = append(buf, s...)
-		}
-		buf = append(buf, '\n')
+	// Blues
+	bluesLvl, err := levelString(c.Blues.LogLevel)
+	if err != nil {
+		return nil, err
 	}
+	buf = append(buf, "blues_log_level = "...)
+	buf = append(buf, bluesLvl...)
+	buf = append(buf, '\n')
 
-	if c.Device.LedPin != hal.NoPin {
-		buf = append(buf, "led_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(c.Device.LedPin), 10)
-		buf = append(buf, '\n')
-	}
-
-	// Sample keys
+	// Sample
 	if c.Sample.Interval > 0 {
-		buf = append(buf, "interval = "...)
+		buf = append(buf, "sample_interval = "...)
 		buf = appendDuration(buf, c.Sample.Interval)
 		buf = append(buf, '\n')
 	}
 
 	if len(c.Sample.Sensors) > 0 {
-		buf = append(buf, "sensors = "...)
+		buf = append(buf, "sample_sensors = "...)
 		for i, s := range c.Sample.Sensors {
 			if i > 0 {
 				buf = append(buf, ", "...)
@@ -71,20 +54,20 @@ func (c *Config) Marshal() ([]byte, error) {
 	}
 
 	if c.Sample.ExtPin != hal.NoPin {
-		buf = append(buf, "ext_pin = "...)
+		buf = append(buf, "sample_ext_pin = "...)
 		buf = strconv.AppendUint(buf, uint64(c.Sample.ExtPin), 10)
 		buf = append(buf, '\n')
 	}
 
-	// Heartbeat keys
+	// Heartbeat
 	if c.Heartbeat.Interval > 0 {
-		buf = append(buf, "heartbeat = "...)
+		buf = append(buf, "heartbeat_interval = "...)
 		buf = appendDuration(buf, c.Heartbeat.Interval)
 		buf = append(buf, '\n')
 	}
 
 	if c.Heartbeat.Payload != PayloadNone {
-		buf = append(buf, "payload = "...)
+		buf = append(buf, "heartbeat_payload = "...)
 		ps, err := payloadString(c.Heartbeat.Payload)
 		if err != nil {
 			return nil, err
@@ -93,8 +76,10 @@ func (c *Config) Marshal() ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if c.Heartbeat.BlinkLED {
-		buf = append(buf, "blink_led = true\n"...)
+	if c.Heartbeat.LedPin != hal.NoPin {
+		buf = append(buf, "heartbeat_led_pin = "...)
+		buf = strconv.AppendUint(buf, uint64(c.Heartbeat.LedPin), 10)
+		buf = append(buf, '\n')
 	}
 
 	return buf, nil
@@ -148,42 +133,18 @@ func payloadString(p Payload) (string, error) {
 	}
 }
 
+// MarshalMap serializes the Config to a map suitable for a Notecard env.update body.
 func (c *Config) MarshalMap() map[string]interface{} {
 	m := make(map[string]interface{})
 
-	if len(c.Device.LogSinks) > 0 {
-		var s string
-		for i, ls := range c.Device.LogSinks {
-			if i > 0 {
-				s += ", "
-			}
-			s += ls.Name
-			s += ":"
-			lvl, _ := levelString(ls.Level)
-			s += lvl
-		}
-		m["log_sinks"] = s
-	}
+	sdLvl, _ := levelString(c.SD.LogLevel)
+	m["sd_log_level"] = sdLvl
 
-	if len(c.Device.DataSinks) > 0 {
-		var s string
-		for i, ds := range c.Device.DataSinks {
-			if i > 0 {
-				s += ", "
-			}
-			s += ds
-		}
-		m["data_sinks"] = s
-	}
-
-	if c.Device.LedPin != hal.NoPin {
-		m["led_pin"] = strconv.FormatUint(uint64(c.Device.LedPin), 10)
-	} else {
-		m["led_pin"] = "none"
-	}
+	bluesLvl, _ := levelString(c.Blues.LogLevel)
+	m["blues_log_level"] = bluesLvl
 
 	if c.Sample.Interval > 0 {
-		m["interval"] = durationString(c.Sample.Interval)
+		m["sample_interval"] = durationString(c.Sample.Interval)
 	}
 
 	if len(c.Sample.Sensors) > 0 {
@@ -194,25 +155,29 @@ func (c *Config) MarshalMap() map[string]interface{} {
 			}
 			s += sensor
 		}
-		m["sensors"] = s
+		m["sample_sensors"] = s
 	}
 
 	if c.Sample.ExtPin != hal.NoPin {
-		m["ext_pin"] = strconv.FormatUint(uint64(c.Sample.ExtPin), 10)
+		m["sample_ext_pin"] = strconv.FormatUint(uint64(c.Sample.ExtPin), 10)
 	} else {
-		m["ext_pin"] = "none"
+		m["sample_ext_pin"] = "none"
 	}
 
 	if c.Heartbeat.Interval > 0 {
-		m["heartbeat"] = durationString(c.Heartbeat.Interval)
+		m["heartbeat_interval"] = durationString(c.Heartbeat.Interval)
 	}
 
 	if c.Heartbeat.Payload != PayloadNone {
 		ps, _ := payloadString(c.Heartbeat.Payload)
-		m["payload"] = ps
+		m["heartbeat_payload"] = ps
 	}
 
-	m["blink_led"] = c.Heartbeat.BlinkLED
+	if c.Heartbeat.LedPin != hal.NoPin {
+		m["heartbeat_led_pin"] = strconv.FormatUint(uint64(c.Heartbeat.LedPin), 10)
+	} else {
+		m["heartbeat_led_pin"] = "none"
+	}
 
 	return m
 }

@@ -453,7 +453,7 @@ func TestStep_LEDOnBlinkLED(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Heartbeat: config.Heartbeat{Interval: 5 * time.Second, BlinkLED: true}}
+	cfg := config.Config{Heartbeat: config.Heartbeat{Interval: 5 * time.Second, LedPin: hal.Pin(16)}}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	man.SetBlinkLED(func() { blinked = true })
 	man.step()
@@ -463,20 +463,20 @@ func TestStep_LEDOnBlinkLED(t *testing.T) {
 	}
 }
 
-func TestStep_NoLEDWhenBlinkLEDFalse(t *testing.T) {
+func TestStep_NoLEDWhenLedPinNone(t *testing.T) {
 	var blinked bool
 
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{Heartbeat: config.Heartbeat{Interval: 5 * time.Second, BlinkLED: false}}
+	cfg := config.Config{Heartbeat: config.Heartbeat{Interval: 5 * time.Second, LedPin: hal.NoPin}}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	man.SetBlinkLED(func() { blinked = true })
 	man.step()
 
 	if blinked {
-		t.Error("blinkLED should not be called when BlinkLED is false")
+		t.Error("blinkLED should not be called when LedPin is NoPin")
 	}
 }
 
@@ -487,8 +487,8 @@ func TestStep_NoLEDWhenHeartbeatDisabled(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T),
 	}
 
-	// Heartbeat disabled (Interval=0) — never fires — no blink regardless of BlinkLED.
-	cfg := config.Config{Heartbeat: config.Heartbeat{BlinkLED: true}}
+	// Heartbeat disabled (Interval=0) — never fires — no blink regardless of LedPin.
+	cfg := config.Config{Heartbeat: config.Heartbeat{LedPin: hal.Pin(16)}}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	man.SetBlinkLED(func() { blinked = true })
 	man.step()

@@ -50,8 +50,10 @@ type Config struct {
 	Heartbeat Heartbeat
 }
 
-// Default returns a Config with debug-friendly defaults.
-// Sample is enabled with a 5s interval; heartbeat is disabled.
+// Default returns a Config seeded with board-supplied hardware defaults.
+// ledPin is the board's LED pin (use hal.NoPin if absent).
+// sensors is the board's default sensor list (may be nil).
+// Sample is enabled with a 9s interval; heartbeat is enabled with a 3s interval.
 func Default(ledPin hal.Pin, sensors []string) Config {
 	return Config{
 		SD: SD{
@@ -137,59 +139,69 @@ func ParseMap(cfg *Config, body map[string]interface{}) error {
 }
 
 // parseKey dispatches a single key/value pair into cfg.
-// v must be a string for all keys except blink_led, which also accepts bool.
+// v must be a string for all keys.
 // Called by Parse (v is always string) and ParseMap (v may be a native type).
 func parseKey(cfg *Config, key string, v interface{}) error {
+	// Skip Notehub-internal keys.
+	if strings.HasPrefix(key, "_") {
+		return nil
+	}
+
 	value, ok := v.(string)
 	if !ok {
 		return errors.New(key + ": expected string")
 	}
 
+	// Skip empty values (unset Notehub env vars).
+	if value == "" {
+		return nil
+	}
+
 	switch key {
-	case "log_sinks":
-		sinks, err := parseLogSinks(value)
+	case "sd_log_level":
+		level, err := parseLevel(value)
 		if err != nil {
 			return err
 		}
-		cfg.Device.LogSinks = sinks
-	case "data_sinks":
-		names, err := parseDataSinks(value)
+		cfg.SD.LogLevel = level
+	case "blues_log_level":
+		level, err := parseLevel(value)
 		if err != nil {
 			return err
 		}
-		cfg.Device.DataSinks = names
-	case "led_pin":
-		pin, err := parsePin(key, value)
-		if err != nil {
-			return err
-		}
-		cfg.Device.LedPin = pin
-	case "interval":
+		cfg.Blues.LogLevel = level
+	case "sample_interval":
 		d, err := parseDuration(key, value)
 		if err != nil {
 			return err
 		}
 		cfg.Sample.Interval = d
-	case "sensors":
+	case "sample_sensors":
 		cfg.Sample.Sensors = parseStringList(value)
-	case "ext_pin":
+	case "sample_ext_pin":
 		pin, err := parsePin(key, value)
 		if err != nil {
 			return err
 		}
 		cfg.Sample.ExtPin = pin
-	case "heartbeat":
+	case "heartbeat_interval":
 		d, err := parseDuration(key, value)
 		if err != nil {
 			return err
 		}
 		cfg.Heartbeat.Interval = d
-	case "payload":
+	case "heartbeat_payload":
 		p, err := parsePayload(value)
 		if err != nil {
 			return err
 		}
 		cfg.Heartbeat.Payload = p
+	case "heartbeat_led_pin":
+		pin, err := parsePin(key, value)
+		if err != nil {
+			return err
+		}
+		cfg.Heartbeat.LedPin = pin
 	default:
 		return errors.New("unknown key: " + key)
 	}
@@ -198,63 +210,12 @@ func parseKey(cfg *Config, key string, v interface{}) error {
 
 func validateSample(s *Sample) error {
 	if s.Interval <= 0 && s.ExtPin == hal.NoPin {
-		return errors.New("sample: must have interval or ext_pin")
+		return errors.New("sample: must have sample_interval or sample_ext_pin")
 	}
 	return nil
 }
 
 // --- parse helpers ---
-
-var knownSinks = []string{"sd"}
-
-func validSinkName(name string) bool {
-	for _, s := range knownSinks {
-		if s == name {
-			return true
-		}
-	}
-	return false
-}
-
-func parseLogSinks(value string) ([]LogSinkEntry, error) {
-	var sinks []LogSinkEntry
-	for _, p := range strings.Split(value, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		name, levelStr, hasLevel := strings.Cut(p, ":")
-		name = strings.TrimSpace(name)
-		if !validSinkName(name) {
-			return nil, errors.New("unknown log sink: " + name)
-		}
-		level := log.LevelDebug
-		if hasLevel {
-			var err error
-			level, err = parseLevel(strings.TrimSpace(levelStr))
-			if err != nil {
-				return nil, err
-			}
-		}
-		sinks = append(sinks, LogSinkEntry{Name: name, Level: level})
-	}
-	return sinks, nil
-}
-
-func parseDataSinks(value string) ([]string, error) {
-	var sinks []string
-	for _, p := range strings.Split(value, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if !validSinkName(p) {
-			return nil, errors.New("unknown data sink: " + p)
-		}
-		sinks = append(sinks, p)
-	}
-	return sinks, nil
-}
 
 func parseLevel(s string) (log.Level, error) {
 	switch s {
@@ -294,15 +255,6 @@ func parseStringList(value string) []string {
 		result = append(result, p)
 	}
 	return result
-}
-
-func parseBool(value string) bool {
-	switch strings.ToLower(value) {
-	case "true", "yes", "1":
-		return true
-	default:
-		return false
-	}
 }
 
 func parseDuration(key, value string) (time.Duration, error) {

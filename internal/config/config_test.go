@@ -9,26 +9,28 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 )
 
+// testDefault returns a Default config with the standard test board values.
+func testDefault() Config {
+	return Default(hal.Pin(13), []string{"vbat"})
+}
+
 // --- Default ---
 
 func TestDefault(t *testing.T) {
-	cfg := Default()
+	cfg := testDefault()
 
-	if len(cfg.Device.LogSinks) != 0 {
-		t.Errorf("LogSinks = %v, want empty", cfg.Device.LogSinks)
+	if cfg.SD.LogLevel != log.LevelDebug {
+		t.Errorf("SD.LogLevel = %d, want LevelDebug", cfg.SD.LogLevel)
 	}
-	if len(cfg.Device.DataSinks) != 0 {
-		t.Errorf("DataSinks = %v, want empty", cfg.Device.DataSinks)
-	}
-	if cfg.Device.LedPin != hal.NoPin {
-		t.Errorf("LedPin = %d, want NoPin", cfg.Device.LedPin)
+	if cfg.Blues.LogLevel != log.LevelInfo {
+		t.Errorf("Blues.LogLevel = %d, want LevelInfo", cfg.Blues.LogLevel)
 	}
 
 	if cfg.Sample.Interval != 9*time.Second {
 		t.Errorf("Sample.Interval = %v, want 9s", cfg.Sample.Interval)
 	}
 	if len(cfg.Sample.Sensors) != 1 || cfg.Sample.Sensors[0] != "vbat" {
-		t.Errorf("Sample.Sensors = %v, want [vbat]", cfg.Sample.Sensors)
+		t.Errorf("Sample.Sensors = %v, want [vbat] (board-supplied)", cfg.Sample.Sensors)
 	}
 	if cfg.Sample.ExtPin != hal.NoPin {
 		t.Errorf("Sample.ExtPin = %d, want NoPin", cfg.Sample.ExtPin)
@@ -37,54 +39,37 @@ func TestDefault(t *testing.T) {
 	if cfg.Heartbeat.Interval != 3*time.Second {
 		t.Errorf("Heartbeat.Interval = %v, want 3s", cfg.Heartbeat.Interval)
 	}
-	if !cfg.Heartbeat.BlinkLED {
-		t.Error("Heartbeat.BlinkLED = false, want true")
+	if cfg.Heartbeat.Payload != PayloadNone {
+		t.Errorf("Heartbeat.Payload = %d, want PayloadNone", cfg.Heartbeat.Payload)
+	}
+	if cfg.Heartbeat.LedPin != hal.Pin(13) {
+		t.Errorf("Heartbeat.LedPin = %d, want 13 (board-supplied)", cfg.Heartbeat.LedPin)
 	}
 }
 
-// --- Device keys ---
+// --- SD / Blues log level keys ---
 
-func TestParse_DeviceKeys(t *testing.T) {
+func TestParse_LogLevels(t *testing.T) {
 	input := []byte(`
-log_sinks = sd:error
-data_sinks = sd
-led_pin = 13
+sd_log_level = error
+blues_log_level = warn
+sample_interval = 9s
 `)
-	cfg := Default()
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
-
-	if len(cfg.Device.LogSinks) != 1 {
-		t.Fatalf("LogSinks = %v, want 1", cfg.Device.LogSinks)
+	if cfg.SD.LogLevel != log.LevelError {
+		t.Errorf("SD.LogLevel = %d, want LevelError", cfg.SD.LogLevel)
 	}
-	if cfg.Device.LogSinks[0].Name != "sd" || cfg.Device.LogSinks[0].Level != log.LevelError {
-		t.Errorf("LogSinks[0] = %+v, want sd:error", cfg.Device.LogSinks[0])
-	}
-	if len(cfg.Device.DataSinks) != 1 || cfg.Device.DataSinks[0] != "sd" {
-		t.Errorf("DataSinks = %v, want [sd]", cfg.Device.DataSinks)
-	}
-	if cfg.Device.LedPin != hal.Pin(13) {
-		t.Errorf("LedPin = %d, want 13", cfg.Device.LedPin)
+	if cfg.Blues.LogLevel != log.LevelWarn {
+		t.Errorf("Blues.LogLevel = %d, want LevelWarn", cfg.Blues.LogLevel)
 	}
 }
 
-func TestParse_LogSinksDefaultLevel(t *testing.T) {
-	input := []byte("log_sinks = sd\n")
-	cfg := Default()
-	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-	for _, s := range cfg.Device.LogSinks {
-		if s.Level != log.LevelDebug {
-			t.Errorf("LogSink %q level = %d, want LevelDebug", s.Name, s.Level)
-		}
-	}
-}
-
-func TestParse_LogSinksInvalidLevel(t *testing.T) {
-	input := []byte("log_sinks = sd:verbose\n")
-	cfg := Default()
+func TestParse_LogLevelInvalid(t *testing.T) {
+	input := []byte("sd_log_level = verbose\nsample_interval = 9s\n")
+	cfg := testDefault()
 	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid log level, got nil")
@@ -97,8 +82,8 @@ func TestParse_LogSinksInvalidLevel(t *testing.T) {
 // --- Sample keys ---
 
 func TestParse_SampleInterval(t *testing.T) {
-	input := []byte("interval = 5m\n")
-	cfg := Default()
+	input := []byte("sample_interval = 5m\n")
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
@@ -108,8 +93,8 @@ func TestParse_SampleInterval(t *testing.T) {
 }
 
 func TestParse_SampleSensors(t *testing.T) {
-	input := []byte("sensors = vbat, temp\n")
-	cfg := Default()
+	input := []byte("sample_sensors = vbat, temp\nsample_interval = 9s\n")
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
@@ -119,8 +104,8 @@ func TestParse_SampleSensors(t *testing.T) {
 }
 
 func TestParse_SampleExtPin(t *testing.T) {
-	// ext_pin alone (no interval) satisfies validation.
-	input := []byte("ext_pin = 7\nsensors = rain\n")
+	// sample_ext_pin alone (no interval) satisfies validation.
+	input := []byte("sample_ext_pin = 7\nsample_sensors = rain\n")
 	cfg := Config{Sample: Sample{ExtPin: hal.NoPin}}
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
@@ -134,8 +119,8 @@ func TestParse_SampleExtPin(t *testing.T) {
 }
 
 func TestParse_SampleBothTriggers(t *testing.T) {
-	input := []byte("interval = 5m\next_pin = 7\nsensors = rain\n")
-	cfg := Default()
+	input := []byte("sample_interval = 5m\nsample_ext_pin = 7\nsample_sensors = rain\n")
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
@@ -151,11 +136,12 @@ func TestParse_SampleBothTriggers(t *testing.T) {
 
 func TestParse_HeartbeatKeys(t *testing.T) {
 	input := []byte(`
-heartbeat = 2m
-payload = min
-blink_led = true
+sample_interval = 9s
+heartbeat_interval = 2m
+heartbeat_payload = min
+heartbeat_led_pin = 16
 `)
-	cfg := Default()
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
@@ -165,15 +151,15 @@ blink_led = true
 	if cfg.Heartbeat.Payload != PayloadMin {
 		t.Errorf("Heartbeat.Payload = %d, want PayloadMin", cfg.Heartbeat.Payload)
 	}
-	if !cfg.Heartbeat.BlinkLED {
-		t.Error("Heartbeat.BlinkLED = false, want true")
+	if cfg.Heartbeat.LedPin != hal.Pin(16) {
+		t.Errorf("Heartbeat.LedPin = %d, want 16", cfg.Heartbeat.LedPin)
 	}
 }
 
 func TestParse_HeartbeatDisabledByConfig(t *testing.T) {
-	// Explicitly setting heartbeat = 0s disables it even when Default has it enabled.
-	input := []byte("heartbeat = 0s\n")
-	cfg := Default()
+	// Explicitly setting heartbeat_interval = 0s disables it even when Default has it enabled.
+	input := []byte("sample_interval = 9s\nheartbeat_interval = 0s\n")
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
@@ -182,25 +168,15 @@ func TestParse_HeartbeatDisabledByConfig(t *testing.T) {
 	}
 }
 
-func TestParse_BlinkLED(t *testing.T) {
-	for _, val := range []string{"true", "True", "TRUE", "yes", "1"} {
-		input := []byte("blink_led = " + val)
-		cfg := Default()
-		if err := Parse(input, &cfg); err != nil {
-			t.Fatalf("Parse(blink_led=%s) error: %v", val, err)
-		}
-		if !cfg.Heartbeat.BlinkLED {
-			t.Errorf("blink_led = %s: want true", val)
-		}
-	}
-
-	input := []byte("blink_led = false")
-	cfg := Default()
+func TestParse_HeartbeatLedPinNone(t *testing.T) {
+	input := []byte("sample_interval = 9s\nheartbeat_led_pin = none\n")
+	cfg := testDefault()
+	cfg.Heartbeat.LedPin = hal.Pin(13)
 	if err := Parse(input, &cfg); err != nil {
-		t.Fatalf("Parse(blink_led=false) error: %v", err)
+		t.Fatalf("Parse() error: %v", err)
 	}
-	if cfg.Heartbeat.BlinkLED {
-		t.Error("blink_led = false: want false")
+	if cfg.Heartbeat.LedPin != hal.NoPin {
+		t.Errorf("Heartbeat.LedPin = %d, want NoPin", cfg.Heartbeat.LedPin)
 	}
 }
 
@@ -208,23 +184,25 @@ func TestParse_BlinkLED(t *testing.T) {
 
 func TestParseMap_AllKeys(t *testing.T) {
 	body := map[string]interface{}{
-		"log_sinks":  "sd:warn",
-		"data_sinks": "sd",
-		"led_pin":    "13",
-		"interval":   "5m",
-		"sensors":    "vbat,temp",
-		"ext_pin":    "7",
-		"heartbeat":  "1h",
-		"payload":    "full",
-		"blink_led":  true, // native bool from Notecard JSON decoder
+		"sd_log_level":       "warn",
+		"blues_log_level":    "error",
+		"sample_interval":    "5m",
+		"sample_sensors":     "vbat,temp",
+		"sample_ext_pin":     "7",
+		"heartbeat_interval": "1h",
+		"heartbeat_payload":  "full",
+		"heartbeat_led_pin":  "16",
 	}
-	cfg := Default()
+	cfg := testDefault()
 	if err := ParseMap(&cfg, body); err != nil {
 		t.Fatalf("ParseMap() error: %v", err)
 	}
 
-	if cfg.Device.LedPin != hal.Pin(13) {
-		t.Errorf("LedPin = %d, want 13", cfg.Device.LedPin)
+	if cfg.SD.LogLevel != log.LevelWarn {
+		t.Errorf("SD.LogLevel = %d, want LevelWarn", cfg.SD.LogLevel)
+	}
+	if cfg.Blues.LogLevel != log.LevelError {
+		t.Errorf("Blues.LogLevel = %d, want LevelError", cfg.Blues.LogLevel)
 	}
 	if cfg.Sample.Interval != 5*time.Minute {
 		t.Errorf("Sample.Interval = %v, want 5m", cfg.Sample.Interval)
@@ -238,13 +216,28 @@ func TestParseMap_AllKeys(t *testing.T) {
 	if cfg.Heartbeat.Payload != PayloadFull {
 		t.Errorf("Heartbeat.Payload = %d, want PayloadFull", cfg.Heartbeat.Payload)
 	}
-	if !cfg.Heartbeat.BlinkLED {
-		t.Error("Heartbeat.BlinkLED = false, want true")
+	if cfg.Heartbeat.LedPin != hal.Pin(16) {
+		t.Errorf("Heartbeat.LedPin = %d, want 16", cfg.Heartbeat.LedPin)
 	}
 }
+
+func TestParseMap_NotehubInternalKeysSkipped(t *testing.T) {
+	body := map[string]interface{}{
+		"_tri_mins":          "60",
+		"sample_interval":    "5m",
+	}
+	cfg := testDefault()
+	if err := ParseMap(&cfg, body); err != nil {
+		t.Fatalf("ParseMap() error: %v", err)
+	}
+	if cfg.Sample.Interval != 5*time.Minute {
+		t.Errorf("Sample.Interval = %v, want 5m", cfg.Sample.Interval)
+	}
+}
+
 func TestParseMap_UnknownKey(t *testing.T) {
 	body := map[string]interface{}{"bad_key": "x"}
-	cfg := Default()
+	cfg := testDefault()
 	err := ParseMap(&cfg, body)
 	if err == nil {
 		t.Fatal("expected error for unknown key, got nil")
@@ -257,8 +250,8 @@ func TestParseMap_UnknownKey(t *testing.T) {
 // --- Inline comments ---
 
 func TestParse_InlineComments(t *testing.T) {
-	input := []byte("interval = 5m # every five minutes\n")
-	cfg := Default()
+	input := []byte("sample_interval = 5m # every five minutes\n")
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
@@ -268,8 +261,8 @@ func TestParse_InlineComments(t *testing.T) {
 }
 
 func TestParse_PayloadInlineComment(t *testing.T) {
-	input := []byte("heartbeat = 1h\npayload = full # none | full | min\n")
-	cfg := Default()
+	input := []byte("heartbeat_interval = 1h\nheartbeat_payload = full # none | full | min\n")
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
@@ -285,18 +278,18 @@ func TestParse_CommentsAndBlanks(t *testing.T) {
 # This is a comment
 
 # Another comment
-log_sinks = sd
+sd_log_level = warn
 
-interval = 3s
-sensors = vbat
+sample_interval = 3s
+sample_sensors = vbat
 `)
-	cfg := Default()
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 
-	if len(cfg.Device.LogSinks) != 1 || cfg.Device.LogSinks[0].Name != "sd" {
-		t.Errorf("LogSinks = %v, want [sd]", cfg.Device.LogSinks)
+	if cfg.SD.LogLevel != log.LevelWarn {
+		t.Errorf("SD.LogLevel = %d, want LevelWarn", cfg.SD.LogLevel)
 	}
 	if cfg.Sample.Interval != 3*time.Second {
 		t.Errorf("Interval = %v, want 3s", cfg.Sample.Interval)
@@ -304,7 +297,7 @@ sensors = vbat
 }
 
 func TestParse_EmptyInput(t *testing.T) {
-	cfg := Default()
+	cfg := testDefault()
 	if err := Parse([]byte(""), &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
@@ -321,13 +314,13 @@ func TestParse_EmptyInput(t *testing.T) {
 
 func TestParse_ValidationMissingTrigger(t *testing.T) {
 	// No interval, no ext_pin → validation fails.
-	input := []byte("sensors = vbat\n")
+	input := []byte("sample_sensors = vbat\n")
 	cfg := Config{Sample: Sample{ExtPin: hal.NoPin}}
 	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for sample without interval or ext_pin, got nil")
 	}
-	if !strings.Contains(err.Error(), "must have interval or ext_pin") {
+	if !strings.Contains(err.Error(), "must have sample_interval or sample_ext_pin") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -335,16 +328,16 @@ func TestParse_ValidationMissingTrigger(t *testing.T) {
 // --- Error handling ---
 
 func TestParse_InvalidDuration(t *testing.T) {
-	input := []byte("interval = bad\n")
-	cfg := Default()
+	input := []byte("sample_interval = bad\n")
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err == nil {
 		t.Fatal("expected error for invalid duration, got nil")
 	}
 }
 
 func TestParse_NegativeDuration(t *testing.T) {
-	input := []byte("interval = -5s\n")
-	cfg := Default()
+	input := []byte("sample_interval = -5s\n")
+	cfg := testDefault()
 	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for negative duration, got nil")
@@ -355,24 +348,24 @@ func TestParse_NegativeDuration(t *testing.T) {
 }
 
 func TestParse_InvalidPin(t *testing.T) {
-	input := []byte("ext_pin = abc\n")
-	cfg := Default()
+	input := []byte("sample_ext_pin = abc\nsample_interval = 9s\n")
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err == nil {
 		t.Fatal("expected error for invalid pin, got nil")
 	}
 }
 
 func TestParse_PinOverflow(t *testing.T) {
-	input := []byte("ext_pin = 256\n")
-	cfg := Default()
+	input := []byte("sample_ext_pin = 256\nsample_interval = 9s\n")
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err == nil {
 		t.Fatal("expected error for pin overflow, got nil")
 	}
 }
 
 func TestParse_UnknownPayload(t *testing.T) {
-	input := []byte("payload = mega\n")
-	cfg := Default()
+	input := []byte("heartbeat_payload = mega\nsample_interval = 9s\n")
+	cfg := testDefault()
 	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown payload, got nil")
@@ -383,8 +376,8 @@ func TestParse_UnknownPayload(t *testing.T) {
 }
 
 func TestParse_UnknownKey(t *testing.T) {
-	input := []byte("bad_key = x\n")
-	cfg := Default()
+	input := []byte("bad_key = x\nsample_interval = 9s\n")
+	cfg := testDefault()
 	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown key, got nil")
@@ -396,7 +389,7 @@ func TestParse_UnknownKey(t *testing.T) {
 
 func TestParse_MultipleErrors(t *testing.T) {
 	input := []byte("bad_key1 = x\nbad_key2 = y\n")
-	cfg := Default()
+	cfg := testDefault()
 	err := Parse(input, &cfg)
 	if err == nil {
 		t.Fatal("expected errors, got nil")
@@ -422,8 +415,8 @@ func TestParse_PayloadVariants(t *testing.T) {
 		{"full", PayloadFull},
 	}
 	for _, tt := range tests {
-		input := []byte("heartbeat = 1h\npayload = " + tt.value + "\n")
-		cfg := Default()
+		input := []byte("heartbeat_interval = 1h\nheartbeat_payload = " + tt.value + "\nsample_interval = 9s\n")
+		cfg := testDefault()
 		if err := Parse(input, &cfg); err != nil {
 			t.Fatalf("Parse(payload=%s) error: %v", tt.value, err)
 		}
@@ -438,35 +431,29 @@ func TestParse_PayloadVariants(t *testing.T) {
 func TestParse_FullExample(t *testing.T) {
 	input := []byte(`
 # Full flat config example
-log_sinks = sd:error
-data_sinks = sd
-led_pin = 13
+sd_log_level = error
+blues_log_level = warn
 
-interval = 1m
-sensors = temperature, humidity
-ext_pin = 7
+sample_interval = 1m
+sample_sensors = temperature, humidity
+sample_ext_pin = 7
 
-heartbeat = 1h
-payload = full
-blink_led = true
+heartbeat_interval = 1h
+heartbeat_payload = full
+heartbeat_led_pin = 16
 `)
-	cfg := Default()
+	cfg := testDefault()
 	if err := Parse(input, &cfg); err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
 
-	// Device
-	if len(cfg.Device.LogSinks) != 1 || cfg.Device.LogSinks[0].Level != log.LevelError {
-		t.Errorf("LogSinks = %v", cfg.Device.LogSinks)
+	if cfg.SD.LogLevel != log.LevelError {
+		t.Errorf("SD.LogLevel = %d, want LevelError", cfg.SD.LogLevel)
 	}
-	if len(cfg.Device.DataSinks) != 1 || cfg.Device.DataSinks[0] != "sd" {
-		t.Errorf("DataSinks = %v", cfg.Device.DataSinks)
-	}
-	if cfg.Device.LedPin != hal.Pin(13) {
-		t.Errorf("LedPin = %d, want 13", cfg.Device.LedPin)
+	if cfg.Blues.LogLevel != log.LevelWarn {
+		t.Errorf("Blues.LogLevel = %d, want LevelWarn", cfg.Blues.LogLevel)
 	}
 
-	// Sample
 	if cfg.Sample.Interval != time.Minute {
 		t.Errorf("Sample.Interval = %v, want 1m", cfg.Sample.Interval)
 	}
@@ -477,14 +464,13 @@ blink_led = true
 		t.Errorf("Sample.ExtPin = %d, want 7", cfg.Sample.ExtPin)
 	}
 
-	// Heartbeat
 	if cfg.Heartbeat.Interval != time.Hour {
 		t.Errorf("Heartbeat.Interval = %v, want 1h", cfg.Heartbeat.Interval)
 	}
 	if cfg.Heartbeat.Payload != PayloadFull {
 		t.Errorf("Heartbeat.Payload = %d, want PayloadFull", cfg.Heartbeat.Payload)
 	}
-	if !cfg.Heartbeat.BlinkLED {
-		t.Error("Heartbeat.BlinkLED = false, want true")
+	if cfg.Heartbeat.LedPin != hal.Pin(16) {
+		t.Errorf("Heartbeat.LedPin = %d, want 16", cfg.Heartbeat.LedPin)
 	}
 }
