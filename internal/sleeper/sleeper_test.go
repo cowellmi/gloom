@@ -54,9 +54,11 @@ type mockRTC struct {
 	timeIdx    int
 	setWakes   []time.Time
 	clearCount int
+	noAlarm    bool // if true, HasAlarm() returns false
 }
 
 func (m *mockRTC) Identifier() string { return "mock-rtc" }
+func (m *mockRTC) HasAlarm() bool     { return !m.noAlarm }
 
 func (m *mockRTC) ReadTime() (time.Time, error) {
 	if m.timeIdx >= len(m.times) {
@@ -239,7 +241,7 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 func TestSleep_ZeroTarget_HasExtPins_DeepSleeps(t *testing.T) {
 	mcu := &mockMCU{}
 	// Use nil RTC so no RTC alarm is set; deep sleep driven by ext pin only.
-	s := New(mcu, nil, nil, []hal.Pin{7})
+	s := New(mcu, nil, &mockRails{}, []hal.Pin{7})
 
 	// Sleep with zero target: external-interrupt-only deep sleep.
 	// In the test the mock Standby() returns immediately.
@@ -259,7 +261,7 @@ func TestSleep_InsufficientRemaining_NoDeepSleep(t *testing.T) {
 	}
 	// 10ms remaining — less than minDeepSleep (2s) → idle sleep, not deep sleep.
 	target := T.Add(10 * time.Millisecond)
-	s := New(mcu, rtc, nil, []hal.Pin{12})
+	s := New(mcu, rtc, &mockRails{}, []hal.Pin{12})
 
 	s.Sleep(target)
 
@@ -311,6 +313,26 @@ func TestSleep_DeepSleepFallbackToIdle(t *testing.T) {
 	}
 }
 
+// --- HasAlarm tests ---
+
+func TestSleep_NoAlarmRTC_SkipsDeepSleep(t *testing.T) {
+	rtc := &mockRTC{
+		noAlarm: true,
+		times:   []time.Time{T, T.Add(11 * time.Second)},
+	}
+	mcu := &mockMCU{}
+	s := New(mcu, rtc, &mockRails{}, []hal.Pin{12})
+
+	s.Sleep(T.Add(10 * time.Second))
+
+	if callIndex(mcu.calls, "Standby") >= 0 {
+		t.Error("Standby should not be called when RTC has no alarm support")
+	}
+	if len(rtc.setWakes) > 0 {
+		t.Error("SetAlarm should not be called when HasAlarm is false")
+	}
+}
+
 // --- Sleep return value test ---
 
 func TestSleep_ReturnsWakeTime(t *testing.T) {
@@ -320,7 +342,7 @@ func TestSleep_ReturnsWakeTime(t *testing.T) {
 		times: []time.Time{T, wakeTime},
 	}
 	target := T.Add(10 * time.Second)
-	s := New(&mockMCU{}, rtc, nil, []hal.Pin{12})
+	s := New(&mockMCU{}, rtc, &mockRails{}, []hal.Pin{12})
 
 	got, err := s.Sleep(target)
 	if err != nil {

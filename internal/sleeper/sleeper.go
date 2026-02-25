@@ -22,13 +22,11 @@ type Device struct {
 	idleFiredPins []hal.Pin
 }
 
-// New creates a Device. mcu is required. rtc may be nil (disables
-// timer-based deep sleep). rails may be nil (treated as NullRails).
-// interruptPins are the GPIO interrupt lines used as wake sources.
+// New creates a Device. mcu and rails are required (pass fallback.Rails
+// for boards without power rail control). rtc may be nil (disables
+// timer-based deep sleep). interruptPins are the GPIO interrupt lines
+// used as wake sources.
 func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails, interruptPins []hal.Pin) *Device {
-	if rails == nil {
-		rails = hal.NullRails{}
-	}
 	return &Device{
 		mcu:           mcu,
 		rtc:           rtc,
@@ -100,8 +98,9 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		// Deep sleep requires wake pins and either:
 		//   a) a timed target with an RTC and enough remaining time for an alarm, or
 		//   b) an external-interrupt-only configuration (zero target).
+		rtcAlarm := s.rtc != nil && s.rtc.HasAlarm()
 		canDeepSleep := len(s.wakePins) > 0 &&
-			(target.IsZero() || (s.rtc != nil && remaining > minDeepSleep))
+			(target.IsZero() || (rtcAlarm && remaining > minDeepSleep))
 
 		if canDeepSleep {
 			// deepSleep only errors during setup (ClearAlarm/SetAlarm/ArmWake),
@@ -122,7 +121,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		// Restore core rails so the RTC and SD card are reachable.
 		s.rails.Power(hal.RailsCore)
 
-		if s.rtc != nil {
+		if s.rtc != nil && s.rtc.HasAlarm() {
 			_ = s.rtc.ClearAlarm() // best-effort
 		}
 
@@ -137,7 +136,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 // deepSleep sets the RTC alarm (if present), arms all wake pins,
 // cuts power, and enters MCU standby.
 func (s *Device) deepSleep(target time.Time) error {
-	if s.rtc != nil && !target.IsZero() {
+	if s.rtc != nil && s.rtc.HasAlarm() && !target.IsZero() {
 		if err := s.rtc.ClearAlarm(); err != nil {
 			return err
 		}

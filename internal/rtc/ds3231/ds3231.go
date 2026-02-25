@@ -124,6 +124,7 @@ func verify(bus drivers.I2C) error {
 }
 
 func (r *RTC) Identifier() string { return Name }
+func (r *RTC) HasAlarm() bool     { return true }
 
 // ReadTime returns the current time from the DS3231.
 func (r *RTC) ReadTime() (time.Time, error) {

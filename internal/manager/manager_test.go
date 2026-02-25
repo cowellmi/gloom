@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
+	"github.com/cowellmi/gloom/internal/fallback"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
@@ -14,6 +15,7 @@ import (
 )
 
 var T = time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+var R = fallback.Rails{}
 
 // --- mocks ---
 
@@ -125,7 +127,7 @@ func TestEarliestDeadline(t *testing.T) {
 		SampleInterval:    10 * time.Second,
 		HeartbeatInterval: 5 * time.Second,
 	}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 
 	// Set deadlines manually for precision.
 	man.sampleDeadline.next = T.Add(10 * time.Second)
@@ -143,7 +145,7 @@ func TestStep_SampleFires(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
 	}
 	cfg := config.Config{SampleInterval: 10 * time.Second}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
 
 	if !sampleFired {
@@ -159,7 +161,7 @@ func TestStep_HeartbeatFires(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 	cfg := config.Config{HeartbeatInterval: 5 * time.Second}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
 
 	if sampleFired {
@@ -179,7 +181,7 @@ func TestStep_OnlyEarliestFires(t *testing.T) {
 		SampleInterval:    time.Minute,
 		HeartbeatInterval: 5 * time.Second,
 	}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
 
 	if sampleFired {
@@ -198,7 +200,7 @@ func TestStep_BothFire(t *testing.T) {
 		SampleInterval:    10 * time.Second,
 		HeartbeatInterval: 10 * time.Second,
 	}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
 
 	if !sampleFired || !hbFired {
@@ -219,7 +221,7 @@ func TestStep_DeadlineAdvances(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(11 * time.Second)),
 	}
 	cfg := config.Config{SampleInterval: 10 * time.Second}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 
 	sampleFired, _ := man.doSleep()
 	if !sampleFired {
@@ -238,7 +240,7 @@ func TestStep_ExternalPinFires(t *testing.T) {
 	}
 	// Sample with no interval — fires only via interrupt pin.
 	cfg := config.Config{InterruptPins: []hal.Pin{7}}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	sampleFired, _ := man.doSleep()
 
 	if !sampleFired {
@@ -252,7 +254,7 @@ func TestStep_ExtPinNoFire(t *testing.T) {
 		firedPins: map[hal.Pin]bool{},
 	}
 	cfg := config.Config{InterruptPins: []hal.Pin{7}}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	sampleFired, _ := man.doSleep()
 
 	if sampleFired {
@@ -270,7 +272,7 @@ func TestStep_SampleAndHbSimultaneous(t *testing.T) {
 		InterruptPins:     []hal.Pin{7},
 		HeartbeatInterval: 10 * time.Second,
 	}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	sampleFired, hbFired := man.doSleep()
 
 	if !sampleFired {
@@ -290,7 +292,7 @@ func TestDoSleep_TargetPassedToSleep(t *testing.T) {
 		},
 	}
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	man.doSleep()
 
 	want := T.Add(5 * time.Second)
@@ -313,7 +315,7 @@ func TestStep_SampleSensorMeasured(t *testing.T) {
 	}
 
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, _ := newTestManager(sys, nil, cfg, []sensor.Sensor{dev}, []sink.DataSink{recorder})
+	man, _ := newTestManager(sys, R, cfg, []sensor.Sensor{dev}, []sink.DataSink{recorder})
 	man.step()
 
 	if dev.measureCalls != 1 {
@@ -346,7 +348,7 @@ func TestStep_MultipleSensorsBothMeasured(t *testing.T) {
 	}
 
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, _ := newTestManager(sys, nil, cfg, []sensor.Sensor{temp, humidity}, []sink.DataSink{recorder})
+	man, _ := newTestManager(sys, R, cfg, []sensor.Sensor{temp, humidity}, []sink.DataSink{recorder})
 	man.step()
 
 	if temp.measureCalls != 1 {
@@ -376,7 +378,7 @@ func TestStep_SampleAndHeartbeatFire(t *testing.T) {
 		HeartbeatInterval: 5 * time.Second,
 		HeartbeatPayload:  config.HeartbeatPayloadMin,
 	}
-	man, mo := newTestManager(sys, nil, cfg, []sensor.Sensor{weatherSensor}, []sink.DataSink{rec})
+	man, mo := newTestManager(sys, R, cfg, []sensor.Sensor{weatherSensor}, []sink.DataSink{rec})
 	man.step()
 
 	if weatherSensor.measureCalls != 1 {
@@ -399,7 +401,7 @@ func TestStep_OnlyHeartbeatFires(t *testing.T) {
 		HeartbeatInterval: 5 * time.Second,
 		HeartbeatPayload:  config.HeartbeatPayloadFull,
 	}
-	man, mo := newTestManager(sys, nil, cfg, []sensor.Sensor{weatherSensor}, nil)
+	man, mo := newTestManager(sys, R, cfg, []sensor.Sensor{weatherSensor}, nil)
 	man.step()
 
 	if weatherSensor.measureCalls != 0 {
@@ -415,7 +417,7 @@ func TestStep_ExternalWake(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T),
 	}
 
-	man, mo := newTestManager(sys, nil, config.Config{}, nil, nil)
+	man, mo := newTestManager(sys, R, config.Config{}, nil, nil)
 	man.step()
 
 	if !mo.hasLog("external wake") {
@@ -434,7 +436,7 @@ func TestStep_SensorMeasureError(t *testing.T) {
 	}
 
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, mo := newTestManager(sys, nil, cfg, []sensor.Sensor{dev}, nil)
+	man, mo := newTestManager(sys, R, cfg, []sensor.Sensor{dev}, nil)
 	man.step()
 
 	if dev.measureCalls != 1 {
@@ -453,7 +455,7 @@ func TestStep_LEDOnBlinkLED(t *testing.T) {
 	}
 
 	cfg := config.Config{HeartbeatInterval: 5 * time.Second, HeartbeatLedPin: hal.Pin(16)}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	man.SetBlinkLED(func() { blinked = true })
 	man.step()
 
@@ -470,7 +472,7 @@ func TestStep_NoLEDWhenLedPinNone(t *testing.T) {
 	}
 
 	cfg := config.Config{HeartbeatInterval: 5 * time.Second, HeartbeatLedPin: hal.NoPin}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	man.SetBlinkLED(func() { blinked = true })
 	man.step()
 
@@ -488,7 +490,7 @@ func TestStep_NoLEDWhenHeartbeatDisabled(t *testing.T) {
 
 	// Heartbeat disabled (Interval=0) — never fires — no blink regardless of LedPin.
 	cfg := config.Config{HeartbeatLedPin: hal.Pin(16)}
-	man, _ := newTestManager(sys, nil, cfg, nil, nil)
+	man, _ := newTestManager(sys, R, cfg, nil, nil)
 	man.SetBlinkLED(func() { blinked = true })
 	man.step()
 
@@ -542,7 +544,7 @@ func TestStep_SleepError(t *testing.T) {
 		},
 	}
 
-	man, mo := newTestManager(sys, nil, config.Config{}, nil, nil)
+	man, mo := newTestManager(sys, R, config.Config{}, nil, nil)
 	man.step()
 
 	if !mo.hasLog("sleep: standby failed") {
@@ -557,7 +559,7 @@ func TestStep_FlushBeforeSleep(t *testing.T) {
 
 	rec := &mockOutput{}
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, mo := newTestManager(sys, nil, cfg, nil, []sink.DataSink{rec})
+	man, mo := newTestManager(sys, R, cfg, nil, []sink.DataSink{rec})
 	man.step()
 
 	if !mo.flushCalled {
@@ -583,7 +585,7 @@ func TestStep_MultipleMeasurements(t *testing.T) {
 	}
 
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, _ := newTestManager(sys, nil, cfg, []sensor.Sensor{dev}, []sink.DataSink{rec})
+	man, _ := newTestManager(sys, R, cfg, []sensor.Sensor{dev}, []sink.DataSink{rec})
 	man.step()
 
 	if len(rec.readings) != 2 {
@@ -599,6 +601,7 @@ func TestStep_NilCallbacks(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T),
 	}
 
-	man, _ := newTestManager(sys, nil, config.Config{}, nil, nil)
+	man, _ := newTestManager(sys, R, config.Config{}, nil, nil)
 	man.step() // should not panic
 }
+

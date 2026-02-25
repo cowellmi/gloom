@@ -6,7 +6,6 @@ import (
 	"errors"
 	"runtime"
 	"strconv"
-	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
@@ -54,7 +53,7 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
-	var rtc hal.RTC
+	var rtc hal.RTC = fallback.RTC{}
 	if ds, rErr := ds3231.Probe(board.I2C); rErr != nil {
 		initWarns = append(initWarns, rErr)
 	} else {
@@ -154,13 +153,10 @@ func main() {
 		statusLED = led.New(cfg.HeartbeatLedPin)
 	}
 
-	now := time.Now()
-	if rtc != nil {
-		if t, err := rtc.ReadTime(); err != nil {
-			initErrs = append(initErrs, errors.New("rtc: "+err.Error()))
-		} else {
-			now = t
-		}
+	now, err := rtc.ReadTime()
+	if err != nil {
+		initErrs = append(initErrs, err)
+		rtc = fallback.RTC{}
 	}
 
 	logger := log.NewLogger(now)
@@ -225,12 +221,7 @@ func main() {
 	statusLED.Off()
 
 	logger.Log(config.LogLevelDebug, "mcu: "+board.MCU.Identifier())
-
-	if rtc != nil {
-		logger.Log(config.LogLevelDebug, "rtc: "+rtc.Identifier())
-	} else {
-		logger.Log(config.LogLevelDebug, "rtc: NONE")
-	}
+	logger.Log(config.LogLevelDebug, "rtc: "+rtc.Identifier())
 
 	if len(cards) > 0 {
 		sd := "sd:"
@@ -282,12 +273,10 @@ func main() {
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackUsed)
 
-	if rtc != nil {
-		if t, err := rtc.ReadTime(); err == nil {
-			now = t
-		}
-	} else {
-		now = time.Now()
+	now, err = rtc.ReadTime()
+	if err != nil {
+		rtc = fallback.RTC{}
+		logger.LogError(config.LogLevelError, err, "rtc: ")
 	}
 	man.Run(now)
 }
