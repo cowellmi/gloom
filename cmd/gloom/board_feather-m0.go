@@ -8,7 +8,7 @@ import (
 
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/led"
-	"github.com/cowellmi/gloom/internal/targets/samd21"
+	"github.com/cowellmi/gloom/internal/mcu/samd21"
 )
 
 // initBoard configures the Feather M0 (SAMD21) and returns a Board

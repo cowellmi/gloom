@@ -9,7 +9,7 @@ import (
 	"strconv"
 
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/targets/samd21"
+	"github.com/cowellmi/gloom/internal/mcu/samd21"
 )
 
 func initMCU() (hal.MCU, io.Writer) {

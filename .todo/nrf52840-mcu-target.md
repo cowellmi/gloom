@@ -4,7 +4,7 @@
 
 Add the Nordic nRF52840 (Adafruit Feather nRF52840 Express) as the second supported MCU. 256KB RAM, Cortex-M4F, BLE 5.0, excellent TinyGo support, Feather form factor (FeatherWings plug in directly). Very low power: System OFF ~0.3µA, System ON with RTC ~1.5µA.
 
-## 1. MCU implementation — `internal/targets/nrf52/nrf52.go`
+## 1. MCU implementation — `internal/mcu/nrf52/nrf52.go`
 
 Implement `hal.MCU` for the nRF52840:
 
