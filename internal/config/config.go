@@ -46,30 +46,32 @@ const (
 
 // Config holds the complete parsed configuration.
 type Config struct {
-	SDLogLevel        LogLevel
-	BluesLogLevel     LogLevel
+	HeartbeatInterval time.Duration
+	HeartbeatLedPin   hal.Pin
+	HeartbeatPayload  HeartbeatPayload
+	InterruptPins     []hal.Pin
+	LogLevelSD        LogLevel
+	LogLevelBlues     LogLevel
 	SampleInterval    time.Duration
 	SampleSensors     []string
-	SampleExtPin      hal.Pin
-	HeartbeatInterval time.Duration
-	HeartbeatPayload  HeartbeatPayload
-	HeartbeatLedPin   hal.Pin
+	SDChipSelectPins  []hal.Pin
 }
 
 // Default returns a Config seeded with board-supplied hardware defaults.
 // ledPin is the board's LED pin (use hal.NoPin if absent).
 // sensors is the board's default sensor list (may be nil).
 // Sample is disabled by default (interval=0); heartbeat is enabled with a 3s interval.
-func Default(ledPin hal.Pin, sensors []string) Config {
+func Default(ledPin hal.Pin, sensors []string, csPins []hal.Pin, interruptPins []hal.Pin) Config {
 	return Config{
-		SDLogLevel:        LogLevelDebug,
-		BluesLogLevel:     LogLevelInfo,
-		SampleInterval:    0,
-		SampleSensors:     sensors,
-		SampleExtPin:      hal.NoPin,
-		HeartbeatInterval: 3 * time.Second,
-		HeartbeatPayload:  HeartbeatPayloadNone,
+		HeartbeatInterval: 5 * time.Second,
 		HeartbeatLedPin:   ledPin,
+		HeartbeatPayload:  HeartbeatPayloadNone,
+		InterruptPins:     interruptPins,
+		LogLevelBlues:     LogLevelOff,
+		LogLevelSD:        LogLevelDebug,
+		SampleInterval:    0, // disabled
+		SampleSensors:     sensors,
+		SDChipSelectPins:  csPins,
 	}
 }
 
@@ -161,13 +163,13 @@ func parseKey(cfg *Config, key string, v interface{}) error {
 		if err != nil {
 			return err
 		}
-		cfg.SDLogLevel = level
+		cfg.LogLevelSD = level
 	case "blues_log_level":
 		level, err := parseLevel(value)
 		if err != nil {
 			return err
 		}
-		cfg.BluesLogLevel = level
+		cfg.LogLevelBlues = level
 	case "sample_interval":
 		d, err := parseDuration(key, value)
 		if err != nil {
@@ -176,12 +178,18 @@ func parseKey(cfg *Config, key string, v interface{}) error {
 		cfg.SampleInterval = d
 	case "sample_sensors":
 		cfg.SampleSensors = parseStringList(value)
-	case "sample_ext_pin":
-		pin, err := parsePin(key, value)
+	case "interrupt_pins":
+		pins, err := parsePinList(key, value)
 		if err != nil {
 			return err
 		}
-		cfg.SampleExtPin = pin
+		cfg.InterruptPins = pins
+	case "sd_chip_select_pins":
+		pins, err := parsePinList(key, value)
+		if err != nil {
+			return err
+		}
+		cfg.SDChipSelectPins = pins
 	case "heartbeat_interval":
 		d, err := parseDuration(key, value)
 		if err != nil {
@@ -207,8 +215,8 @@ func parseKey(cfg *Config, key string, v interface{}) error {
 }
 
 func validate(cfg *Config) error {
-	if cfg.SampleInterval <= 0 && cfg.SampleExtPin == hal.NoPin && cfg.HeartbeatInterval <= 0 {
-		return errors.New("config: no wake sources (needs sample_interval, sample_ext_pin, or heartbeat_interval)")
+	if cfg.SampleInterval <= 0 && len(cfg.InterruptPins) == 0 && cfg.HeartbeatInterval <= 0 {
+		return errors.New("config: no wake sources (needs sample_interval, interrupt_pins, or heartbeat_interval)")
 	}
 	return nil
 }
@@ -275,4 +283,20 @@ func parsePin(key, value string) (hal.Pin, error) {
 		return hal.NoPin, errors.New(key + ": invalid pin number: " + value)
 	}
 	return hal.Pin(n), nil
+}
+
+func parsePinList(key, value string) ([]hal.Pin, error) {
+	var pins []hal.Pin
+	for p := range strings.SplitSeq(value, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		pin, err := parsePin(key, p)
+		if err != nil {
+			return nil, err
+		}
+		pins = append(pins, pin)
+	}
+	return pins, nil
 }

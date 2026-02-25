@@ -61,31 +61,18 @@ func (l *Logger) Log(level config.LogLevel, msg string) {
 	}
 }
 
-// Write logs b at the given level, converting it to a string.
-func (l *Logger) Write(b []byte, level config.LogLevel) {
-	for i := range l.targets {
-		if level >= l.targets[i].minLevel {
-			if err := l.targets[i].sink.Log(l.t, level, string(b)); err != nil {
-				debug.Log("sink error: " + err.Error())
-			}
+type wrapped interface{ Unwrap() []error }
+
+func (l *Logger) LogError(level config.LogLevel, err error, prefix string) {
+	if wErr, ok := err.(wrapped); ok {
+		for _, iErr := range wErr.Unwrap() {
+			l.Log(level, prefix+iErr.Error())
 		}
+	} else {
+		l.Log(level, prefix+err.Error())
 	}
 }
 
-// Debug logs at LevelDebug.
-func (l *Logger) Debug(msg string) { l.Log(config.LogLevelDebug, msg) }
-
-// Info logs at LevelInfo.
-func (l *Logger) Info(msg string) { l.Log(config.LogLevelInfo, msg) }
-
-// Warn logs at LevelWarn.
-func (l *Logger) Warn(msg string) { l.Log(config.LogLevelWarn, msg) }
-
-// Error logs at LevelError.
-func (l *Logger) Error(msg string) { l.Log(config.LogLevelError, msg) }
-
-// Flush forces all sinks to write any buffered data. Called by the
-// manager before entering sleep.
 func (l *Logger) Flush() error {
 	var errs []error
 	for i := range l.targets {

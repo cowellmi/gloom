@@ -7,7 +7,6 @@ import (
 	"machine"
 
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/led"
 	"github.com/cowellmi/gloom/internal/mcu/samd21"
 )
 
@@ -16,10 +15,8 @@ import (
 func initBoard() Board {
 	var board Board
 
-	// MCU
 	board.MCU = samd21.New()
 
-	// Serial
 	_ = machine.UART0.Configure(machine.UARTConfig{
 		BaudRate: 115200,
 		TX:       machine.UART0_TX_PIN,
@@ -28,24 +25,18 @@ func initBoard() Board {
 	_ = machine.Serial.Configure(machine.UARTConfig{BaudRate: 115200})
 	board.Serial = io.MultiWriter(machine.UART0, machine.Serial)
 
-	// LED
-	board.LED = led.New(hal.Pin(machine.LED))
+	board.I2C = machine.I2C0
+	board.SDA = hal.Pin(machine.SDA_PIN)
+	board.SCL = hal.Pin(machine.SCL_PIN)
 
-	// I2C
-	board.I2C.Bus = machine.I2C0
-	board.I2C.SDA = hal.Pin(machine.SDA_PIN)
-	board.I2C.SCL = hal.Pin(machine.SCL_PIN)
+	board.SPI = machine.SPI0
+	board.SCK = hal.Pin(machine.SPI0_SCK_PIN)
+	board.SDO = hal.Pin(machine.SPI0_SDO_PIN)
+	board.SDI = hal.Pin(machine.SPI0_SDI_PIN)
 
-	// SPI
-	board.SPI.Bus = machine.SPI0
-	board.SPI.SCK = hal.Pin(machine.SPI0_SCK_PIN)
-	board.SPI.SDO = hal.Pin(machine.SPI0_SDO_PIN)
-	board.SPI.SDI = hal.Pin(machine.SPI0_SDI_PIN)
-
-	// ADC
 	board.ADCPin = hal.Pin(machine.D9)
+	board.LEDPin = hal.Pin(machine.LED)
 
-	// Sensors
 	board.Sensors = []string{"vbat"}
 
 	return board

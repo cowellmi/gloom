@@ -28,10 +28,10 @@ func TestLog_LevelFiltering(t *testing.T) {
 	l := NewLogger(time.Time{})
 	l.AddSink(sink, config.LogLevelWarn)
 
-	l.Debug("skip")
-	l.Info("skip")
-	l.Warn("keep")
-	l.Error("keep")
+	l.Log(config.LogLevelDebug, "skip")
+	l.Log(config.LogLevelInfo, "skip")
+	l.Log(config.LogLevelWarn, "keep")
+	l.Log(config.LogLevelError, "keep")
 
 	if len(sink.entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d: %v", len(sink.entries), sink.entries)

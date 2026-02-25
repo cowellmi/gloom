@@ -11,22 +11,17 @@ type Board struct {
 
 	Serial io.Writer
 
-	LED hal.LED
+	I2C hal.I2C
+	SDA hal.Pin
+	SCL hal.Pin
 
-	I2C struct {
-		Bus hal.I2C
-		SDA hal.Pin
-		SCL hal.Pin
-	}
-
-	SPI struct {
-		Bus hal.SPI
-		SCK hal.Pin
-		SDO hal.Pin
-		SDI hal.Pin
-	}
+	SPI hal.SPI
+	SCK hal.Pin
+	SDO hal.Pin
+	SDI hal.Pin
 
 	ADCPin hal.Pin
+	LEDPin hal.Pin
 
 	Sensors []string
 }

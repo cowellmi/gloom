@@ -123,7 +123,7 @@ func (m *Manager) step() {
 	}
 
 	if sampleFired || hbFired {
-		m.logger.Write(b, config.LogLevelDebug)
+		m.logger.Log(config.LogLevelDebug, string(b))
 	}
 
 	if needSensors {
@@ -139,7 +139,7 @@ func (m *Manager) step() {
 	}
 
 	if !sampleFired && !hbFired {
-		m.logger.Debug("external wake")
+		m.logger.Log(config.LogLevelDebug, "external wake")
 	}
 
 	m.logMem()
@@ -153,13 +153,13 @@ func (m *Manager) measureSensors() {
 
 		readings, err := s.Measure()
 		if err != nil {
-			m.logger.Error("failed to measure: " + s.ID() + ": " + err.Error())
+			m.logger.LogError(config.LogLevelError, err, "measure: "+s.ID()+": ")
 			continue
 		}
 
 		for _, ds := range m.dataSinks {
 			if err := ds.Data(m.wakeTime, s.ID(), readings); err != nil {
-				m.logger.Error("failed to record: " + s.ID() + ": " + err.Error())
+				m.logger.LogError(config.LogLevelError, err, "record: "+s.ID()+": ")
 			}
 		}
 	}
@@ -177,21 +177,24 @@ func (m *Manager) doSleep() (sampleFired, hbFired bool) {
 
 	m.pet()
 	if err := m.flush(); err != nil {
-		m.logger.Error("flush: " + err.Error())
+		m.logger.LogError(config.LogLevelError, err, "flush: ")
 	}
 	m.pet()
 
 	wakeTime, err := m.sleeper.Sleep(target)
 	if err != nil {
-		m.logger.Error("sleep: " + err.Error())
+		m.logger.LogError(config.LogLevelError, err, "sleep: ")
 	}
 	m.wakeTime = wakeTime
 	m.logger.SetTime(wakeTime)
 
 	sampleFired = m.sampleDeadline.fired(wakeTime)
 	hbFired = m.hbDeadline.fired(wakeTime)
-	if m.cfg.SampleExtPin != hal.NoPin && m.sleeper.PinFired(m.cfg.SampleExtPin) {
-		sampleFired = true
+	for _, pin := range m.cfg.InterruptPins {
+		if m.sleeper.PinFired(pin) {
+			sampleFired = true
+			break
+		}
 	}
 
 	return
@@ -226,7 +229,7 @@ func (m *Manager) logNextWake(d time.Duration) {
 	} else {
 		b = appendDuration(b, d)
 	}
-	m.logger.Write(b, config.LogLevelDebug)
+	m.logger.Log(config.LogLevelDebug, string(b))
 }
 
 func appendDuration(b []byte, d time.Duration) []byte {
@@ -262,7 +265,7 @@ func (m *Manager) logMem() {
 		b = fmtbuf.AppendUint(b, uint64(m.stackUsed()), 10)
 		b = fmtbuf.AppendByte(b, 'B')
 	}
-	m.logger.Write(b, config.LogLevelDebug)
+	m.logger.Log(config.LogLevelDebug, string(b))
 }
 
 func (m *Manager) flush() error {

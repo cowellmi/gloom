@@ -23,7 +23,7 @@ type Device struct {
 }
 
 // New creates a Device. mcu is required. rtc and rails may be nil.
-// Use AddWakePin to register GPIO wake sources after construction.
+// interruptPins are the GPIO interrupt lines used as wake sources.
 func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails, interruptPins []hal.Pin) *Device {
 	return &Device{
 		mcu:           mcu,

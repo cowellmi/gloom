@@ -17,7 +17,7 @@ func (c *Config) MarshalINI() ([]byte, error) {
 	buf = append(buf, "# See example.config.ini for full documentation.\n"...)
 
 	// SD
-	sdLvl, err := levelString(c.SDLogLevel)
+	sdLvl, err := levelString(c.LogLevelSD)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +26,7 @@ func (c *Config) MarshalINI() ([]byte, error) {
 	buf = append(buf, '\n')
 
 	// Blues
-	bluesLvl, err := levelString(c.BluesLogLevel)
+	bluesLvl, err := levelString(c.LogLevelBlues)
 	if err != nil {
 		return nil, err
 	}
@@ -52,9 +52,25 @@ func (c *Config) MarshalINI() ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if c.SampleExtPin != hal.NoPin {
-		buf = append(buf, "sample_ext_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(c.SampleExtPin), 10)
+	if len(c.InterruptPins) > 0 {
+		buf = append(buf, "interrupt_pins = "...)
+		for i, pin := range c.InterruptPins {
+			if i > 0 {
+				buf = append(buf, ", "...)
+			}
+			buf = strconv.AppendUint(buf, uint64(pin), 10)
+		}
+		buf = append(buf, '\n')
+	}
+
+	if len(c.SDChipSelectPins) > 0 {
+		buf = append(buf, "sd_chip_select_pins = "...)
+		for i, pin := range c.SDChipSelectPins {
+			if i > 0 {
+				buf = append(buf, ", "...)
+			}
+			buf = strconv.AppendUint(buf, uint64(pin), 10)
+		}
 		buf = append(buf, '\n')
 	}
 
@@ -136,10 +152,10 @@ func payloadString(p HeartbeatPayload) (string, error) {
 func (c *Config) MarshalMap() map[string]interface{} {
 	m := make(map[string]interface{})
 
-	sdLvl, _ := levelString(c.SDLogLevel)
+	sdLvl, _ := levelString(c.LogLevelSD)
 	m["sd_log_level"] = sdLvl
 
-	bluesLvl, _ := levelString(c.BluesLogLevel)
+	bluesLvl, _ := levelString(c.LogLevelBlues)
 	m["blues_log_level"] = bluesLvl
 
 	if c.SampleInterval > 0 {
@@ -157,10 +173,26 @@ func (c *Config) MarshalMap() map[string]interface{} {
 		m["sample_sensors"] = s
 	}
 
-	if c.SampleExtPin != hal.NoPin {
-		m["sample_ext_pin"] = strconv.FormatUint(uint64(c.SampleExtPin), 10)
-	} else {
-		m["sample_ext_pin"] = "none"
+	if len(c.InterruptPins) > 0 {
+		var s string
+		for i, pin := range c.InterruptPins {
+			if i > 0 {
+				s += ", "
+			}
+			s += strconv.FormatUint(uint64(pin), 10)
+		}
+		m["interrupt_pins"] = s
+	}
+
+	if len(c.SDChipSelectPins) > 0 {
+		var s string
+		for i, pin := range c.SDChipSelectPins {
+			if i > 0 {
+				s += ", "
+			}
+			s += strconv.FormatUint(uint64(pin), 10)
+		}
+		m["sd_chip_select_pins"] = s
 	}
 
 	if c.HeartbeatInterval > 0 {

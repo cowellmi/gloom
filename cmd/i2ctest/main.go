@@ -72,7 +72,7 @@ func main() {
 	debug.Log("I2C: ok")
 	proc.PetWatchdog()
 
-	rtc, err := ds3231.Probe(machine.I2C0, hal.Pin(machine.D12))
+	rtc, err := ds3231.Probe(machine.I2C0)
 	if err != nil {
 		debug.Log("DS3231 failed, WDT will retry: " + err.Error())
 		select {}

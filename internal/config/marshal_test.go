@@ -10,11 +10,11 @@ import (
 
 func TestMarshal_RoundTrip(t *testing.T) {
 	orig := Config{
-		SDLogLevel:        LogLevelError,
-		BluesLogLevel:     LogLevelWarn,
+		LogLevelSD:        LogLevelError,
+		LogLevelBlues:     LogLevelWarn,
 		SampleInterval:    time.Minute,
 		SampleSensors:     []string{"temperature", "humidity"},
-		SampleExtPin:      hal.NoPin,
+		InterruptPins:     []hal.Pin{7},
 		HeartbeatInterval: time.Hour,
 		HeartbeatPayload:  HeartbeatPayloadFull,
 		HeartbeatLedPin:   hal.Pin(16),
@@ -30,11 +30,11 @@ func TestMarshal_RoundTrip(t *testing.T) {
 		t.Fatalf("ParseINI(MarshalINI()) error: %v\nINI:\n%s", err, data)
 	}
 
-	if got.SDLogLevel != LogLevelError {
-		t.Errorf("SDLogLevel = %d, want LevelError", got.SDLogLevel)
+	if got.LogLevelSD != LogLevelError {
+		t.Errorf("LogLevelSD = %d, want LevelError", got.LogLevelSD)
 	}
-	if got.BluesLogLevel != LogLevelWarn {
-		t.Errorf("BluesLogLevel = %d, want LevelWarn", got.BluesLogLevel)
+	if got.LogLevelBlues != LogLevelWarn {
+		t.Errorf("LogLevelBlues = %d, want LevelWarn", got.LogLevelBlues)
 	}
 	if got.SampleInterval != time.Minute {
 		t.Errorf("SampleInterval = %v, want 1m", got.SampleInterval)
@@ -42,8 +42,8 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	if len(got.SampleSensors) != 2 {
 		t.Errorf("SampleSensors = %v", got.SampleSensors)
 	}
-	if got.SampleExtPin != hal.NoPin {
-		t.Errorf("SampleExtPin = %d, want NoPin", got.SampleExtPin)
+	if len(got.InterruptPins) != 1 || got.InterruptPins[0] != hal.Pin(7) {
+		t.Errorf("InterruptPins = %v, want [7]", got.InterruptPins)
 	}
 	if got.HeartbeatInterval != time.Hour {
 		t.Errorf("HeartbeatInterval = %v, want 1h", got.HeartbeatInterval)
@@ -58,10 +58,9 @@ func TestMarshal_RoundTrip(t *testing.T) {
 
 func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:      LogLevelDebug,
-		BluesLogLevel:   LogLevelDebug,
+		LogLevelSD:      LogLevelDebug,
+		LogLevelBlues:   LogLevelDebug,
 		SampleInterval:  5 * time.Second,
-		SampleExtPin:    hal.NoPin,
 		HeartbeatLedPin: hal.NoPin,
 	}
 
@@ -72,7 +71,7 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 
 	s := string(data)
 	for _, absent := range []string{
-		"sample_sensors", "sample_ext_pin",
+		"sample_sensors", "interrupt_pins", "sd_chip_select_pins",
 		"heartbeat_interval", "heartbeat_payload", "heartbeat_led_pin",
 	} {
 		if strings.Contains(s, absent) {
@@ -85,11 +84,11 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 	}
 }
 
-func TestMarshal_ExtPin(t *testing.T) {
+func TestMarshal_InterruptPins(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:    LogLevelDebug,
-		BluesLogLevel: LogLevelDebug,
-		SampleExtPin:  hal.Pin(7),
+		LogLevelSD:    LogLevelDebug,
+		LogLevelBlues: LogLevelDebug,
+		InterruptPins: []hal.Pin{7},
 		SampleSensors: []string{"bucket"},
 	}
 
@@ -98,17 +97,34 @@ func TestMarshal_ExtPin(t *testing.T) {
 		t.Fatalf("MarshalINI() error: %v", err)
 	}
 
-	if !strings.Contains(string(data), "sample_ext_pin = 7") {
-		t.Errorf("expected sample_ext_pin = 7 in output:\n%s", data)
+	if !strings.Contains(string(data), "interrupt_pins = 7") {
+		t.Errorf("expected interrupt_pins = 7 in output:\n%s", data)
+	}
+}
+
+func TestMarshal_SDChipSelectPins(t *testing.T) {
+	cfg := Config{
+		LogLevelSD:       LogLevelDebug,
+		LogLevelBlues:    LogLevelDebug,
+		SampleInterval:   5 * time.Second,
+		SDChipSelectPins: []hal.Pin{11, 10},
+	}
+
+	data, err := cfg.MarshalINI()
+	if err != nil {
+		t.Fatalf("MarshalINI() error: %v", err)
+	}
+
+	if !strings.Contains(string(data), "sd_chip_select_pins = 11, 10") {
+		t.Errorf("expected sd_chip_select_pins = 11, 10 in output:\n%s", data)
 	}
 }
 
 func TestMarshal_HeartbeatDisabled(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:      LogLevelDebug,
-		BluesLogLevel:   LogLevelDebug,
+		LogLevelSD:      LogLevelDebug,
+		LogLevelBlues:   LogLevelDebug,
 		SampleInterval:  5 * time.Second,
-		SampleExtPin:    hal.NoPin,
 		HeartbeatLedPin: hal.NoPin,
 		// HeartbeatInterval = 0 → disabled
 	}
@@ -136,10 +152,9 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 
 	for _, tt := range tests {
 		cfg := Config{
-			SDLogLevel:     LogLevelDebug,
-			BluesLogLevel:  LogLevelDebug,
+			LogLevelSD:     LogLevelDebug,
+			LogLevelBlues:  LogLevelDebug,
 			SampleInterval: tt.d,
-			SampleExtPin:   hal.NoPin,
 		}
 		data, err := cfg.MarshalINI()
 		if err != nil {
@@ -153,10 +168,9 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 
 func TestMarshal_LedPin(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:        LogLevelDebug,
-		BluesLogLevel:     LogLevelDebug,
+		LogLevelSD:        LogLevelDebug,
+		LogLevelBlues:     LogLevelDebug,
 		SampleInterval:    time.Minute,
-		SampleExtPin:      hal.NoPin,
 		HeartbeatInterval: time.Hour,
 		HeartbeatLedPin:   hal.Pin(16),
 	}
@@ -173,11 +187,11 @@ func TestMarshal_LedPin(t *testing.T) {
 
 func TestMarshalMap(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:        LogLevelError,
-		BluesLogLevel:     LogLevelWarn,
+		LogLevelSD:        LogLevelError,
+		LogLevelBlues:     LogLevelWarn,
 		SampleInterval:    time.Minute,
 		SampleSensors:     []string{"vbat", "temp"},
-		SampleExtPin:      hal.Pin(7),
+		InterruptPins:     []hal.Pin{7},
 		HeartbeatInterval: time.Hour,
 		HeartbeatPayload:  HeartbeatPayloadFull,
 		HeartbeatLedPin:   hal.Pin(16),
@@ -197,8 +211,8 @@ func TestMarshalMap(t *testing.T) {
 	if m["sample_sensors"] != "vbat, temp" {
 		t.Errorf("sample_sensors = %v, want vbat, temp", m["sample_sensors"])
 	}
-	if m["sample_ext_pin"] != "7" {
-		t.Errorf("sample_ext_pin = %v, want 7", m["sample_ext_pin"])
+	if m["interrupt_pins"] != "7" {
+		t.Errorf("interrupt_pins = %v, want 7", m["interrupt_pins"])
 	}
 	if m["heartbeat_interval"] != "1h" {
 		t.Errorf("heartbeat_interval = %v, want 1h", m["heartbeat_interval"])
@@ -211,13 +225,16 @@ func TestMarshalMap(t *testing.T) {
 	}
 }
 
-func TestMarshalMap_NoPin(t *testing.T) {
-	cfg := Default(hal.NoPin, nil)
+func TestMarshalMap_EmptySlicesOmitted(t *testing.T) {
+	cfg := Default(hal.NoPin, nil, nil, nil)
 
 	m := cfg.MarshalMap()
 
-	if m["sample_ext_pin"] != "none" {
-		t.Errorf("sample_ext_pin = %v, want none", m["sample_ext_pin"])
+	if _, ok := m["interrupt_pins"]; ok {
+		t.Errorf("interrupt_pins should be absent from map when empty, got %v", m["interrupt_pins"])
+	}
+	if _, ok := m["sd_chip_select_pins"]; ok {
+		t.Errorf("sd_chip_select_pins should be absent from map when empty, got %v", m["sd_chip_select_pins"])
 	}
 	if m["heartbeat_led_pin"] != "none" {
 		t.Errorf("heartbeat_led_pin = %v, want none", m["heartbeat_led_pin"])

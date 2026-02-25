@@ -10,7 +10,7 @@ import (
 
 // queue is an outbound Blues Notefile (.qo) that appends one Note per writeMap call.
 type queue struct {
-	nc   notecard.Requester
+	nc   *notecard.Device
 	name string
 }
 
@@ -38,7 +38,7 @@ type NotehubSink struct {
 
 // NewNotehubSink creates a NotehubSink backed by two outbound Notefile queues.
 // Pass an empty string to disable that output stream.
-func NewNotehubSink(nc notecard.Requester, dataName, logName string) *NotehubSink {
+func NewNotehubSink(nc *notecard.Device, dataName, logName string) *NotehubSink {
 	var s NotehubSink
 	if dataName != "" {
 		s.data = &queue{nc: nc, name: dataName}

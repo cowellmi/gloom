@@ -233,8 +233,8 @@ func TestStep_ExternalPinFires(t *testing.T) {
 		sleepFn:   afterDeadlineSleep(T.Add(time.Second)),
 		firedPins: map[hal.Pin]bool{7: true},
 	}
-	// Sample with no interval — fires only via ext pin.
-	cfg := config.Config{SampleExtPin: hal.Pin(7)}
+	// Sample with no interval — fires only via interrupt pin.
+	cfg := config.Config{InterruptPins: []hal.Pin{7}}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	sampleFired, _ := man.doSleep()
 
@@ -248,7 +248,7 @@ func TestStep_ExtPinNoFire(t *testing.T) {
 		sleepFn:   afterDeadlineSleep(T.Add(time.Second)),
 		firedPins: map[hal.Pin]bool{},
 	}
-	cfg := config.Config{SampleExtPin: hal.Pin(7)}
+	cfg := config.Config{InterruptPins: []hal.Pin{7}}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	sampleFired, _ := man.doSleep()
 
@@ -264,7 +264,7 @@ func TestStep_SampleAndHbSimultaneous(t *testing.T) {
 	}
 	cfg := config.Config{
 		SampleInterval:    10 * time.Second,
-		SampleExtPin:      hal.Pin(7),
+		InterruptPins:     []hal.Pin{7},
 		HeartbeatInterval: 10 * time.Second,
 	}
 	man, _ := newTestManager(sys, cfg, nil, nil)

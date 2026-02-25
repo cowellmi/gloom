@@ -10,7 +10,7 @@ import (
 
 // testDefault returns a Default config with standard test board values.
 func testDefault() Config {
-	return Default(hal.Pin(13), []string{"vbat"})
+	return Default(hal.Pin(13), []string{"vbat"}, nil, nil)
 }
 
 // --- Default ---
@@ -18,11 +18,11 @@ func testDefault() Config {
 func TestDefault(t *testing.T) {
 	cfg := testDefault()
 
-	if cfg.SDLogLevel != LogLevelDebug {
-		t.Errorf("SDLogLevel = %d, want LogLevelDebug", cfg.SDLogLevel)
+	if cfg.LogLevelSD != LogLevelDebug {
+		t.Errorf("LogLevelSD = %d, want LogLevelDebug", cfg.LogLevelSD)
 	}
-	if cfg.BluesLogLevel != LogLevelInfo {
-		t.Errorf("BluesLogLevel = %d, want LogLevelInfo", cfg.BluesLogLevel)
+	if cfg.LogLevelBlues != LogLevelOff {
+		t.Errorf("LogLevelBlues = %d, want LogLevelOff", cfg.LogLevelBlues)
 	}
 
 	if cfg.SampleInterval != 0 {
@@ -31,12 +31,12 @@ func TestDefault(t *testing.T) {
 	if len(cfg.SampleSensors) != 1 || cfg.SampleSensors[0] != "vbat" {
 		t.Errorf("SampleSensors = %v, want [vbat] (board-supplied)", cfg.SampleSensors)
 	}
-	if cfg.SampleExtPin != hal.NoPin {
-		t.Errorf("SampleExtPin = %d, want NoPin", cfg.SampleExtPin)
+	if len(cfg.InterruptPins) != 0 {
+		t.Errorf("InterruptPins = %v, want empty", cfg.InterruptPins)
 	}
 
-	if cfg.HeartbeatInterval != 3*time.Second {
-		t.Errorf("HeartbeatInterval = %v, want 3s", cfg.HeartbeatInterval)
+	if cfg.HeartbeatInterval != 5*time.Second {
+		t.Errorf("HeartbeatInterval = %v, want 5s", cfg.HeartbeatInterval)
 	}
 	if cfg.HeartbeatPayload != HeartbeatPayloadNone {
 		t.Errorf("HeartbeatPayload = %d, want HeartbeatPayloadNone", cfg.HeartbeatPayload)
@@ -58,11 +58,11 @@ sample_interval = 9s
 	if err := ParseINI(input, &cfg); err != nil {
 		t.Fatalf("ParseINI() error: %v", err)
 	}
-	if cfg.SDLogLevel != LogLevelError {
-		t.Errorf("SDLogLevel = %d, want LogLevelError", cfg.SDLogLevel)
+	if cfg.LogLevelSD != LogLevelError {
+		t.Errorf("LogLevelSD = %d, want LogLevelError", cfg.LogLevelSD)
 	}
-	if cfg.BluesLogLevel != LogLevelWarn {
-		t.Errorf("BluesLogLevel = %d, want LogLevelWarn", cfg.BluesLogLevel)
+	if cfg.LogLevelBlues != LogLevelWarn {
+		t.Errorf("LogLevelBlues = %d, want LogLevelWarn", cfg.LogLevelBlues)
 	}
 }
 
@@ -102,23 +102,23 @@ func TestParseINI_SampleSensors(t *testing.T) {
 	}
 }
 
-func TestParseINI_SampleExtPin(t *testing.T) {
-	// sample_ext_pin alone (no interval) satisfies validation.
-	input := []byte("sample_ext_pin = 7\nsample_sensors = rain\n")
-	cfg := Config{SampleExtPin: hal.NoPin}
+func TestParseINI_InterruptPins(t *testing.T) {
+	// interrupt_pins alone (no interval) satisfies validation.
+	input := []byte("interrupt_pins = 7\nsample_sensors = rain\n")
+	cfg := Config{}
 	if err := ParseINI(input, &cfg); err != nil {
 		t.Fatalf("ParseINI() error: %v", err)
 	}
-	if cfg.SampleExtPin != hal.Pin(7) {
-		t.Errorf("SampleExtPin = %d, want 7", cfg.SampleExtPin)
+	if len(cfg.InterruptPins) != 1 || cfg.InterruptPins[0] != hal.Pin(7) {
+		t.Errorf("InterruptPins = %v, want [7]", cfg.InterruptPins)
 	}
 	if cfg.SampleInterval != 0 {
 		t.Errorf("SampleInterval = %v, want 0", cfg.SampleInterval)
 	}
 }
 
-func TestParseINI_SampleBothTriggers(t *testing.T) {
-	input := []byte("sample_interval = 5m\nsample_ext_pin = 7\nsample_sensors = rain\n")
+func TestParseINI_InterruptPinsWithInterval(t *testing.T) {
+	input := []byte("sample_interval = 5m\ninterrupt_pins = 7\nsample_sensors = rain\n")
 	cfg := testDefault()
 	if err := ParseINI(input, &cfg); err != nil {
 		t.Fatalf("ParseINI() error: %v", err)
@@ -126,8 +126,19 @@ func TestParseINI_SampleBothTriggers(t *testing.T) {
 	if cfg.SampleInterval != 5*time.Minute {
 		t.Errorf("SampleInterval = %v, want 5m", cfg.SampleInterval)
 	}
-	if cfg.SampleExtPin != hal.Pin(7) {
-		t.Errorf("SampleExtPin = %d, want 7", cfg.SampleExtPin)
+	if len(cfg.InterruptPins) != 1 || cfg.InterruptPins[0] != hal.Pin(7) {
+		t.Errorf("InterruptPins = %v, want [7]", cfg.InterruptPins)
+	}
+}
+
+func TestParseINI_SDChipSelectPins(t *testing.T) {
+	input := []byte("sd_chip_select_pins = 11, 10\nsample_interval = 9s\n")
+	cfg := testDefault()
+	if err := ParseINI(input, &cfg); err != nil {
+		t.Fatalf("ParseINI() error: %v", err)
+	}
+	if len(cfg.SDChipSelectPins) != 2 || cfg.SDChipSelectPins[0] != hal.Pin(11) || cfg.SDChipSelectPins[1] != hal.Pin(10) {
+		t.Errorf("SDChipSelectPins = %v, want [11 10]", cfg.SDChipSelectPins)
 	}
 }
 
@@ -181,9 +192,9 @@ func TestParseINI_HeartbeatLedPinNone(t *testing.T) {
 // --- Validation ---
 
 func TestParseINI_NoWakeSources(t *testing.T) {
-	// No interval, no ext pin, no heartbeat — must be rejected.
+	// No interval, no interrupt pins, no heartbeat — must be rejected.
 	input := []byte("sd_log_level = warn\n")
-	cfg := Config{SampleExtPin: hal.NoPin} // zero-value: all intervals = 0
+	cfg := Config{} // zero-value: all intervals = 0, no pins
 	err := ParseINI(input, &cfg)
 	if err == nil {
 		t.Fatal("expected error for no wake sources, got nil")
@@ -194,9 +205,9 @@ func TestParseINI_NoWakeSources(t *testing.T) {
 }
 
 func TestParseINI_HeartbeatOnlyWakeSource(t *testing.T) {
-	// heartbeat_interval alone (no sample_interval or ext_pin) satisfies validation.
+	// heartbeat_interval alone (no sample_interval or interrupt pins) satisfies validation.
 	input := []byte("heartbeat_interval = 5m\n")
-	cfg := Config{SampleExtPin: hal.NoPin}
+	cfg := Config{}
 	if err := ParseINI(input, &cfg); err != nil {
 		t.Fatalf("ParseINI() error: %v", err)
 	}
@@ -213,7 +224,7 @@ func TestParseMap_AllKeys(t *testing.T) {
 		"blues_log_level":    "error",
 		"sample_interval":    "5m",
 		"sample_sensors":     "vbat,temp",
-		"sample_ext_pin":     "7",
+		"interrupt_pins":     "7",
 		"heartbeat_interval": "1h",
 		"heartbeat_payload":  "full",
 		"heartbeat_led_pin":  "16",
@@ -223,17 +234,17 @@ func TestParseMap_AllKeys(t *testing.T) {
 		t.Fatalf("ParseMap() error: %v", err)
 	}
 
-	if cfg.SDLogLevel != LogLevelWarn {
-		t.Errorf("SDLogLevel = %d, want LogLevelWarn", cfg.SDLogLevel)
+	if cfg.LogLevelSD != LogLevelWarn {
+		t.Errorf("LogLevelSD = %d, want LogLevelWarn", cfg.LogLevelSD)
 	}
-	if cfg.BluesLogLevel != LogLevelError {
-		t.Errorf("BluesLogLevel = %d, want LogLevelError", cfg.BluesLogLevel)
+	if cfg.LogLevelBlues != LogLevelError {
+		t.Errorf("LogLevelBlues = %d, want LogLevelError", cfg.LogLevelBlues)
 	}
 	if cfg.SampleInterval != 5*time.Minute {
 		t.Errorf("SampleInterval = %v, want 5m", cfg.SampleInterval)
 	}
-	if cfg.SampleExtPin != hal.Pin(7) {
-		t.Errorf("SampleExtPin = %d, want 7", cfg.SampleExtPin)
+	if len(cfg.InterruptPins) != 1 || cfg.InterruptPins[0] != hal.Pin(7) {
+		t.Errorf("InterruptPins = %v, want [7]", cfg.InterruptPins)
 	}
 	if cfg.HeartbeatInterval != time.Hour {
 		t.Errorf("HeartbeatInterval = %v, want 1h", cfg.HeartbeatInterval)
@@ -312,8 +323,8 @@ sample_sensors = vbat
 	if err := ParseINI(input, &cfg); err != nil {
 		t.Fatalf("ParseINI() error: %v", err)
 	}
-	if cfg.SDLogLevel != LogLevelWarn {
-		t.Errorf("SDLogLevel = %d, want LogLevelWarn", cfg.SDLogLevel)
+	if cfg.LogLevelSD != LogLevelWarn {
+		t.Errorf("LogLevelSD = %d, want LogLevelWarn", cfg.LogLevelSD)
 	}
 	if cfg.SampleInterval != 3*time.Second {
 		t.Errorf("Interval = %v, want 3s", cfg.SampleInterval)
@@ -329,8 +340,8 @@ func TestParseINI_EmptyInput(t *testing.T) {
 	if cfg.SampleInterval != 0 {
 		t.Errorf("SampleInterval = %v, want 0", cfg.SampleInterval)
 	}
-	if cfg.HeartbeatInterval != 3*time.Second {
-		t.Errorf("HeartbeatInterval = %v, want 3s", cfg.HeartbeatInterval)
+	if cfg.HeartbeatInterval != 5*time.Second {
+		t.Errorf("HeartbeatInterval = %v, want 5s", cfg.HeartbeatInterval)
 	}
 }
 
@@ -356,18 +367,16 @@ func TestParseINI_NegativeDuration(t *testing.T) {
 	}
 }
 
-func TestParseINI_InvalidPin(t *testing.T) {
-	input := []byte("sample_ext_pin = abc\nsample_interval = 9s\n")
+func TestParseINI_InvalidPinList(t *testing.T) {
+	input := []byte("interrupt_pins = abc\nsample_interval = 9s\n")
 	cfg := testDefault()
 	if err := ParseINI(input, &cfg); err == nil {
 		t.Fatal("expected error for invalid pin, got nil")
 	}
-}
 
-func TestParseINI_PinOverflow(t *testing.T) {
-	input := []byte("sample_ext_pin = 256\nsample_interval = 9s\n")
-	cfg := testDefault()
-	if err := ParseINI(input, &cfg); err == nil {
+	input2 := []byte("interrupt_pins = 256\nsample_interval = 9s\n")
+	cfg2 := testDefault()
+	if err := ParseINI(input2, &cfg2); err == nil {
 		t.Fatal("expected error for pin overflow, got nil")
 	}
 }
@@ -445,7 +454,7 @@ blues_log_level = warn
 
 sample_interval = 1m
 sample_sensors = temperature, humidity
-sample_ext_pin = 7
+interrupt_pins = 7
 
 heartbeat_interval = 1h
 heartbeat_payload = full
@@ -456,11 +465,11 @@ heartbeat_led_pin = 16
 		t.Fatalf("ParseINI() error: %v", err)
 	}
 
-	if cfg.SDLogLevel != LogLevelError {
-		t.Errorf("SDLogLevel = %d, want LogLevelError", cfg.SDLogLevel)
+	if cfg.LogLevelSD != LogLevelError {
+		t.Errorf("LogLevelSD = %d, want LogLevelError", cfg.LogLevelSD)
 	}
-	if cfg.BluesLogLevel != LogLevelWarn {
-		t.Errorf("BluesLogLevel = %d, want LogLevelWarn", cfg.BluesLogLevel)
+	if cfg.LogLevelBlues != LogLevelWarn {
+		t.Errorf("LogLevelBlues = %d, want LogLevelWarn", cfg.LogLevelBlues)
 	}
 	if cfg.SampleInterval != time.Minute {
 		t.Errorf("SampleInterval = %v, want 1m", cfg.SampleInterval)
@@ -468,8 +477,8 @@ heartbeat_led_pin = 16
 	if len(cfg.SampleSensors) != 2 {
 		t.Errorf("SampleSensors = %v, want [temperature humidity]", cfg.SampleSensors)
 	}
-	if cfg.SampleExtPin != hal.Pin(7) {
-		t.Errorf("SampleExtPin = %d, want 7", cfg.SampleExtPin)
+	if len(cfg.InterruptPins) != 1 || cfg.InterruptPins[0] != hal.Pin(7) {
+		t.Errorf("InterruptPins = %v, want [7]", cfg.InterruptPins)
 	}
 
 	if cfg.HeartbeatInterval != time.Hour {
