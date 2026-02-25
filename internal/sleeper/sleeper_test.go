@@ -50,16 +50,31 @@ func (m *mockMCU) PinActive(pin hal.Pin) bool {
 	return m.activePins[pin]
 }
 
+// mockClock implements hal.Clock only (no alarm capability).
+type mockClock struct {
+	times   []time.Time
+	timeIdx int
+}
+
+func (m *mockClock) Identifier() string { return "mock-clock" }
+func (m *mockClock) ReadTime() (time.Time, error) {
+	if m.timeIdx >= len(m.times) {
+		return m.times[len(m.times)-1], nil
+	}
+	t := m.times[m.timeIdx]
+	m.timeIdx++
+	return t, nil
+}
+
+// mockRTC implements hal.AlarmClock.
 type mockRTC struct {
 	times      []time.Time
 	timeIdx    int
 	setWakes   []time.Time
 	clearCount int
-	noAlarm    bool // if true, HasAlarm() returns false
 }
 
 func (m *mockRTC) Identifier() string { return "mock-rtc" }
-func (m *mockRTC) HasAlarm() bool     { return !m.noAlarm }
 
 func (m *mockRTC) ReadTime() (time.Time, error) {
 	if m.timeIdx >= len(m.times) {
@@ -291,23 +306,17 @@ func TestSleep_DeepSleepFallbackToIdle(t *testing.T) {
 	}
 }
 
-// --- HasAlarm tests ---
+// --- AlarmClock type-assertion tests ---
 
 func TestSleep_NoAlarmRTC_SkipsDeepSleep(t *testing.T) {
-	rtc := &mockRTC{
-		noAlarm: true,
-		times:   []time.Time{T, T.Add(11 * time.Second)},
-	}
+	clk := &mockClock{times: []time.Time{T, T.Add(11 * time.Second)}}
 	mcu := &mockMCU{}
-	s := New(mcu, rtc, &mockRails{}, []hal.Pin{12})
+	s := New(mcu, clk, &mockRails{}, []hal.Pin{12})
 
 	s.Sleep(T.Add(10 * time.Second))
 
 	if callIndex(mcu.calls, "Standby") >= 0 {
-		t.Error("Standby should not be called when RTC has no alarm support")
-	}
-	if len(rtc.setWakes) > 0 {
-		t.Error("SetAlarm should not be called when HasAlarm is false")
+		t.Error("Standby should not be called when clock has no alarm support")
 	}
 }
 

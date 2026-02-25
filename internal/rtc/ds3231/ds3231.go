@@ -22,13 +22,13 @@ import (
 // Name is the human-readable identifier for this RTC.
 const Name = "DS3231"
 
-// RTC wraps the TinyGo DS3231 driver and satisfies hal.RTC.
+// RTC wraps the TinyGo DS3231 driver and satisfies hal.AlarmClock.
 type RTC struct {
 	dev *driver.Device
 }
 
 // compile-time check
-var _ hal.RTC = (*RTC)(nil)
+var _ hal.AlarmClock = (*RTC)(nil)
 
 // DS3231 I2C address and register constants for chip identification.
 const (
@@ -124,7 +124,6 @@ func verify(bus drivers.I2C) error {
 }
 
 func (r *RTC) Identifier() string { return Name }
-func (r *RTC) HasAlarm() bool     { return true }
 
 // ReadTime returns the current time from the DS3231.
 func (r *RTC) ReadTime() (time.Time, error) {

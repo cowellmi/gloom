@@ -20,7 +20,4 @@ func (LED) Pin() hal.Pin { return hal.NoPin }
 type RTC struct{}
 
 func (RTC) Identifier() string           { return "fallback" }
-func (RTC) HasAlarm() bool               { return false }
 func (RTC) ReadTime() (time.Time, error) { return time.Now(), nil }
-func (RTC) SetAlarm(time.Time) error     { return hal.ErrNoAlarm }
-func (RTC) ClearAlarm() error            { return hal.ErrNoAlarm }

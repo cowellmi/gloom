@@ -53,7 +53,7 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
-	var rtc hal.RTC = fallback.RTC{}
+	var rtc hal.Clock = fallback.RTC{}
 	if ds, rErr := ds3231.Probe(board.I2C); rErr != nil {
 		initWarns = append(initWarns, rErr)
 	} else {
