@@ -43,13 +43,24 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
-	dev, err := initDevices(board.MCU, board.I2C, board.LEDPin)
-
-	dev.NIC, err = notecard.New(board.I2C.Tx)
+	dev, err := initDevices(board.MCU, board.I2C)
 	if err != nil {
-		initWarns = append(initWarns, err)
+		board.MCU.DisableWatchdog()
+		panic(err)
+	}
+
+	if board.LEDPin != hal.NoPin {
+		dev.LED = led.New(board.LEDPin)
+		dev.LED.On()
+	}
+
+	if nic, ncErr := notecard.New(board.I2C.Tx); ncErr != nil {
+		initWarns = append(initWarns, ncErr)
+	} else {
+		dev.NIC = nic
 	}
 	board.MCU.PetWatchdog()
+	runtime.GC()
 
 	cfg := config.Default(board.LEDPin, board.Sensors, dev.SDChipSelectPins, dev.InterruptPins)
 	if dev.NIC != nil {
@@ -81,7 +92,6 @@ func main() {
 			initErrs = append(initErrs, errors.New("notecard: config.db: "+rErr.Error()))
 		}
 	}
-	runtime.GC()
 	board.MCU.PetWatchdog()
 
 	debug.Log("probing SD card...")

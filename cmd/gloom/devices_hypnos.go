@@ -8,21 +8,18 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/led"
 	"github.com/cowellmi/gloom/internal/power"
 	"github.com/cowellmi/gloom/internal/rtc/ds3231"
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
 // Hypnos
-func initDevices(mcu hal.MCU, bus hal.I2C, ledPin hal.Pin) (Devices, error) {
+func initDevices(mcu hal.MCU, bus hal.I2C) (Devices, error) {
 	var dev Devices
-	var err error
 	var probeErrs []error
 
 	dev.InterruptPins = []hal.Pin{hal.Pin(machine.D12)}
 	dev.SDChipSelectPins = []hal.Pin{hal.Pin(machine.D11), hal.Pin(machine.D10)}
-	dev.LED = led.New(ledPin)
 
 	dev.Rails = power.NewController(
 		power.NewRail(hal.Pin(machine.D5), power.ActiveLow, hal.RailsCore, 0),
@@ -37,9 +34,11 @@ func initDevices(mcu hal.MCU, bus hal.I2C, ledPin hal.Pin) (Devices, error) {
 	wait.For(2 * time.Second)
 	mcu.PetWatchdog()
 
-	dev.RTC, err = ds3231.Probe(bus)
+	ds, err := ds3231.Probe(bus)
 	if err != nil {
 		probeErrs = append(probeErrs, err)
+	} else {
+		dev.RTC = ds
 	}
 	mcu.PetWatchdog()
 

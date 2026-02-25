@@ -437,7 +437,7 @@ func TestStep_SensorMeasureError(t *testing.T) {
 	if dev.measureCalls != 1 {
 		t.Errorf("sensor.Measure() called %d times, want 1", dev.measureCalls)
 	}
-	if !mo.hasLog("failed to measure") {
+	if !mo.hasLog("measure: flaky-sensor: read timeout") {
 		t.Errorf("expected measure error in logs, got: %v", mo.logEntries)
 	}
 }
