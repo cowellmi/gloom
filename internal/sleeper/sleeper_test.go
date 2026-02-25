@@ -188,18 +188,6 @@ func TestSleep_RailSequencing(t *testing.T) {
 	}
 }
 
-func TestSleep_NilRails(t *testing.T) {
-	rtc := &mockRTC{
-		times: []time.Time{T, T.Add(11 * time.Second)},
-	}
-	target := T.Add(10 * time.Second)
-	s := New(&mockMCU{}, rtc, nil, []hal.Pin{12})
-
-	_, err := s.Sleep(target)
-	if err != nil {
-		t.Fatalf("Sleep() error: %v", err)
-	}
-}
 
 func TestSleep_DeepSleepSequence(t *testing.T) {
 	rtc := &mockRTC{

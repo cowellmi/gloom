@@ -126,13 +126,9 @@ func (m *Manager) step() {
 	}
 
 	if needSensors {
-		if m.rails != nil {
-			m.rails.Power(hal.RailsFull)
-		}
+		m.rails.Power(hal.RailsFull)
 		m.measureSensors()
-		if m.rails != nil {
-			m.rails.Power(hal.RailsCore)
-		}
+		m.rails.Power(hal.RailsCore)
 	}
 
 	if !sampleFired && !hbFired {

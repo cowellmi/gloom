@@ -2,6 +2,8 @@
 
 package main
 
-func initWing() Wing {
-	return Wing{}
+func initWing() Profile {
+	return Profile{
+		Rails: fallback.Rails,
+	}
 }

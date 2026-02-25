@@ -22,9 +22,13 @@ type Device struct {
 	idleFiredPins []hal.Pin
 }
 
-// New creates a Device. mcu is required. rtc and rails may be nil.
+// New creates a Device. mcu is required. rtc may be nil (disables
+// timer-based deep sleep). rails may be nil (treated as NullRails).
 // interruptPins are the GPIO interrupt lines used as wake sources.
 func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails, interruptPins []hal.Pin) *Device {
+	if rails == nil {
+		rails = hal.NullRails{}
+	}
 	return &Device{
 		mcu:           mcu,
 		rtc:           rtc,
@@ -106,9 +110,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 			if err := s.deepSleep(target); err != nil {
 				// deepSleep may have cut rails before failing. Restore core
 				// rails so idleSleep can reach the RTC via I2C.
-				if s.rails != nil {
-					s.rails.Power(hal.RailsCore)
-				}
+				s.rails.Power(hal.RailsCore)
 				errs = append(errs, s.idleSleep(target))
 			}
 		} else {
@@ -118,9 +120,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		s.mcu.PetWatchdog()
 
 		// Restore core rails so the RTC and SD card are reachable.
-		if s.rails != nil {
-			s.rails.Power(hal.RailsCore)
-		}
+		s.rails.Power(hal.RailsCore)
 
 		if s.rtc != nil {
 			_ = s.rtc.ClearAlarm() // best-effort
@@ -148,9 +148,7 @@ func (s *Device) deepSleep(target time.Time) error {
 
 	s.mcu.PetWatchdog()
 
-	if s.rails != nil {
-		s.rails.Power(hal.RailsOff)
-	}
+	s.rails.Power(hal.RailsOff)
 
 	for i, pin := range s.wakePins {
 		if err := s.mcu.ArmWake(pin); err != nil {
@@ -191,9 +189,7 @@ func (s *Device) idleSleep(target time.Time) error {
 	const tick = 4 * time.Second
 
 	if target.IsZero() {
-		if s.rails != nil {
-			s.rails.Power(hal.RailsCore)
-		}
+		s.rails.Power(hal.RailsCore)
 		// Arm pins so PinInputPullup is configured and we can poll.
 		for _, pin := range s.wakePins {
 			_ = s.mcu.ArmWake(pin)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
+	"github.com/cowellmi/gloom/internal/fallback"
 	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/led"
@@ -22,7 +23,6 @@ import (
 	"github.com/cowellmi/gloom/internal/sensor/vbat"
 	"github.com/cowellmi/gloom/internal/sink"
 	"github.com/cowellmi/gloom/internal/sleeper"
-	"github.com/cowellmi/gloom/internal/wait"
 )
 
 var ProductUID string
@@ -36,14 +36,9 @@ func main() {
 	board.MCU.EnableWatchdog()
 
 	wing := initWing()
-	wing.Rails.Power(hal.RailsOff)
-	wait.For(250 * time.Millisecond)
-	board.MCU.PetWatchdog()
-	wing.Rails.Power(hal.RailsCore)
-	wait.For(2 * time.Second)
 	board.MCU.PetWatchdog()
 
-	var statusLED hal.LED
+	var statusLED hal.LED = fallback.LED{}
 	if board.LEDPin != hal.NoPin {
 		statusLED = led.New(board.LEDPin)
 		statusLED.On()
@@ -302,8 +297,6 @@ func main() {
 func fatal(err error, statusLED hal.LED) {
 	debug.Log("FATAL: " + err.Error())
 	for {
-		if statusLED != nil {
-			statusLED.Blink()
-		}
+		statusLED.Blink()
 	}
 }

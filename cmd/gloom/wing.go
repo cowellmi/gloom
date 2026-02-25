@@ -4,6 +4,7 @@ import (
 	"github.com/cowellmi/gloom/internal/hal"
 )
 
+// A Wing (like a FeatherWing) provides hardware features.
 type Wing struct {
 	InterruptPins    []hal.Pin
 	SDChipSelectPins []hal.Pin
