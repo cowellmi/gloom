@@ -3,7 +3,7 @@ package sink
 import (
 	"time"
 
-	"github.com/cowellmi/gloom/internal/log"
+	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/notecard"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
@@ -23,7 +23,7 @@ func (q *queue) writeMap(body map[string]any) error {
 	})
 }
 
-// NotehubSink implements sensor.Recorder and log.Sink by sending structured
+// NotehubSink implements DataSink and log.Sink by sending structured
 // JSON Notes to Blues Notefiles. Each sensor reading and each log entry
 // becomes one Note with queryable fields in Notehub:
 //
@@ -49,7 +49,7 @@ func NewNotehubSink(nc notecard.Requester, dataName, logName string) *NotehubSin
 	return &s
 }
 
-func (s *NotehubSink) Record(t time.Time, id string, readings []sensor.Reading) error {
+func (s *NotehubSink) Data(t time.Time, id string, readings []sensor.Reading) error {
 	if s.data == nil {
 		return nil
 	}
@@ -68,7 +68,7 @@ func (s *NotehubSink) Record(t time.Time, id string, readings []sensor.Reading) 
 	return nil
 }
 
-func (s *NotehubSink) WriteLog(t time.Time, level log.Level, msg string) error {
+func (s *NotehubSink) Log(t time.Time, level config.LogLevel, msg string) error {
 	if s.logf == nil {
 		return nil
 	}
@@ -80,10 +80,6 @@ func (s *NotehubSink) WriteLog(t time.Time, level log.Level, msg string) error {
 	return s.logf.writeMap(body)
 }
 
-func (s *NotehubSink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
-	return s.WriteLog(t, level, string(msg))
-}
-
 func (s *NotehubSink) Flush() error { return nil }
 
 func formatISO(t time.Time) string {
@@ -91,15 +87,15 @@ func formatISO(t time.Time) string {
 	return string(appendTimestamp(buf[:0], t))
 }
 
-func notehubLevel(l log.Level) string {
+func notehubLevel(l config.LogLevel) string {
 	switch l {
-	case log.LevelDebug:
+	case config.LogLevelDebug:
 		return "DBG"
-	case log.LevelInfo:
+	case config.LogLevelInfo:
 		return "INF"
-	case log.LevelWarn:
+	case config.LogLevelWarn:
 		return "WRN"
-	case log.LevelError:
+	case config.LogLevelError:
 		return "ERR"
 	default:
 		return "???"

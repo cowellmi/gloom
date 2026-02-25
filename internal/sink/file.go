@@ -10,8 +10,8 @@ import (
 	"io"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/fmtbuf"
-	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
@@ -71,25 +71,13 @@ type logWriter struct {
 
 func newLogWriter(w io.Writer) *logWriter { return &logWriter{w: w} }
 
-func (w *logWriter) write(t time.Time, level log.Level, msg string) error {
+func (w *logWriter) write(t time.Time, level config.LogLevel, msg string) error {
 	b := w.buf[:0]
 	b = appendTimestamp(b, t)
 	b = fmtbuf.AppendByte(b, ' ')
-	b = log.AppendLevel(b, level)
+	b = fmtbuf.AppendLevel(b, level)
 	b = fmtbuf.AppendByte(b, ' ')
 	b = fmtbuf.Append(b, msg)
-	b = fmtbuf.AppendByte(b, '\n')
-	_, err := w.w.Write(b)
-	return err
-}
-
-func (w *logWriter) writeBytes(t time.Time, level log.Level, msg []byte) error {
-	b := w.buf[:0]
-	b = appendTimestamp(b, t)
-	b = fmtbuf.AppendByte(b, ' ')
-	b = log.AppendLevel(b, level)
-	b = fmtbuf.AppendByte(b, ' ')
-	b = fmtbuf.AppendBytes(b, msg)
 	b = fmtbuf.AppendByte(b, '\n')
 	_, err := w.w.Write(b)
 	return err
@@ -100,7 +88,6 @@ func (w *logWriter) writeBytes(t time.Time, level log.Level, msg []byte) error {
 // RotaryFileSink writes sensor data as CSV and log entries as text to
 // daily-rotating files. Each stream self-disables on a write error.
 type RotaryFileSink struct {
-	name     string
 	open     Opener
 	dataSpec FileSpec
 	logSpec  FileSpec
@@ -118,9 +105,8 @@ type RotaryFileSink struct {
 // The sink opens its initial files eagerly using now as the starting date.
 // Open errors are returned but the sink is still usable — the failing
 // stream is disabled while the other continues.
-func NewRotaryFileSink(name string, opener Opener, data, logSpec FileSpec, now time.Time) (*RotaryFileSink, error) {
+func NewRotaryFileSink(opener Opener, data, logSpec FileSpec, now time.Time) (*RotaryFileSink, error) {
 	s := &RotaryFileSink{
-		name:     name,
 		open:     opener,
 		dataSpec: data,
 		logSpec:  logSpec,
@@ -129,10 +115,8 @@ func NewRotaryFileSink(name string, opener Opener, data, logSpec FileSpec, now t
 	return s, err
 }
 
-func (s *RotaryFileSink) Name() string { return s.name }
-
-// Record formats each reading as a CSV row and writes it to the data file.
-func (s *RotaryFileSink) Record(t time.Time, id string, readings []sensor.Reading) error {
+// Data formats each reading as a CSV row and writes it to the data file.
+func (s *RotaryFileSink) Data(t time.Time, id string, readings []sensor.Reading) error {
 	if s.dataRec == nil {
 		return nil
 	}
@@ -147,8 +131,8 @@ func (s *RotaryFileSink) Record(t time.Time, id string, readings []sensor.Readin
 	return nil
 }
 
-// WriteLog formats a log line and writes it to the log file.
-func (s *RotaryFileSink) WriteLog(t time.Time, level log.Level, msg string) error {
+// Log formats a log line and writes it to the log file.
+func (s *RotaryFileSink) Log(t time.Time, level config.LogLevel, msg string) error {
 	if s.logRec == nil {
 		return nil
 	}
@@ -156,22 +140,6 @@ func (s *RotaryFileSink) WriteLog(t time.Time, level log.Level, msg string) erro
 		return err
 	}
 	if err := s.logRec.write(t, level, msg); err != nil {
-		s.logFile = nil
-		s.logRec = nil
-		return err
-	}
-	return nil
-}
-
-// WriteBytes formats a log line from a byte slice and writes it to the log file.
-func (s *RotaryFileSink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
-	if s.logRec == nil {
-		return nil
-	}
-	if err := s.maybeRotate(t); err != nil {
-		return err
-	}
-	if err := s.logRec.writeBytes(t, level, msg); err != nil {
 		s.logFile = nil
 		s.logRec = nil
 		return err
@@ -250,23 +218,14 @@ func dateKey(t time.Time) uint32 {
 
 func buildFilename(spec FileSpec, t time.Time) string {
 	y, m, d := t.Date()
-	var date [8]byte
-	put4(date[:], y)
-	put2(date[4:], int(m))
-	put2(date[6:], int(d))
-	return spec.Dir + "/" + string(date[:]) + spec.Ext
-}
-
-func put2(b []byte, n int) {
-	b[0] = byte('0' + n/10)
-	b[1] = byte('0' + n%10)
-}
-
-func put4(b []byte, n int) {
-	b[0] = byte('0' + n/1000)
-	b[1] = byte('0' + (n/100)%10)
-	b[2] = byte('0' + (n/10)%10)
-	b[3] = byte('0' + n%10)
+	b := make([]byte, 0, len(spec.Dir)+1+8+len(spec.Ext))
+	b = append(b, spec.Dir...)
+	b = append(b, '/')
+	b = append4(b, y)
+	b = append2(b, int(m))
+	b = append2(b, d)
+	b = append(b, spec.Ext...)
+	return string(b)
 }
 
 // --- shared ISO timestamp helper (used by csvWriter and NotehubSink) ---

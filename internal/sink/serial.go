@@ -4,8 +4,8 @@ import (
 	"io"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/fmtbuf"
-	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
@@ -23,9 +23,7 @@ func NewSerial(w io.Writer) *SerialSink {
 	return &SerialSink{w: w}
 }
 
-func (*SerialSink) Name() string { return "serial" }
-
-func (s *SerialSink) Record(t time.Time, id string, readings []sensor.Reading) error {
+func (s *SerialSink) Data(t time.Time, id string, readings []sensor.Reading) error {
 	if s.w == nil {
 		return nil
 	}
@@ -47,30 +45,15 @@ func (s *SerialSink) Record(t time.Time, id string, readings []sensor.Reading) e
 	return nil
 }
 
-func (s *SerialSink) WriteLog(t time.Time, level log.Level, msg string) error {
+func (s *SerialSink) Log(t time.Time, level config.LogLevel, msg string) error {
 	if s.w == nil {
 		return nil
 	}
 	b := s.buf[:0]
 	b = appendSerialTimestamp(b, t)
-	b = log.AppendLevel(b, level)
+	b = fmtbuf.AppendLevel(b, level)
 	b = fmtbuf.Append(b, " | ")
 	b = fmtbuf.Append(b, msg)
-	b = fmtbuf.AppendByte(b, '\r')
-	b = fmtbuf.AppendByte(b, '\n')
-	_, _ = s.w.Write(b) // best-effort
-	return nil
-}
-
-func (s *SerialSink) WriteBytes(t time.Time, level log.Level, msg []byte) error {
-	if s.w == nil {
-		return nil
-	}
-	b := s.buf[:0]
-	b = appendSerialTimestamp(b, t)
-	b = log.AppendLevel(b, level)
-	b = fmtbuf.Append(b, " | ")
-	b = fmtbuf.AppendBytes(b, msg)
 	b = fmtbuf.AppendByte(b, '\r')
 	b = fmtbuf.AppendByte(b, '\n')
 	_, _ = s.w.Write(b) // best-effort
@@ -81,19 +64,12 @@ func (*SerialSink) Flush() error { return nil }
 
 func appendSerialTimestamp(buf []byte, t time.Time) []byte {
 	buf = fmtbuf.AppendByte(buf, '[')
-	buf = appendTwoDigits(buf, t.Hour())
+	buf = append2(buf, t.Hour())
 	buf = fmtbuf.AppendByte(buf, ':')
-	buf = appendTwoDigits(buf, t.Minute())
+	buf = append2(buf, t.Minute())
 	buf = fmtbuf.AppendByte(buf, ':')
-	buf = appendTwoDigits(buf, t.Second())
+	buf = append2(buf, t.Second())
 	buf = fmtbuf.AppendByte(buf, ']')
 	buf = fmtbuf.AppendByte(buf, ' ')
 	return buf
-}
-
-func appendTwoDigits(buf []byte, n int) []byte {
-	if n < 10 {
-		buf = fmtbuf.AppendByte(buf, '0')
-	}
-	return fmtbuf.AppendInt(buf, int64(n), 10)
 }

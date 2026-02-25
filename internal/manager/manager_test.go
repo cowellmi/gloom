@@ -10,6 +10,7 @@ import (
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
+	"github.com/cowellmi/gloom/internal/sink"
 )
 
 var T = time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
@@ -17,28 +18,20 @@ var T = time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 // --- mocks ---
 
 type mockOutput struct {
-	name        string
 	readings    []sensor.Reading
 	measIDs     []string
 	logEntries  []string
 	flushCalled bool
 }
 
-func (m *mockOutput) Name() string { return m.name }
-
-func (m *mockOutput) Record(_ time.Time, id string, readings []sensor.Reading) error {
+func (m *mockOutput) Data(_ time.Time, id string, readings []sensor.Reading) error {
 	m.measIDs = append(m.measIDs, id)
 	m.readings = append(m.readings, readings...)
 	return nil
 }
 
-func (m *mockOutput) WriteLog(_ time.Time, _ log.Level, msg string) error {
+func (m *mockOutput) Log(_ time.Time, _ config.LogLevel, msg string) error {
 	m.logEntries = append(m.logEntries, msg)
-	return nil
-}
-
-func (m *mockOutput) WriteBytes(_ time.Time, _ log.Level, msg []byte) error {
-	m.logEntries = append(m.logEntries, string(msg))
 	return nil
 }
 
@@ -106,13 +99,13 @@ func afterDeadlineSleep(wakeTime time.Time) func(time.Time) (time.Time, error) {
 	return func(_ time.Time) (time.Time, error) { return wakeTime, nil }
 }
 
-func newTestManager(sys *mockSystem, cfg config.Config, sensors []sensor.Sensor, recorders []sensor.Recorder) (*Manager, *mockOutput) {
-	mo := &mockOutput{name: "test"}
+func newTestManager(sys *mockSystem, cfg config.Config, sensors []sensor.Sensor, dataSinks []sink.DataSink) (*Manager, *mockOutput) {
+	mo := &mockOutput{}
 
 	logger := log.NewLogger(time.Time{})
-	logger.AddSink(mo, log.LevelDebug)
+	logger.AddSink(mo, config.LogLevelDebug)
 
-	man := New(sys, cfg, sensors, recorders, logger)
+	man := New(sys, cfg, sensors, dataSinks, logger)
 	man.wakeTime = T
 	man.sampleDeadline.init(T)
 	man.hbDeadline.init(T)
@@ -310,14 +303,14 @@ func TestStep_SampleSensorMeasured(t *testing.T) {
 		id:       "test-sensor",
 		readings: []sensor.Reading{{Label: "temp", Value: 22000, Unit: "mC"}},
 	}
-	recorder := &mockOutput{name: "rec"}
+	recorder := &mockOutput{}
 
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, _ := newTestManager(sys, cfg, []sensor.Sensor{dev}, []sensor.Recorder{recorder})
+	man, _ := newTestManager(sys, cfg, []sensor.Sensor{dev}, []sink.DataSink{recorder})
 	man.step()
 
 	if dev.measureCalls != 1 {
@@ -343,14 +336,14 @@ func TestStep_MultipleSensorsBothMeasured(t *testing.T) {
 		id:       "humidity",
 		readings: []sensor.Reading{{Label: "rh", Value: 5500, Unit: "mRH"}},
 	}
-	recorder := &mockOutput{name: "rec"}
+	recorder := &mockOutput{}
 
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, _ := newTestManager(sys, cfg, []sensor.Sensor{temp, humidity}, []sensor.Recorder{recorder})
+	man, _ := newTestManager(sys, cfg, []sensor.Sensor{temp, humidity}, []sink.DataSink{recorder})
 	man.step()
 
 	if temp.measureCalls != 1 {
@@ -369,7 +362,7 @@ func TestStep_SampleAndHeartbeatFire(t *testing.T) {
 		id:       "temp",
 		readings: []sensor.Reading{{Label: "temp", Value: 22000, Unit: "mC"}},
 	}
-	rec := &mockOutput{name: "rec"}
+	rec := &mockOutput{}
 
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
@@ -378,9 +371,9 @@ func TestStep_SampleAndHeartbeatFire(t *testing.T) {
 	cfg := config.Config{
 		SampleInterval:    5 * time.Second,
 		HeartbeatInterval: 5 * time.Second,
-		HeartbeatPayload:  config.PayloadMin,
+		HeartbeatPayload:  config.HeartbeatPayloadMin,
 	}
-	man, mo := newTestManager(sys, cfg, []sensor.Sensor{weatherSensor}, []sensor.Recorder{rec})
+	man, mo := newTestManager(sys, cfg, []sensor.Sensor{weatherSensor}, []sink.DataSink{rec})
 	man.step()
 
 	if weatherSensor.measureCalls != 1 {
@@ -401,7 +394,7 @@ func TestStep_OnlyHeartbeatFires(t *testing.T) {
 	// Sample has no interval and no ext pin — never fires.
 	cfg := config.Config{
 		HeartbeatInterval: 5 * time.Second,
-		HeartbeatPayload:  config.PayloadFull,
+		HeartbeatPayload:  config.HeartbeatPayloadFull,
 	}
 	man, mo := newTestManager(sys, cfg, []sensor.Sensor{weatherSensor}, nil)
 	man.step()
@@ -525,7 +518,7 @@ func TestStep_NoSensorRailsWhenNoSensors(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	cfg := config.Config{HeartbeatInterval: 5 * time.Second, HeartbeatPayload: config.PayloadFull}
+	cfg := config.Config{HeartbeatInterval: 5 * time.Second, HeartbeatPayload: config.HeartbeatPayloadFull}
 	man, _ := newTestManager(sys, cfg, nil, nil)
 	man.step()
 
@@ -554,9 +547,9 @@ func TestStep_FlushBeforeSleep(t *testing.T) {
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
-	rec := &mockOutput{name: "rec"}
+	rec := &mockOutput{}
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, mo := newTestManager(sys, cfg, nil, []sensor.Recorder{rec})
+	man, mo := newTestManager(sys, cfg, nil, []sink.DataSink{rec})
 	man.step()
 
 	if !mo.flushCalled {
@@ -575,14 +568,14 @@ func TestStep_MultipleMeasurements(t *testing.T) {
 			{Label: "rh", Value: 5500, Unit: "mRH"},
 		},
 	}
-	rec := &mockOutput{name: "rec"}
+	rec := &mockOutput{}
 
 	sys := &mockSystem{
 		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
 	}
 
 	cfg := config.Config{SampleInterval: 5 * time.Second}
-	man, _ := newTestManager(sys, cfg, []sensor.Sensor{dev}, []sensor.Recorder{rec})
+	man, _ := newTestManager(sys, cfg, []sensor.Sensor{dev}, []sink.DataSink{rec})
 	man.step()
 
 	if len(rec.readings) != 2 {

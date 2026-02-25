@@ -10,6 +10,7 @@ import (
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/sensor"
+	"github.com/cowellmi/gloom/internal/sink"
 )
 
 // sleeper is the interface the manager needs from the hardware layer.
@@ -44,7 +45,7 @@ type Manager struct {
 	sleeper        sleeper
 	cfg            config.Config
 	sensors        []sensor.Sensor
-	recorders      []sensor.Recorder
+	dataSinks      []sink.DataSink
 	logger         *log.Logger
 	wakeTime       time.Time
 	blinkLED       func()
@@ -55,12 +56,12 @@ type Manager struct {
 	hbDeadline     deadline
 }
 
-func New(sleeper sleeper, cfg config.Config, sensors []sensor.Sensor, recorders []sensor.Recorder, logger *log.Logger) *Manager {
+func New(sleeper sleeper, cfg config.Config, sensors []sensor.Sensor, dataSinks []sink.DataSink, logger *log.Logger) *Manager {
 	return &Manager{
 		sleeper:        sleeper,
 		cfg:            cfg,
 		sensors:        sensors,
-		recorders:      recorders,
+		dataSinks:      dataSinks,
 		logger:         logger,
 		sampleDeadline: deadline{interval: cfg.SampleInterval},
 		hbDeadline:     deadline{interval: cfg.HeartbeatInterval},
@@ -122,7 +123,7 @@ func (m *Manager) step() {
 	}
 
 	if sampleFired || hbFired {
-		m.logger.Write(b, log.LevelDebug)
+		m.logger.Write(b, config.LogLevelDebug)
 	}
 
 	if needSensors {
@@ -156,8 +157,8 @@ func (m *Manager) measureSensors() {
 			continue
 		}
 
-		for _, r := range m.recorders {
-			if err := r.Record(m.wakeTime, s.ID(), readings); err != nil {
+		for _, ds := range m.dataSinks {
+			if err := ds.Data(m.wakeTime, s.ID(), readings); err != nil {
 				m.logger.Error("failed to record: " + s.ID() + ": " + err.Error())
 			}
 		}
@@ -225,7 +226,7 @@ func (m *Manager) logNextWake(d time.Duration) {
 	} else {
 		b = appendDuration(b, d)
 	}
-	m.logger.Write(b, log.LevelDebug)
+	m.logger.Write(b, config.LogLevelDebug)
 }
 
 func appendDuration(b []byte, d time.Duration) []byte {
@@ -261,7 +262,7 @@ func (m *Manager) logMem() {
 		b = fmtbuf.AppendUint(b, uint64(m.stackUsed()), 10)
 		b = fmtbuf.AppendByte(b, 'B')
 	}
-	m.logger.Write(b, log.LevelDebug)
+	m.logger.Write(b, config.LogLevelDebug)
 }
 
 func (m *Manager) flush() error {
@@ -269,8 +270,8 @@ func (m *Manager) flush() error {
 	if err := m.logger.Flush(); err != nil {
 		errs = append(errs, err)
 	}
-	for _, r := range m.recorders {
-		if err := r.Flush(); err != nil {
+	for _, ds := range m.dataSinks {
+		if err := ds.Flush(); err != nil {
 			errs = append(errs, err)
 		}
 	}

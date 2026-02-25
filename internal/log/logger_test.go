@@ -3,6 +3,8 @@ package log
 import (
 	"testing"
 	"time"
+
+	"github.com/cowellmi/gloom/internal/config"
 )
 
 // --- mocks ---
@@ -12,13 +14,8 @@ type mockSink struct {
 	err     error
 }
 
-func (m *mockSink) WriteLog(_ time.Time, _ Level, msg string) error {
+func (m *mockSink) Log(_ time.Time, _ config.LogLevel, msg string) error {
 	m.entries = append(m.entries, msg)
-	return m.err
-}
-
-func (m *mockSink) WriteBytes(_ time.Time, _ Level, msg []byte) error {
-	m.entries = append(m.entries, string(msg))
 	return m.err
 }
 
@@ -29,7 +26,7 @@ func (m *mockSink) Flush() error { return m.err }
 func TestLog_LevelFiltering(t *testing.T) {
 	sink := &mockSink{}
 	l := NewLogger(time.Time{})
-	l.AddSink(sink, LevelWarn)
+	l.AddSink(sink, config.LogLevelWarn)
 
 	l.Debug("skip")
 	l.Info("skip")

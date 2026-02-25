@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/log"
 )
 
 // MarshalINI serializes the Config to flat key=value format.
@@ -66,7 +65,7 @@ func (c *Config) MarshalINI() ([]byte, error) {
 		buf = append(buf, '\n')
 	}
 
-	if c.HeartbeatPayload != PayloadNone {
+	if c.HeartbeatPayload != HeartbeatPayloadNone {
 		buf = append(buf, "heartbeat_payload = "...)
 		ps, err := payloadString(c.HeartbeatPayload)
 		if err != nil {
@@ -105,28 +104,28 @@ func appendDuration(buf []byte, d time.Duration) []byte {
 	}
 }
 
-func levelString(l log.Level) (string, error) {
+func levelString(l LogLevel) (string, error) {
 	switch l {
-	case log.LevelDebug:
+	case LogLevelDebug:
 		return "debug", nil
-	case log.LevelInfo:
+	case LogLevelInfo:
 		return "info", nil
-	case log.LevelWarn:
+	case LogLevelWarn:
 		return "warn", nil
-	case log.LevelError:
+	case LogLevelError:
 		return "error", nil
 	default:
 		return "", errors.New("unknown log level: " + strconv.Itoa(int(l)))
 	}
 }
 
-func payloadString(p Payload) (string, error) {
+func payloadString(p HeartbeatPayload) (string, error) {
 	switch p {
-	case PayloadNone:
+	case HeartbeatPayloadNone:
 		return "none", nil
-	case PayloadMin:
+	case HeartbeatPayloadMin:
 		return "min", nil
-	case PayloadFull:
+	case HeartbeatPayloadFull:
 		return "full", nil
 	default:
 		return "", errors.New("unknown payload: " + strconv.Itoa(int(p)))
@@ -168,7 +167,7 @@ func (c *Config) MarshalMap() map[string]interface{} {
 		m["heartbeat_interval"] = durationString(c.HeartbeatInterval)
 	}
 
-	if c.HeartbeatPayload != PayloadNone {
+	if c.HeartbeatPayload != HeartbeatPayloadNone {
 		ps, _ := payloadString(c.HeartbeatPayload)
 		m["heartbeat_payload"] = ps
 	}

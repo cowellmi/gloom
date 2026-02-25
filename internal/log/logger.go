@@ -9,55 +9,25 @@ package log
 
 import (
 	"errors"
-	"strconv"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
 )
-
-// Level represents log severity. Values mirror slog conventions.
-type Level int
-
-const (
-	LevelDebug Level = -4
-	LevelInfo  Level = 0
-	LevelWarn  Level = 4
-	LevelError Level = 8
-	LevelOff   Level = 32
-)
-
-// AppendLevel appends the short display string for a log level
-// ("DBG", "INF", "WRN", "ERR") to buf. Unknown levels are appended
-// as their numeric value.
-func AppendLevel(buf []byte, level Level) []byte {
-	switch level {
-	case LevelDebug:
-		return append(buf, "DBG"...)
-	case LevelInfo:
-		return append(buf, "INF"...)
-	case LevelWarn:
-		return append(buf, "WRN"...)
-	case LevelError:
-		return append(buf, "ERR"...)
-	default:
-		return strconv.AppendInt(buf, int64(level), 10)
-	}
-}
 
 // Sink receives log entries for output. Implementations decide their
 // own serialization format and manage their own scratch buffers
 // internally. Flush forces any buffered data to be written (called
 // before sleep).
 type Sink interface {
-	WriteLog(t time.Time, level Level, msg string) error
-	WriteBytes(t time.Time, level Level, msg []byte) error
+	Log(t time.Time, level config.LogLevel, msg string) error
 	Flush() error
 }
 
 // target pairs a Sink with the minimum level it should receive.
 type target struct {
 	sink     Sink
-	minLevel Level
+	minLevel config.LogLevel
 }
 
 // Logger fans out log entries to sinks filtered by per-sink level.
@@ -75,7 +45,7 @@ func NewLogger(now time.Time, sinks ...Sink) *Logger {
 
 // AddSink registers a Sink that will receive log entries at or above
 // minLevel.
-func (l *Logger) AddSink(s Sink, minLevel Level) {
+func (l *Logger) AddSink(s Sink, minLevel config.LogLevel) {
 	l.targets = append(l.targets, target{sink: s, minLevel: minLevel})
 }
 
@@ -86,10 +56,10 @@ func (l *Logger) SetTime(t time.Time) {
 }
 
 // Log writes a log entry to all sinks whose minimum level is met.
-func (l *Logger) Log(level Level, msg string) {
+func (l *Logger) Log(level config.LogLevel, msg string) {
 	for i := range l.targets {
 		if level >= l.targets[i].minLevel {
-			err := l.targets[i].sink.WriteLog(l.t, level, msg)
+			err := l.targets[i].sink.Log(l.t, level, msg)
 			if err != nil {
 				// Route to debug (UART) instead of logging through
 				// ourselves to avoid a recursive log loop.
@@ -99,11 +69,11 @@ func (l *Logger) Log(level Level, msg string) {
 	}
 }
 
-// Write logs b at the given level without converting b to a string.
-func (l *Logger) Write(b []byte, level Level) {
+// Write logs b at the given level, converting it to a string.
+func (l *Logger) Write(b []byte, level config.LogLevel) {
 	for i := range l.targets {
 		if level >= l.targets[i].minLevel {
-			if err := l.targets[i].sink.WriteBytes(l.t, level, b); err != nil {
+			if err := l.targets[i].sink.Log(l.t, level, string(b)); err != nil {
 				debug.Log("sink error: " + err.Error())
 			}
 		}
@@ -111,16 +81,16 @@ func (l *Logger) Write(b []byte, level Level) {
 }
 
 // Debug logs at LevelDebug.
-func (l *Logger) Debug(msg string) { l.Log(LevelDebug, msg) }
+func (l *Logger) Debug(msg string) { l.Log(config.LogLevelDebug, msg) }
 
 // Info logs at LevelInfo.
-func (l *Logger) Info(msg string) { l.Log(LevelInfo, msg) }
+func (l *Logger) Info(msg string) { l.Log(config.LogLevelInfo, msg) }
 
 // Warn logs at LevelWarn.
-func (l *Logger) Warn(msg string) { l.Log(LevelWarn, msg) }
+func (l *Logger) Warn(msg string) { l.Log(config.LogLevelWarn, msg) }
 
 // Error logs at LevelError.
-func (l *Logger) Error(msg string) { l.Log(LevelError, msg) }
+func (l *Logger) Error(msg string) { l.Log(config.LogLevelError, msg) }
 
 // Flush forces all sinks to write any buffered data. Called by the
 // manager before entering sleep.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cowellmi/gloom/internal/log"
+	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
@@ -15,14 +15,14 @@ var testTime = time.Date(2026, 2, 14, 9, 5, 7, 0, time.UTC)
 func TestNilWriter_Record(t *testing.T) {
 	s := NewSerial(nil)
 	readings := []sensor.Reading{{Label: "temp", Value: 22, Unit: "C"}}
-	if err := s.Record(testTime, "bme280", readings); err != nil {
+	if err := s.Data(testTime, "bme280", readings); err != nil {
 		t.Fatalf("Record with nil writer: %v", err)
 	}
 }
 
 func TestNilWriter_WriteLog(t *testing.T) {
 	s := NewSerial(nil)
-	if err := s.WriteLog(testTime, log.LevelError, "fail"); err != nil {
+	if err := s.Log(testTime, config.LogLevelError, "fail"); err != nil {
 		t.Fatalf("WriteLog with nil writer: %v", err)
 	}
 }
@@ -32,7 +32,7 @@ func TestRecord_FormatsLine(t *testing.T) {
 	s := NewSerial(&buf)
 
 	readings := []sensor.Reading{{Label: "temp", Value: 22500, Unit: "mC"}}
-	if err := s.Record(testTime, "bme280", readings); err != nil {
+	if err := s.Data(testTime, "bme280", readings); err != nil {
 		t.Fatal(err)
 	}
 
@@ -52,7 +52,7 @@ func TestRecord_MultipleMeasurements(t *testing.T) {
 		{Label: "hum", Value: 65, Unit: "%"},
 		{Label: "pres", Value: 1013, Unit: "hPa"},
 	}
-	if err := s.Record(testTime, "bme280", readings); err != nil {
+	if err := s.Data(testTime, "bme280", readings); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,7 +76,7 @@ func TestRecord_NegativeValue_Serial(t *testing.T) {
 	s := NewSerial(&buf)
 
 	readings := []sensor.Reading{{Label: "temp", Value: -5000, Unit: "mC"}}
-	if err := s.Record(testTime, "ds18b20", readings); err != nil {
+	if err := s.Data(testTime, "ds18b20", readings); err != nil {
 		t.Fatal(err)
 	}
 
@@ -89,19 +89,19 @@ func TestRecord_NegativeValue_Serial(t *testing.T) {
 
 func TestWriteLog_Levels(t *testing.T) {
 	tests := []struct {
-		level log.Level
+		level config.LogLevel
 		tag   string
 	}{
-		{log.LevelDebug, "DBG"},
-		{log.LevelInfo, "INF"},
-		{log.LevelWarn, "WRN"},
-		{log.LevelError, "ERR"},
+		{config.LogLevelDebug, "DBG"},
+		{config.LogLevelInfo, "INF"},
+		{config.LogLevelWarn, "WRN"},
+		{config.LogLevelError, "ERR"},
 	}
 	for _, tt := range tests {
 		var buf bytes.Buffer
 		s := NewSerial(&buf)
 
-		if err := s.WriteLog(testTime, tt.level, "hello"); err != nil {
+		if err := s.Log(testTime, tt.level, "hello"); err != nil {
 			t.Fatalf("WriteLog(%s): %v", tt.tag, err)
 		}
 
@@ -117,13 +117,6 @@ func TestSerial_Flush_ReturnsNil(t *testing.T) {
 	s := NewSerial(nil)
 	if err := s.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
-	}
-}
-
-func TestSerial_Name(t *testing.T) {
-	s := NewSerial(nil)
-	if got := s.Name(); got != "serial" {
-		t.Errorf("Name() = %q, want %q", got, "serial")
 	}
 }
 
@@ -145,7 +138,7 @@ func TestAppendSerialTimestamp(t *testing.T) {
 	}
 }
 
-func TestAppendTwoDigits(t *testing.T) {
+func TestAppend2(t *testing.T) {
 	tests := []struct {
 		n    int
 		want string
@@ -158,9 +151,9 @@ func TestAppendTwoDigits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		var buf [4]byte
-		got := string(appendTwoDigits(buf[:0], tt.n))
+		got := string(append2(buf[:0], tt.n))
 		if got != tt.want {
-			t.Errorf("appendTwoDigits(%d) = %q, want %q", tt.n, got, tt.want)
+			t.Errorf("append2(%d) = %q, want %q", tt.n, got, tt.want)
 		}
 	}
 }

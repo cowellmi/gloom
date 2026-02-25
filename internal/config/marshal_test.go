@@ -6,18 +6,17 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/log"
 )
 
 func TestMarshal_RoundTrip(t *testing.T) {
 	orig := Config{
-		SDLogLevel:        log.LevelError,
-		BluesLogLevel:     log.LevelWarn,
+		SDLogLevel:        LogLevelError,
+		BluesLogLevel:     LogLevelWarn,
 		SampleInterval:    time.Minute,
 		SampleSensors:     []string{"temperature", "humidity"},
 		SampleExtPin:      hal.NoPin,
 		HeartbeatInterval: time.Hour,
-		HeartbeatPayload:  PayloadFull,
+		HeartbeatPayload:  HeartbeatPayloadFull,
 		HeartbeatLedPin:   hal.Pin(16),
 	}
 
@@ -31,10 +30,10 @@ func TestMarshal_RoundTrip(t *testing.T) {
 		t.Fatalf("ParseINI(MarshalINI()) error: %v\nINI:\n%s", err, data)
 	}
 
-	if got.SDLogLevel != log.LevelError {
+	if got.SDLogLevel != LogLevelError {
 		t.Errorf("SDLogLevel = %d, want LevelError", got.SDLogLevel)
 	}
-	if got.BluesLogLevel != log.LevelWarn {
+	if got.BluesLogLevel != LogLevelWarn {
 		t.Errorf("BluesLogLevel = %d, want LevelWarn", got.BluesLogLevel)
 	}
 	if got.SampleInterval != time.Minute {
@@ -49,8 +48,8 @@ func TestMarshal_RoundTrip(t *testing.T) {
 	if got.HeartbeatInterval != time.Hour {
 		t.Errorf("HeartbeatInterval = %v, want 1h", got.HeartbeatInterval)
 	}
-	if got.HeartbeatPayload != PayloadFull {
-		t.Errorf("HeartbeatPayload = %d, want PayloadFull", got.HeartbeatPayload)
+	if got.HeartbeatPayload != HeartbeatPayloadFull {
+		t.Errorf("HeartbeatPayload = %d, want HeartbeatPayloadFull", got.HeartbeatPayload)
 	}
 	if got.HeartbeatLedPin != hal.Pin(16) {
 		t.Errorf("HeartbeatLedPin = %d, want 16", got.HeartbeatLedPin)
@@ -59,8 +58,8 @@ func TestMarshal_RoundTrip(t *testing.T) {
 
 func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:      log.LevelDebug,
-		BluesLogLevel:   log.LevelDebug,
+		SDLogLevel:      LogLevelDebug,
+		BluesLogLevel:   LogLevelDebug,
 		SampleInterval:  5 * time.Second,
 		SampleExtPin:    hal.NoPin,
 		HeartbeatLedPin: hal.NoPin,
@@ -88,8 +87,8 @@ func TestMarshal_ZeroFieldsOmitted(t *testing.T) {
 
 func TestMarshal_ExtPin(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:    log.LevelDebug,
-		BluesLogLevel: log.LevelDebug,
+		SDLogLevel:    LogLevelDebug,
+		BluesLogLevel: LogLevelDebug,
 		SampleExtPin:  hal.Pin(7),
 		SampleSensors: []string{"bucket"},
 	}
@@ -106,8 +105,8 @@ func TestMarshal_ExtPin(t *testing.T) {
 
 func TestMarshal_HeartbeatDisabled(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:      log.LevelDebug,
-		BluesLogLevel:   log.LevelDebug,
+		SDLogLevel:      LogLevelDebug,
+		BluesLogLevel:   LogLevelDebug,
 		SampleInterval:  5 * time.Second,
 		SampleExtPin:    hal.NoPin,
 		HeartbeatLedPin: hal.NoPin,
@@ -137,8 +136,8 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 
 	for _, tt := range tests {
 		cfg := Config{
-			SDLogLevel:     log.LevelDebug,
-			BluesLogLevel:  log.LevelDebug,
+			SDLogLevel:     LogLevelDebug,
+			BluesLogLevel:  LogLevelDebug,
 			SampleInterval: tt.d,
 			SampleExtPin:   hal.NoPin,
 		}
@@ -154,8 +153,8 @@ func TestMarshal_DurationFormatting(t *testing.T) {
 
 func TestMarshal_LedPin(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:        log.LevelDebug,
-		BluesLogLevel:     log.LevelDebug,
+		SDLogLevel:        LogLevelDebug,
+		BluesLogLevel:     LogLevelDebug,
 		SampleInterval:    time.Minute,
 		SampleExtPin:      hal.NoPin,
 		HeartbeatInterval: time.Hour,
@@ -174,13 +173,13 @@ func TestMarshal_LedPin(t *testing.T) {
 
 func TestMarshalMap(t *testing.T) {
 	cfg := Config{
-		SDLogLevel:        log.LevelError,
-		BluesLogLevel:     log.LevelWarn,
+		SDLogLevel:        LogLevelError,
+		BluesLogLevel:     LogLevelWarn,
 		SampleInterval:    time.Minute,
 		SampleSensors:     []string{"vbat", "temp"},
 		SampleExtPin:      hal.Pin(7),
 		HeartbeatInterval: time.Hour,
-		HeartbeatPayload:  PayloadFull,
+		HeartbeatPayload:  HeartbeatPayloadFull,
 		HeartbeatLedPin:   hal.Pin(16),
 	}
 

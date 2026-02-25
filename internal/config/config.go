@@ -7,27 +7,52 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/log"
 )
 
-// Payload identifies a predefined heartbeat payload profile.
-type Payload uint8
+// LogLevel represents log severity.
+type LogLevel uint
 
 const (
-	PayloadNone Payload = iota
-	PayloadMin
-	PayloadFull
+	LogLevelDebug LogLevel = 0
+	LogLevelInfo  LogLevel = 1
+	LogLevelWarn  LogLevel = 2
+	LogLevelError LogLevel = 3
+	LogLevelOff   LogLevel = 4
+)
+
+func (l LogLevel) String() string {
+	switch l {
+	case LogLevelDebug:
+		return "debug"
+	case LogLevelInfo:
+		return "info"
+	case LogLevelWarn:
+		return "warn"
+	case LogLevelError:
+		return "error"
+	default:
+		return strconv.FormatUint(uint64(l), 10)
+	}
+}
+
+// HeartbeatPayload identifies a predefined heartbeat payload profile.
+type HeartbeatPayload uint8
+
+const (
+	HeartbeatPayloadNone HeartbeatPayload = iota
+	HeartbeatPayloadMin
+	HeartbeatPayloadFull
 )
 
 // Config holds the complete parsed configuration.
 type Config struct {
-	SDLogLevel        log.Level
-	BluesLogLevel     log.Level
+	SDLogLevel        LogLevel
+	BluesLogLevel     LogLevel
 	SampleInterval    time.Duration
 	SampleSensors     []string
 	SampleExtPin      hal.Pin
 	HeartbeatInterval time.Duration
-	HeartbeatPayload  Payload
+	HeartbeatPayload  HeartbeatPayload
 	HeartbeatLedPin   hal.Pin
 }
 
@@ -37,13 +62,13 @@ type Config struct {
 // Sample is disabled by default (interval=0); heartbeat is enabled with a 3s interval.
 func Default(ledPin hal.Pin, sensors []string) Config {
 	return Config{
-		SDLogLevel:        log.LevelDebug,
-		BluesLogLevel:     log.LevelInfo,
+		SDLogLevel:        LogLevelDebug,
+		BluesLogLevel:     LogLevelInfo,
 		SampleInterval:    0,
 		SampleSensors:     sensors,
 		SampleExtPin:      hal.NoPin,
 		HeartbeatInterval: 3 * time.Second,
-		HeartbeatPayload:  PayloadNone,
+		HeartbeatPayload:  HeartbeatPayloadNone,
 		HeartbeatLedPin:   ledPin,
 	}
 }
@@ -190,31 +215,31 @@ func validate(cfg *Config) error {
 
 // --- parse helpers ---
 
-func parseLevel(s string) (log.Level, error) {
+func parseLevel(s string) (LogLevel, error) {
 	switch s {
 	case "debug":
-		return log.LevelDebug, nil
+		return LogLevelDebug, nil
 	case "info":
-		return log.LevelInfo, nil
+		return LogLevelInfo, nil
 	case "warn":
-		return log.LevelWarn, nil
+		return LogLevelWarn, nil
 	case "error":
-		return log.LevelError, nil
+		return LogLevelError, nil
 	default:
 		return 0, errors.New("unknown log level: " + s)
 	}
 }
 
-func parsePayload(value string) (Payload, error) {
+func parsePayload(value string) (HeartbeatPayload, error) {
 	switch value {
 	case "none", "":
-		return PayloadNone, nil
+		return HeartbeatPayloadNone, nil
 	case "min":
-		return PayloadMin, nil
+		return HeartbeatPayloadMin, nil
 	case "full":
-		return PayloadFull, nil
+		return HeartbeatPayloadFull, nil
 	default:
-		return PayloadNone, errors.New("unknown payload: " + value)
+		return HeartbeatPayloadNone, errors.New("unknown payload: " + value)
 	}
 }
 

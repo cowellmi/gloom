@@ -10,7 +10,11 @@
 //	b = fmtbuf.AppendInt(b, n, 10)
 package fmtbuf
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/cowellmi/gloom/internal/config"
+)
 
 // AppendBytes appends s to b, truncating s if b's capacity would be exceeded.
 // Never allocates.
@@ -74,4 +78,19 @@ func AppendUint(b []byte, v uint64, base int) []byte {
 		digits = digits[:avail]
 	}
 	return append(b, digits...)
+}
+
+func AppendLevel(b []byte, level config.LogLevel) []byte {
+	switch level {
+	case config.LogLevelDebug:
+		return append(b, "DBG"...)
+	case config.LogLevelInfo:
+		return append(b, "INF"...)
+	case config.LogLevelWarn:
+		return append(b, "WRN"...)
+	case config.LogLevelError:
+		return append(b, "ERR"...)
+	default:
+		return append(b, "LVL"...)
+	}
 }

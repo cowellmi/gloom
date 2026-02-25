@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/hal"
-	"github.com/cowellmi/gloom/internal/log"
 )
 
 // testDefault returns a Default config with standard test board values.
@@ -19,11 +18,11 @@ func testDefault() Config {
 func TestDefault(t *testing.T) {
 	cfg := testDefault()
 
-	if cfg.SDLogLevel != log.LevelDebug {
-		t.Errorf("SDLogLevel = %d, want LevelDebug", cfg.SDLogLevel)
+	if cfg.SDLogLevel != LogLevelDebug {
+		t.Errorf("SDLogLevel = %d, want LogLevelDebug", cfg.SDLogLevel)
 	}
-	if cfg.BluesLogLevel != log.LevelInfo {
-		t.Errorf("BluesLogLevel = %d, want LevelInfo", cfg.BluesLogLevel)
+	if cfg.BluesLogLevel != LogLevelInfo {
+		t.Errorf("BluesLogLevel = %d, want LogLevelInfo", cfg.BluesLogLevel)
 	}
 
 	if cfg.SampleInterval != 0 {
@@ -39,8 +38,8 @@ func TestDefault(t *testing.T) {
 	if cfg.HeartbeatInterval != 3*time.Second {
 		t.Errorf("HeartbeatInterval = %v, want 3s", cfg.HeartbeatInterval)
 	}
-	if cfg.HeartbeatPayload != PayloadNone {
-		t.Errorf("HeartbeatPayload = %d, want PayloadNone", cfg.HeartbeatPayload)
+	if cfg.HeartbeatPayload != HeartbeatPayloadNone {
+		t.Errorf("HeartbeatPayload = %d, want HeartbeatPayloadNone", cfg.HeartbeatPayload)
 	}
 	if cfg.HeartbeatLedPin != hal.Pin(13) {
 		t.Errorf("HeartbeatLedPin = %d, want 13 (board-supplied)", cfg.HeartbeatLedPin)
@@ -59,11 +58,11 @@ sample_interval = 9s
 	if err := ParseINI(input, &cfg); err != nil {
 		t.Fatalf("ParseINI() error: %v", err)
 	}
-	if cfg.SDLogLevel != log.LevelError {
-		t.Errorf("SDLogLevel = %d, want LevelError", cfg.SDLogLevel)
+	if cfg.SDLogLevel != LogLevelError {
+		t.Errorf("SDLogLevel = %d, want LogLevelError", cfg.SDLogLevel)
 	}
-	if cfg.BluesLogLevel != log.LevelWarn {
-		t.Errorf("BluesLogLevel = %d, want LevelWarn", cfg.BluesLogLevel)
+	if cfg.BluesLogLevel != LogLevelWarn {
+		t.Errorf("BluesLogLevel = %d, want LogLevelWarn", cfg.BluesLogLevel)
 	}
 }
 
@@ -148,8 +147,8 @@ heartbeat_led_pin = 16
 	if cfg.HeartbeatInterval != 2*time.Minute {
 		t.Errorf("HeartbeatInterval = %v, want 2m", cfg.HeartbeatInterval)
 	}
-	if cfg.HeartbeatPayload != PayloadMin {
-		t.Errorf("HeartbeatPayload = %d, want PayloadMin", cfg.HeartbeatPayload)
+	if cfg.HeartbeatPayload != HeartbeatPayloadMin {
+		t.Errorf("HeartbeatPayload = %d, want HeartbeatPayloadMin", cfg.HeartbeatPayload)
 	}
 	if cfg.HeartbeatLedPin != hal.Pin(16) {
 		t.Errorf("HeartbeatLedPin = %d, want 16", cfg.HeartbeatLedPin)
@@ -224,11 +223,11 @@ func TestParseMap_AllKeys(t *testing.T) {
 		t.Fatalf("ParseMap() error: %v", err)
 	}
 
-	if cfg.SDLogLevel != log.LevelWarn {
-		t.Errorf("SDLogLevel = %d, want LevelWarn", cfg.SDLogLevel)
+	if cfg.SDLogLevel != LogLevelWarn {
+		t.Errorf("SDLogLevel = %d, want LogLevelWarn", cfg.SDLogLevel)
 	}
-	if cfg.BluesLogLevel != log.LevelError {
-		t.Errorf("BluesLogLevel = %d, want LevelError", cfg.BluesLogLevel)
+	if cfg.BluesLogLevel != LogLevelError {
+		t.Errorf("BluesLogLevel = %d, want LogLevelError", cfg.BluesLogLevel)
 	}
 	if cfg.SampleInterval != 5*time.Minute {
 		t.Errorf("SampleInterval = %v, want 5m", cfg.SampleInterval)
@@ -239,8 +238,8 @@ func TestParseMap_AllKeys(t *testing.T) {
 	if cfg.HeartbeatInterval != time.Hour {
 		t.Errorf("HeartbeatInterval = %v, want 1h", cfg.HeartbeatInterval)
 	}
-	if cfg.HeartbeatPayload != PayloadFull {
-		t.Errorf("HeartbeatPayload = %d, want PayloadFull", cfg.HeartbeatPayload)
+	if cfg.HeartbeatPayload != HeartbeatPayloadFull {
+		t.Errorf("HeartbeatPayload = %d, want HeartbeatPayloadFull", cfg.HeartbeatPayload)
 	}
 	if cfg.HeartbeatLedPin != hal.Pin(16) {
 		t.Errorf("HeartbeatLedPin = %d, want 16", cfg.HeartbeatLedPin)
@@ -292,8 +291,8 @@ func TestParseINI_PayloadInlineComment(t *testing.T) {
 	if err := ParseINI(input, &cfg); err != nil {
 		t.Fatalf("ParseINI() error: %v", err)
 	}
-	if cfg.HeartbeatPayload != PayloadFull {
-		t.Errorf("Payload = %d, want PayloadFull", cfg.HeartbeatPayload)
+	if cfg.HeartbeatPayload != HeartbeatPayloadFull {
+		t.Errorf("Payload = %d, want HeartbeatPayloadFull", cfg.HeartbeatPayload)
 	}
 }
 
@@ -313,8 +312,8 @@ sample_sensors = vbat
 	if err := ParseINI(input, &cfg); err != nil {
 		t.Fatalf("ParseINI() error: %v", err)
 	}
-	if cfg.SDLogLevel != log.LevelWarn {
-		t.Errorf("SDLogLevel = %d, want LevelWarn", cfg.SDLogLevel)
+	if cfg.SDLogLevel != LogLevelWarn {
+		t.Errorf("SDLogLevel = %d, want LogLevelWarn", cfg.SDLogLevel)
 	}
 	if cfg.SampleInterval != 3*time.Second {
 		t.Errorf("Interval = %v, want 3s", cfg.SampleInterval)
@@ -418,11 +417,11 @@ func TestParseINI_MultipleErrors(t *testing.T) {
 func TestParseINI_PayloadVariants(t *testing.T) {
 	tests := []struct {
 		value string
-		want  Payload
+		want  HeartbeatPayload
 	}{
-		{"none", PayloadNone},
-		{"min", PayloadMin},
-		{"full", PayloadFull},
+		{"none", HeartbeatPayloadNone},
+		{"min", HeartbeatPayloadMin},
+		{"full", HeartbeatPayloadFull},
 	}
 	for _, tt := range tests {
 		input := []byte("heartbeat_interval = 1h\nheartbeat_payload = " + tt.value + "\nsample_interval = 9s\n")
@@ -457,11 +456,11 @@ heartbeat_led_pin = 16
 		t.Fatalf("ParseINI() error: %v", err)
 	}
 
-	if cfg.SDLogLevel != log.LevelError {
-		t.Errorf("SDLogLevel = %d, want LevelError", cfg.SDLogLevel)
+	if cfg.SDLogLevel != LogLevelError {
+		t.Errorf("SDLogLevel = %d, want LogLevelError", cfg.SDLogLevel)
 	}
-	if cfg.BluesLogLevel != log.LevelWarn {
-		t.Errorf("BluesLogLevel = %d, want LevelWarn", cfg.BluesLogLevel)
+	if cfg.BluesLogLevel != LogLevelWarn {
+		t.Errorf("BluesLogLevel = %d, want LogLevelWarn", cfg.BluesLogLevel)
 	}
 	if cfg.SampleInterval != time.Minute {
 		t.Errorf("SampleInterval = %v, want 1m", cfg.SampleInterval)
@@ -476,8 +475,8 @@ heartbeat_led_pin = 16
 	if cfg.HeartbeatInterval != time.Hour {
 		t.Errorf("HeartbeatInterval = %v, want 1h", cfg.HeartbeatInterval)
 	}
-	if cfg.HeartbeatPayload != PayloadFull {
-		t.Errorf("HeartbeatPayload = %d, want PayloadFull", cfg.HeartbeatPayload)
+	if cfg.HeartbeatPayload != HeartbeatPayloadFull {
+		t.Errorf("HeartbeatPayload = %d, want HeartbeatPayloadFull", cfg.HeartbeatPayload)
 	}
 	if cfg.HeartbeatLedPin != hal.Pin(16) {
 		t.Errorf("HeartbeatLedPin = %d, want 16", cfg.HeartbeatLedPin)

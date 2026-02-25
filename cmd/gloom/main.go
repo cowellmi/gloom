@@ -199,12 +199,12 @@ func main() {
 
 	// Automatically add serial sink.
 	serialSink := sink.NewSerial(board.Serial)
-	logger.AddSink(serialSink, log.LevelDebug)
-	recorders := []sensor.Recorder{serialSink}
+	logger.AddSink(serialSink, config.LogLevelDebug)
+	dataSinks := []sink.DataSink{serialSink}
 
 	if nc != nil {
 		notehubSink := sink.NewNotehubSink(nc, "data.qo", "log.qo")
-		recorders = append(recorders, notehubSink)
+		dataSinks = append(dataSinks, notehubSink)
 		logger.AddSink(notehubSink, cfg.BluesLogLevel)
 		board.MCU.PetWatchdog()
 	}
@@ -216,7 +216,7 @@ func main() {
 		opener := func(name string) (sink.AppendFile, error) {
 			return card.OpenAppend(name)
 		}
-		sdCardFileSink, err := sink.NewRotaryFileSink("sd", opener, sink.FileSpec{
+		sdCardFileSink, err := sink.NewRotaryFileSink(opener, sink.FileSpec{
 			Dir: "GLOOM",
 			Ext: ".CSV",
 		}, sink.FileSpec{
@@ -226,6 +226,7 @@ func main() {
 		if err != nil {
 			initErrs = append(initErrs, errors.New("file: "+err.Error()))
 		} else {
+			dataSinks = append(dataSinks, sdCardFileSink)
 			logger.AddSink(sdCardFileSink, cfg.SDLogLevel)
 		}
 		board.MCU.PetWatchdog()
@@ -312,7 +313,7 @@ func main() {
 
 	// Manager
 	sleeper := sleeper.New(board.MCU, clock, rails)
-	man := manager.New(sleeper, cfg, sensors, recorders, logger)
+	man := manager.New(sleeper, cfg, sensors, dataSinks, logger)
 
 	// Register sample's external interrupt pin with the sleeper.
 	if cfg.SampleExtPin != hal.NoPin {
