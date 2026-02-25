@@ -275,7 +275,9 @@ func main() {
 
 	// Validate there is at least one wake source.
 	if cfg.SampleInterval <= 0 && cfg.HeartbeatInterval <= 0 && len(cfg.InterruptPins) == 0 {
-		logger.Log(config.LogLevelError, "config: no wake sources configured")
+		err := errors.New("config: no wake sources configured")
+		logger.LogError(config.LogLevelError, err, "")
+		board.MCU.DisableWatchdog()
 		fatal(err, statusLED)
 	}
 

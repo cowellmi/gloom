@@ -17,7 +17,9 @@ type Device struct {
 }
 
 func NewDevice(pin hal.Pin) *Device {
-	return &Device{adc: machine.ADC{Pin: machine.Pin(pin)}}
+	d := &Device{adc: machine.ADC{Pin: machine.Pin(pin)}}
+	d.adc.Configure(machine.ADCConfig{})
+	return d
 }
 
 func (*Device) ID() string { return "vbat" }
@@ -27,7 +29,6 @@ func (*Device) ID() string { return "vbat" }
 //
 //	mV = raw * 6600 / 65535
 func (d *Device) Measure() ([]sensor.Reading, error) {
-	d.adc.Configure(machine.ADCConfig{})
 	raw := uint32(d.adc.Get())
 	d.ms[0] = sensor.Reading{
 		Label: "voltage",

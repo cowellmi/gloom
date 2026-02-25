@@ -124,6 +124,8 @@ func (s *RotaryFileSink) Data(t time.Time, id string, readings []sensor.Reading)
 		return err
 	}
 	if err := s.dataRec.record(t, id, readings); err != nil {
+		_ = s.dataFile.Sync()
+		_ = s.dataFile.Close()
 		s.dataFile = nil
 		s.dataRec = nil
 		return err
@@ -140,6 +142,8 @@ func (s *RotaryFileSink) Log(t time.Time, level config.LogLevel, msg string) err
 		return err
 	}
 	if err := s.logRec.write(t, level, msg); err != nil {
+		_ = s.dataFile.Sync()
+		_ = s.dataFile.Close()
 		s.logFile = nil
 		s.logRec = nil
 		return err
