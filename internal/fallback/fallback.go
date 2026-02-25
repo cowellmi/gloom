@@ -8,6 +8,7 @@ import (
 
 type Rails struct{}
 
+func (Rails) Identifier() string  { return "none" }
 func (Rails) Power(hal.RailState) {}
 
 type LED struct{}

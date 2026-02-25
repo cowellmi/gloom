@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cowellmi/gloom/internal/fallback"
 	"github.com/cowellmi/gloom/internal/hal"
 )
 
@@ -230,20 +229,6 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 	}
 }
 
-func TestSleep_ZeroTarget_HasExtPins_DeepSleeps(t *testing.T) {
-	mcu := &mockMCU{}
-	// fallback.RTC has HasAlarm=false; zero target short-circuits the alarm
-	// check so deep sleep still fires on ext pin alone.
-	s := New(mcu, fallback.RTC{}, &mockRails{}, []hal.Pin{7})
-
-	// Sleep with zero target: external-interrupt-only deep sleep.
-	// In the test the mock Standby() returns immediately.
-	s.Sleep(time.Time{})
-
-	if callIndex(mcu.calls, "Standby") < 0 {
-		t.Error("Standby should be called for zero target with ext pins")
-	}
-}
 
 func TestSleep_InsufficientRemaining_NoDeepSleep(t *testing.T) {
 	mcu := &mockMCU{}

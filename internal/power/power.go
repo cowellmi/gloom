@@ -61,6 +61,7 @@ func (r Rail) off() {
 // Controller controls one or more MOSFET-switched power rails.
 // It satisfies hal.Rails.
 type Controller struct {
+	name  string
 	rails []Rail
 	on    []bool
 }
@@ -70,37 +71,39 @@ var _ hal.Rails = (*Controller)(nil)
 
 // NewController creates a Controller and configures each rail pin as
 // an output. All rails start in the off state.
-func NewController(rails ...Rail) *Controller {
-	m := &Controller{
+func NewController(name string, rails ...Rail) *Controller {
+	c := &Controller{
 		rails: rails,
 		on:    make([]bool, len(rails)),
 	}
 
-	for _, r := range m.rails {
+	for _, r := range c.rails {
 		r.pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	}
 
-	return m
+	return c
 }
+
+func (c *Controller) Identifier() string { return c.name }
 
 // Power sets the power rail state. A rail is enabled when
 // state >= rail.threshold, and disabled otherwise. Waits for the
 // stabilization delay of any newly-enabled rails before returning.
-func (m *Controller) Power(state hal.RailState) {
+func (c *Controller) Power(state hal.RailState) {
 	var maxDelay time.Duration
-	for i, r := range m.rails {
+	for i, r := range c.rails {
 		if state >= r.threshold {
-			if !m.on[i] {
+			if !c.on[i] {
 				r.on()
-				m.on[i] = true
+				c.on[i] = true
 				if r.delay > maxDelay {
 					maxDelay = r.delay
 				}
 			}
 		} else {
-			if m.on[i] {
+			if c.on[i] {
 				r.off()
-				m.on[i] = false
+				c.on[i] = false
 			}
 		}
 	}

@@ -127,9 +127,9 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	if nc == nil && card != nil {
-		debug.Log("loading config from SD card...")
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err == nil {
+			debug.Log("loading config from SD card...")
 			if pErr := config.ParseINI(raw, &cfg); pErr != nil {
 				if joined, ok := pErr.(interface{ Unwrap() []error }); ok {
 					for _, e := range joined.Unwrap() {
@@ -140,7 +140,7 @@ func main() {
 				}
 			}
 		} else { // TODO: check for specific file not found err
-			// No CONFIG.INI on SD card; attempt to make one.
+			debug.Log("writing default config to SD card...")
 			if ini, mErr := cfg.MarshalINI(); mErr != nil {
 				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
 			} else if wErr := card.WriteFile("CONFIG.INI", ini); wErr != nil {
@@ -220,8 +220,9 @@ func main() {
 
 	statusLED.Off()
 
-	logger.Log(config.LogLevelDebug, "mcu: "+board.MCU.Identifier())
-	logger.Log(config.LogLevelDebug, "rtc: "+rtc.Identifier())
+	logger.Log(config.LogLevelInfo, "mcu: "+board.MCU.Identifier())
+	logger.Log(config.LogLevelInfo, "rtc: "+rtc.Identifier())
+	logger.Log(config.LogLevelInfo, "rails: "+wing.Rails.Identifier())
 
 	if len(cards) > 0 {
 		sd := "sd:"

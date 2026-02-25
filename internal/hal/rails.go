@@ -24,7 +24,6 @@ const (
 // Boards without rail control simply omit Rails from the System
 // (pass nil to NewSystem).
 type Rails interface {
-	// Power sets the power rail state. Waits for the stabilization
-	// delay of any newly-enabled rails before returning.
+	Identifier() string
 	Power(state RailState)
 }
