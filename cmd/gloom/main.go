@@ -17,7 +17,6 @@ import (
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/notecard"
 	"github.com/cowellmi/gloom/internal/rtc/ds3231"
-	"github.com/cowellmi/gloom/internal/rtc/pcf8523"
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sensor/vbat"
@@ -63,16 +62,10 @@ func main() {
 
 	// RTC
 	var clock hal.RTC
-	ds, err := ds3231.Probe(board.I2C.Bus, board.RTCWakePin)
+	ds, err := ds3231.Probe(board.I2C.Bus)
 	if err != nil {
 		board.MCU.PetWatchdog()
 		initWarns = append(initWarns, err)
-		pcf, err := pcf8523.Probe(board.I2C.Bus, board.RTCWakePin)
-		if err != nil {
-			initWarns = append(initWarns, err)
-		} else {
-			clock = pcf
-		}
 	} else {
 		clock = ds
 	}
@@ -312,7 +305,7 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// Manager
-	sleeper := sleeper.New(board.MCU, clock, rails)
+	sleeper := sleeper.New(board.MCU, clock, rails, board.RTCWakePin)
 	man := manager.New(sleeper, cfg, sensors, dataSinks, logger)
 
 	// Register sample's external interrupt pin with the sleeper.

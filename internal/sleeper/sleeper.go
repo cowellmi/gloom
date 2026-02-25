@@ -1,8 +1,3 @@
-// Package sleeper provides the hardware sleep/wake platform for Gloom.
-//
-// Sleeper composes an MCU, optional RTC, and optional power rails into
-// a single Sleep method. Deadline tracking and fired-slot resolution
-// live in the manager package; this package is pure hardware mechanics.
 package sleeper
 
 import (
@@ -14,20 +9,8 @@ import (
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
-// minDeepSleep is the minimum time remaining before a target deadline
-// for deep sleep to be worthwhile. Below this threshold the overhead
-// of alarm setup risks the alarm firing before Standby, and idle
-// sleep is cheaper anyway.
 const minDeepSleep = 2 * time.Second
 
-// Device composes optional hardware components into a unified
-// sleep/wake platform. The processor is always required. RTC and
-// Rails are optional — pass nil for graceful degradation:
-//   - nil RTC: use time.Now(), no alarm-based wake
-//   - nil Rails: no rail control
-//
-// Deadline tracking and fired-slot resolution are the caller's
-// responsibility (see internal/manager).
 type Device struct {
 	mcu        hal.MCU
 	rtc        hal.RTC
@@ -42,17 +25,17 @@ type Device struct {
 }
 
 // New creates a Device. mcu is required. rtc and rails may be nil.
-// If an RTC is provided its wake pin is registered automatically.
-func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails) *Device {
+// rtcWakePin is the GPIO pin connected to the RTC interrupt line;
+// pass hal.NoPin if no RTC is present or if the RTC has no wake pin.
+func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails, rtcWakePin hal.Pin) *Device {
 	s := &Device{
 		mcu:           mcu,
 		rtc:           rtc,
 		rails:         rails,
 		idleFiredPins: make([]hal.Pin, 0, 4),
 	}
-	if rtc != nil {
-		s.wakePins = append(s.wakePins, rtc.WakePin())
-		// RTC pin is not an ext interrupt — don't set hasExtPins.
+	if rtcWakePin != hal.NoPin {
+		s.wakePins = append(s.wakePins, rtcWakePin)
 	}
 	return s
 }
@@ -141,7 +124,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 				(target.IsZero() && s.hasExtPins))
 
 		if canDeepSleep {
-			// deepSleep only errors during setup (ClearWake/SetWake/ArmWake),
+			// deepSleep only errors during setup (ClearAlarm/SetAlarm/ArmWake),
 			// before Standby is called. Fall back to idleSleep for the full
 			// remaining interval using the same absolute target.
 			if err := s.deepSleep(target); err != nil {
@@ -164,7 +147,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		}
 
 		if s.rtc != nil {
-			_ = s.rtc.ClearWake() // best-effort
+			_ = s.rtc.ClearAlarm() // best-effort
 		}
 
 		s.mcu.PetWatchdog()
@@ -179,10 +162,10 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 // cuts power, and enters MCU standby.
 func (s *Device) deepSleep(target time.Time) error {
 	if s.rtc != nil && !target.IsZero() {
-		if err := s.rtc.ClearWake(); err != nil {
+		if err := s.rtc.ClearAlarm(); err != nil {
 			return err
 		}
-		if err := s.rtc.SetWake(target); err != nil {
+		if err := s.rtc.SetAlarm(target); err != nil {
 			return err
 		}
 	}

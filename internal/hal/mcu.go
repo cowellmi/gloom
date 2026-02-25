@@ -2,7 +2,7 @@ package hal
 
 // MCU abstracts the microcontroller operations needed by the System
 // for deep sleep and watchdog control. Implementations live in
-// targets/<chip>/ (e.g. targets/samd21). Pin numbers use uint8 to
+// mcu/<chip>/ (e.g. mcu/samd21). Pin numbers use uint8 to
 // avoid importing the machine package.
 type MCU interface {
 	// Identifier returns a human-readable name for the MCU

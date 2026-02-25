@@ -13,20 +13,12 @@ import (
 
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
+	"github.com/cowellmi/gloom/internal/sink"
 )
-
-// Sink receives log entries for output. Implementations decide their
-// own serialization format and manage their own scratch buffers
-// internally. Flush forces any buffered data to be written (called
-// before sleep).
-type Sink interface {
-	Log(t time.Time, level config.LogLevel, msg string) error
-	Flush() error
-}
 
 // target pairs a Sink with the minimum level it should receive.
 type target struct {
-	sink     Sink
+	sink     sink.LogSink
 	minLevel config.LogLevel
 }
 
@@ -39,13 +31,13 @@ type Logger struct {
 // NewLogger creates a Logger with no sinks. now seeds the initial
 // timestamp; the caller should pass the RTC time (or time.Now() as a
 // fallback). Call AddSink to register output destinations.
-func NewLogger(now time.Time, sinks ...Sink) *Logger {
+func NewLogger(now time.Time, sinks ...sink.LogSink) *Logger {
 	return &Logger{t: now}
 }
 
 // AddSink registers a Sink that will receive log entries at or above
 // minLevel.
-func (l *Logger) AddSink(s Sink, minLevel config.LogLevel) {
+func (l *Logger) AddSink(s sink.LogSink, minLevel config.LogLevel) {
 	l.targets = append(l.targets, target{sink: s, minLevel: minLevel})
 }
 

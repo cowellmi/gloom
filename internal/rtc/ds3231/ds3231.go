@@ -1,9 +1,9 @@
 //go:build tinygo
 
 // Package ds3231 implements hal.RTC for the Maxim DS3231 real-time clock.
-// It wraps the TinyGo driver and adds probe, wake-alarm, and
-// pin-reporting logic that hal.System needs. Lives under drivers/ to
-// decouple peripheral implementations from the HAL interfaces they satisfy.
+// It wraps the TinyGo driver and adds probe and alarm logic.
+// Lives under drivers/ to decouple peripheral implementations from
+// the HAL interfaces they satisfy.
 package ds3231
 
 import (
@@ -24,8 +24,7 @@ const Name = "DS3231"
 
 // RTC wraps the TinyGo DS3231 driver and satisfies hal.RTC.
 type RTC struct {
-	dev     *driver.Device
-	wakePin hal.Pin
+	dev *driver.Device
 }
 
 // compile-time check
@@ -49,7 +48,7 @@ const (
 // I2C address).
 var errNotFound = errors.New("ds3231: not found")
 
-func Probe(bus drivers.I2C, wakePin hal.Pin) (*RTC, error) {
+func Probe(bus drivers.I2C) (*RTC, error) {
 	dev := driver.New(bus)
 
 	if !dev.Configure() {
@@ -88,7 +87,7 @@ func Probe(bus drivers.I2C, wakePin hal.Pin) (*RTC, error) {
 		return nil, errors.New("ds3231: set sqw pin mode: " + err.Error())
 	}
 
-	return &RTC{dev: &dev, wakePin: wakePin}, nil
+	return &RTC{dev: &dev}, nil
 }
 
 // verify confirms the device at 0x68 is a real DS3231 by setting the
@@ -131,19 +130,14 @@ func (r *RTC) ReadTime() (time.Time, error) {
 	return r.dev.ReadTime()
 }
 
-// SetWake programs Alarm 1 to fire at target.
-func (r *RTC) SetWake(target time.Time) error {
+// SetAlarm programs Alarm 1 to fire at target.
+func (r *RTC) SetAlarm(target time.Time) error {
 	return r.dev.SetAlarm1(target, driver.A1_DATE)
 }
 
-// ClearWake clears the Alarm 1 flag so the INT pin releases.
-func (r *RTC) ClearWake() error {
+// ClearAlarm clears the Alarm 1 flag so the INT pin releases.
+func (r *RTC) ClearAlarm() error {
 	return r.dev.ClearAlarm1()
-}
-
-// WakePin returns the GPIO pin connected to the DS3231 SQW/INT line.
-func (r *RTC) WakePin() hal.Pin {
-	return r.wakePin
 }
 
 const (
