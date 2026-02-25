@@ -28,10 +28,7 @@ type Logger struct {
 	t       time.Time
 }
 
-// NewLogger creates a Logger with no sinks. now seeds the initial
-// timestamp; the caller should pass the RTC time (or time.Now() as a
-// fallback). Call AddSink to register output destinations.
-func NewLogger(now time.Time, sinks ...sink.LogSink) *Logger {
+func NewLogger(now time.Time) *Logger {
 	return &Logger{t: now}
 }
 
