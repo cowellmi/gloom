@@ -323,24 +323,6 @@ func TestSleep_DeepSleepFallbackToIdle(t *testing.T) {
 	}
 }
 
-// --- PowerOnSensorRails tests ---
-
-func TestPowerOnSensorRails(t *testing.T) {
-	rails := &mockRails{}
-	s := New(&mockMCU{}, nil, rails, nil)
-
-	s.PowerOnSensorRails()
-
-	if len(rails.powerCalls) != 1 || rails.powerCalls[0] != hal.RailsFull {
-		t.Errorf("Power calls = %v, want [RailsFull]", rails.powerCalls)
-	}
-}
-
-func TestPowerOnSensorRails_NilRails(t *testing.T) {
-	s := New(&mockMCU{}, nil, nil, nil)
-	s.PowerOnSensorRails() // should not panic
-}
-
 // --- Sleep return value test ---
 
 func TestSleep_ReturnsWakeTime(t *testing.T) {

@@ -62,14 +62,6 @@ func (s *Device) PinFired(pin hal.Pin) bool {
 	return s.mcu.PinFired(pin)
 }
 
-// PowerOnSensorRails powers on sensor-specific rails (on-demand
-// rails). No-op if rails is nil.
-func (s *Device) PowerOnSensorRails() {
-	if s.rails != nil {
-		s.rails.Power(hal.RailsFull)
-	}
-}
-
 // Sleep enters deep or idle sleep until target, then returns the
 // actual wake time from the RTC (or time.Now() on read failure).
 // Any RTC read errors encountered during the cycle are joined and
@@ -224,16 +216,9 @@ func (s *Device) idleSleep(target time.Time) error {
 		}
 	}
 
-	// For timed waits, cut on-demand rails if the remaining time is
-	// long enough to justify the power savings.
 	var errs []error
 	now, err := s.readTime()
 	errs = append(errs, err)
-	if target.Sub(now) > minDeepSleep {
-		if s.rails != nil {
-			s.rails.Power(hal.RailsCore)
-		}
-	}
 
 	for now.Before(target) {
 		s.mcu.PetWatchdog()

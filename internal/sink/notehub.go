@@ -74,7 +74,7 @@ func (s *NotehubSink) Log(t time.Time, level config.LogLevel, msg string) error 
 	}
 	body := map[string]any{
 		"ts":    formatISO(t),
-		"level": notehubLevel(level),
+		"level": level.String(),
 		"msg":   msg,
 	}
 	return s.logf.writeMap(body)
@@ -85,19 +85,4 @@ func (s *NotehubSink) Flush() error { return nil }
 func formatISO(t time.Time) string {
 	var buf [20]byte
 	return string(appendTimestamp(buf[:0], t))
-}
-
-func notehubLevel(l config.LogLevel) string {
-	switch l {
-	case config.LogLevelDebug:
-		return "DBG"
-	case config.LogLevelInfo:
-		return "INF"
-	case config.LogLevelWarn:
-		return "WRN"
-	case config.LogLevelError:
-		return "ERR"
-	default:
-		return "???"
-	}
 }

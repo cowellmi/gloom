@@ -271,7 +271,7 @@ func main() {
 
 	// Manager
 	sleeper := sleeper.New(board.MCU, rtc, wing.Rails, cfg.InterruptPins)
-	man := manager.New(sleeper, cfg, sensors, dataSinks, logger)
+	man := manager.New(sleeper, wing.Rails, cfg, sensors, dataSinks, logger)
 
 	// Validate there is at least one wake source.
 	if cfg.SampleInterval <= 0 && cfg.HeartbeatInterval <= 0 && len(cfg.InterruptPins) == 0 {

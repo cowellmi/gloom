@@ -13,11 +13,8 @@ import (
 	"github.com/cowellmi/gloom/internal/sink"
 )
 
-// sleeper is the interface the manager needs from the hardware layer.
-// It is satisfied by *sleeper.Device and by test mocks.
 type sleeper interface {
 	Sleep(target time.Time) (time.Time, error)
-	PowerOnSensorRails()
 	PinFired(pin hal.Pin) bool
 }
 
@@ -43,6 +40,7 @@ func (d *deadline) fired(wakeTime time.Time) bool {
 
 type Manager struct {
 	sleeper        sleeper
+	rails          hal.Rails
 	cfg            config.Config
 	sensors        []sensor.Sensor
 	dataSinks      []sink.DataSink
@@ -56,9 +54,10 @@ type Manager struct {
 	hbDeadline     deadline
 }
 
-func New(sleeper sleeper, cfg config.Config, sensors []sensor.Sensor, dataSinks []sink.DataSink, logger *log.Logger) *Manager {
+func New(sleeper sleeper, rails hal.Rails, cfg config.Config, sensors []sensor.Sensor, dataSinks []sink.DataSink, logger *log.Logger) *Manager {
 	return &Manager{
 		sleeper:        sleeper,
+		rails:          rails,
 		cfg:            cfg,
 		sensors:        sensors,
 		dataSinks:      dataSinks,
@@ -127,15 +126,13 @@ func (m *Manager) step() {
 	}
 
 	if needSensors {
-		m.sleeper.PowerOnSensorRails()
-	}
-
-	if hbFired && m.cfg.HeartbeatLedPin != hal.NoPin && m.blinkLED != nil {
-		m.blinkLED()
-	}
-
-	if needSensors {
+		if m.rails != nil {
+			m.rails.Power(hal.RailsFull)
+		}
 		m.measureSensors()
+		if m.rails != nil {
+			m.rails.Power(hal.RailsCore)
+		}
 	}
 
 	if !sampleFired && !hbFired {
