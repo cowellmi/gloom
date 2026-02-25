@@ -127,73 +127,40 @@ func callIndexAfter(calls []string, name string, start int) int {
 
 // --- constructor tests ---
 
-func TestNewSleeper_RTCWakePin(t *testing.T) {
-	rtc := &mockRTC{times: []time.Time{T}}
-	s := New(&mockMCU{}, rtc, nil, 12)
-
-	if len(s.wakePins) != 1 || s.wakePins[0] != 12 {
-		t.Errorf("wakePins = %v, want [12]", s.wakePins)
-	}
-	if s.hasExtPins {
-		t.Error("hasExtPins should be false after New (RTC pin is not an ext interrupt)")
-	}
-}
-
 func TestNewSleeper_NilRTC(t *testing.T) {
-	s := New(&mockMCU{}, nil, nil, hal.NoPin)
+	s := New(&mockMCU{}, nil, nil)
 	if len(s.wakePins) != 0 {
 		t.Errorf("wakePins = %v, want empty", s.wakePins)
-	}
-	if s.hasExtPins {
-		t.Error("hasExtPins should be false")
 	}
 }
 
 // --- AddWakePin tests ---
 
 func TestAddWakePin(t *testing.T) {
-	s := New(&mockMCU{}, nil, nil, hal.NoPin)
+	s := New(&mockMCU{}, nil, nil)
 	s.AddWakePin(7)
 
 	if len(s.wakePins) != 1 || s.wakePins[0] != 7 {
 		t.Errorf("wakePins = %v, want [7]", s.wakePins)
 	}
-	if !s.hasExtPins {
-		t.Error("hasExtPins should be true after AddWakePin")
-	}
 }
 
 func TestAddWakePin_NoDuplicate(t *testing.T) {
-	s := New(&mockMCU{}, nil, nil, hal.NoPin)
+	s := New(&mockMCU{}, nil, nil)
 	s.AddWakePin(7)
 	s.AddWakePin(7)
 
 	if len(s.wakePins) != 1 {
 		t.Errorf("wakePins = %v, want [7] (no duplicate)", s.wakePins)
 	}
-	if !s.hasExtPins {
-		t.Error("hasExtPins should be true")
-	}
 }
 
-func TestAddWakePin_DedupDoesNotSetExtPins(t *testing.T) {
-	rtc := &mockRTC{times: []time.Time{T}}
-	// New adds RTC pin (12) but does NOT set hasExtPins.
-	s := New(&mockMCU{}, rtc, nil, 12)
+func TestAddWakePin_NoPinGuard(t *testing.T) {
+	s := New(&mockMCU{}, nil, nil)
+	s.AddWakePin(hal.NoPin)
 
-	if s.hasExtPins {
-		t.Fatal("hasExtPins should be false after New")
-	}
-
-	// Add the RTC pin again. It should be deduplicated.
-	// hasExtPins should remain false because it's a duplicate of the RTC pin.
-	s.AddWakePin(12)
-
-	if len(s.wakePins) != 1 {
-		t.Errorf("wakePins len = %d, want 1", len(s.wakePins))
-	}
-	if s.hasExtPins {
-		t.Error("hasExtPins should be false after adding duplicate RTC pin")
+	if len(s.wakePins) != 0 {
+		t.Errorf("wakePins = %v, want empty (NoPin should be rejected)", s.wakePins)
 	}
 }
 
@@ -201,7 +168,7 @@ func TestAddWakePin_DedupDoesNotSetExtPins(t *testing.T) {
 
 func TestReadTime_WithRTC(t *testing.T) {
 	rtc := &mockRTC{times: []time.Time{T}}
-	s := New(&mockMCU{}, rtc, nil, hal.NoPin)
+	s := New(&mockMCU{}, rtc, nil)
 
 	got, err := s.readTime()
 	if err != nil {
@@ -213,7 +180,7 @@ func TestReadTime_WithRTC(t *testing.T) {
 }
 
 func TestReadTime_WithoutRTC(t *testing.T) {
-	s := New(&mockMCU{}, nil, nil, hal.NoPin)
+	s := New(&mockMCU{}, nil, nil)
 
 	before := time.Now()
 	got, err := s.readTime()
@@ -237,7 +204,8 @@ func TestSleep_RailSequencing(t *testing.T) {
 	}
 	rails := &mockRails{}
 	target := T.Add(10 * time.Second)
-	s := New(&mockMCU{}, rtc, rails, 12)
+	s := New(&mockMCU{}, rtc, rails)
+	s.AddWakePin(12)
 
 	_, err := s.Sleep(target)
 	if err != nil {
@@ -256,7 +224,8 @@ func TestSleep_NilRails(t *testing.T) {
 		times: []time.Time{T, T.Add(11 * time.Second)},
 	}
 	target := T.Add(10 * time.Second)
-	s := New(&mockMCU{}, rtc, nil, 12)
+	s := New(&mockMCU{}, rtc, nil)
+	s.AddWakePin(12)
 
 	_, err := s.Sleep(target)
 	if err != nil {
@@ -272,7 +241,8 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 	mcu := &mockMCU{}
 	rails := &mockRails{}
 	target := T.Add(10 * time.Second)
-	s := New(mcu, rtc, rails, 12)
+	s := New(mcu, rtc, rails)
+	s.AddWakePin(12)
 	s.AddWakePin(7)
 
 	s.Sleep(target)
@@ -315,8 +285,8 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 func TestSleep_ZeroTarget_HasExtPins_DeepSleeps(t *testing.T) {
 	mcu := &mockMCU{}
 	// Use nil RTC so no RTC alarm is set; deep sleep driven by ext pin only.
-	s := New(mcu, nil, nil, hal.NoPin)
-	s.AddWakePin(7) // sets hasExtPins = true
+	s := New(mcu, nil, nil)
+	s.AddWakePin(7)
 
 	// Sleep with zero target: external-interrupt-only deep sleep.
 	// In the test the mock Standby() returns immediately.
@@ -336,7 +306,8 @@ func TestSleep_InsufficientRemaining_NoDeepSleep(t *testing.T) {
 	}
 	// 10ms remaining — less than minDeepSleep (2s) → idle sleep, not deep sleep.
 	target := T.Add(10 * time.Millisecond)
-	s := New(mcu, rtc, nil, 12)
+	s := New(mcu, rtc, nil)
+	s.AddWakePin(12)
 
 	s.Sleep(target)
 
@@ -357,7 +328,8 @@ func TestSleep_DeepSleepFallbackToIdle(t *testing.T) {
 		times: []time.Time{T, T.Add(11 * time.Second)},
 	}
 	rails := &mockRails{}
-	s := New(mcu, rtc, rails, 12)
+	s := New(mcu, rtc, rails)
+	s.AddWakePin(12)
 	s.AddWakePin(7) // wakePins = [12, 7]
 
 	_, err := s.Sleep(T.Add(10 * time.Second))
@@ -393,7 +365,7 @@ func TestSleep_DeepSleepFallbackToIdle(t *testing.T) {
 
 func TestPowerOnSensorRails(t *testing.T) {
 	rails := &mockRails{}
-	s := New(&mockMCU{}, nil, rails, hal.NoPin)
+	s := New(&mockMCU{}, nil, rails)
 
 	s.PowerOnSensorRails()
 
@@ -403,7 +375,7 @@ func TestPowerOnSensorRails(t *testing.T) {
 }
 
 func TestPowerOnSensorRails_NilRails(t *testing.T) {
-	s := New(&mockMCU{}, nil, nil, hal.NoPin)
+	s := New(&mockMCU{}, nil, nil)
 	s.PowerOnSensorRails() // should not panic
 }
 
@@ -416,7 +388,8 @@ func TestSleep_ReturnsWakeTime(t *testing.T) {
 		times: []time.Time{T, wakeTime},
 	}
 	target := T.Add(10 * time.Second)
-	s := New(&mockMCU{}, rtc, nil, 12)
+	s := New(&mockMCU{}, rtc, nil)
+	s.AddWakePin(12)
 
 	got, err := s.Sleep(target)
 	if err != nil {

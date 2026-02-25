@@ -38,6 +38,9 @@ func main() {
 	board.MCU.EnableWatchdog()
 	debug.W = board.Serial
 
+	// Devices
+	dev := initDevices()
+
 	// Power rails
 	rails := initRails()
 	if rails != nil {
@@ -74,7 +77,7 @@ func main() {
 	debug.Log("probing Notecard...")
 
 	// Blues Notecard
-	nc, err := notecard.New(board.I2C.TxFn)
+	nc, err := notecard.New(board.I2C.Bus.Tx)
 	if err != nil {
 		initWarns = append(initWarns, err)
 	} else {
@@ -97,7 +100,7 @@ func main() {
 		cs   hal.Pin
 	}
 	var cards []sdEntry
-	for _, cs := range board.SDCSPins {
+	for _, cs := range dev.SDChipSelectPins {
 		board.MCU.PetWatchdog()
 		pin := strconv.Itoa(int(cs))
 		c, err := sdcard.NewCard(board.SPI.Bus, board.SPI.SCK, board.SPI.SDO, board.SPI.SDI, cs)
@@ -305,13 +308,9 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// Manager
-	sleeper := sleeper.New(board.MCU, clock, rails, board.RTCWakePin)
+	interruptPins := append(dev.InterruptPins, cfg.SampleExtPin)
+	sleeper := sleeper.New(board.MCU, clock, rails, interruptPins)
 	man := manager.New(sleeper, cfg, sensors, dataSinks, logger)
-
-	// Register sample's external interrupt pin with the sleeper.
-	if cfg.SampleExtPin != hal.NoPin {
-		sleeper.AddWakePin(cfg.SampleExtPin)
-	}
 
 	// Validate there is at least one wake source.
 	if cfg.SampleInterval <= 0 && cfg.SampleExtPin == hal.NoPin && cfg.HeartbeatInterval <= 0 {

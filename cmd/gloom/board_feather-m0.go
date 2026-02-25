@@ -33,9 +33,6 @@ func initBoard() Board {
 
 	// I2C
 	board.I2C.Bus = machine.I2C0
-	board.I2C.TxFn = func(addr uint16, wb, rb []byte) (err error) {
-		return machine.I2C0.Tx(addr, wb, rb)
-	}
 	board.I2C.SDA = hal.Pin(machine.SDA_PIN)
 	board.I2C.SCL = hal.Pin(machine.SCL_PIN)
 
@@ -47,10 +44,6 @@ func initBoard() Board {
 
 	// ADC
 	board.ADCPin = hal.Pin(machine.D9)
-
-	// Hypnos
-	board.SDCSPins = []hal.Pin{hal.Pin(machine.D11), hal.Pin(machine.D10)}
-	board.RTCWakePin = hal.Pin(machine.D12)
 
 	// Sensors
 	board.Sensors = []string{"vbat"}

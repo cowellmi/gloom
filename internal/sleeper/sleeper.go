@@ -2,7 +2,6 @@ package sleeper
 
 import (
 	"errors"
-	"slices"
 	"time"
 
 	"github.com/cowellmi/gloom/internal/hal"
@@ -12,11 +11,10 @@ import (
 const minDeepSleep = 2 * time.Second
 
 type Device struct {
-	mcu        hal.MCU
-	rtc        hal.RTC
-	rails      hal.Rails
-	wakePins   []hal.Pin
-	hasExtPins bool // true when any non-RTC wake pin has been added
+	mcu      hal.MCU
+	rtc      hal.RTC
+	rails    hal.Rails
+	wakePins []hal.Pin
 
 	// idleFiredPins holds pins detected as active during idle-sleep
 	// polling (when Standby was not entered). Read by PinFired.
@@ -25,27 +23,14 @@ type Device struct {
 }
 
 // New creates a Device. mcu is required. rtc and rails may be nil.
-// rtcWakePin is the GPIO pin connected to the RTC interrupt line;
-// pass hal.NoPin if no RTC is present or if the RTC has no wake pin.
-func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails, rtcWakePin hal.Pin) *Device {
-	s := &Device{
+// Use AddWakePin to register GPIO wake sources after construction.
+func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails, interruptPins []hal.Pin) *Device {
+	return &Device{
 		mcu:           mcu,
 		rtc:           rtc,
 		rails:         rails,
-		idleFiredPins: make([]hal.Pin, 0, 4),
-	}
-	if rtcWakePin != hal.NoPin {
-		s.wakePins = append(s.wakePins, rtcWakePin)
-	}
-	return s
-}
-
-// AddWakePin adds a GPIO interrupt pin as a deep-sleep wake source.
-// Sets hasExtPins = true. Deduplicates automatically.
-func (s *Device) AddWakePin(pin hal.Pin) {
-	if !slices.Contains(s.wakePins, pin) {
-		s.wakePins = append(s.wakePins, pin)
-		s.hasExtPins = true
+		wakePins:      interruptPins,
+		idleFiredPins: make([]hal.Pin, 0, len(interruptPins)),
 	}
 }
 
@@ -117,11 +102,10 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		s.mcu.PetWatchdog()
 
 		// Deep sleep requires wake pins and either:
-		//   a) a timed target with enough remaining time for an RTC alarm, or
-		//   b) an external-interrupt-only configuration (no target, ext pins present).
+		//   a) a timed target with an RTC and enough remaining time for an alarm, or
+		//   b) an external-interrupt-only configuration (zero target).
 		canDeepSleep := len(s.wakePins) > 0 &&
-			((!target.IsZero() && s.rtc != nil && remaining > minDeepSleep) ||
-				(target.IsZero() && s.hasExtPins))
+			(target.IsZero() || (s.rtc != nil && remaining > minDeepSleep))
 
 		if canDeepSleep {
 			// deepSleep only errors during setup (ClearAlarm/SetAlarm/ArmWake),
