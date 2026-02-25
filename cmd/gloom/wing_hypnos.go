@@ -18,9 +18,9 @@ func initWing() Wing {
 	wing.InterruptPins = []hal.Pin{hal.Pin(machine.D12)}
 	wing.SDChipSelectPins = []hal.Pin{hal.Pin(machine.D11), hal.Pin(machine.D10)}
 
-	rail3v := power.NewRail(hal.Pin(machine.D5), power.ActiveLow, hal.RailsCore, 0)
-	rail5v := power.NewRail(hal.Pin(machine.D6), power.ActiveHigh, hal.RailsFull, 250*time.Millisecond)
-	wing.Rails = power.NewController("hypnos", rail3v, rail5v)
+	rail3v := power.NewRail(hal.Pin(machine.D5), power.ActiveLow, hal.RailsCore, 250*time.Millisecond)
+	rail5v := power.NewRail(hal.Pin(machine.D6), power.ActiveHigh, hal.RailsFull, 500*time.Millisecond)
+	wing.Rails = power.NewController("Hypnos", rail3v, rail5v)
 
 	// Power-cycle
 	wing.Rails.Power(hal.RailsOff)

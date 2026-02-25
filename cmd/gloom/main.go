@@ -257,7 +257,7 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// Manager
-	sleeper := sleeper.New(board.MCU, rtc, wing.Rails, cfg.InterruptPins)
+	sleeper := sleeper.New(board.MCU, rtc, wing.Rails, board.SDA, board.SCL, cfg.InterruptPins)
 	man := manager.New(sleeper, wing.Rails, statusLED, cfg, sensors, dataSinks, logger)
 
 	// Validate there is at least one wake source.

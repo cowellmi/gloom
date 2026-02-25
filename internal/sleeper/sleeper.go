@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/fallback"
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/wait"
 )
@@ -14,26 +15,20 @@ type Device struct {
 	mcu      hal.MCU
 	rtc      hal.Clock
 	rails    hal.Rails
+	sda      hal.Pin
+	scl      hal.Pin
 	wakePins []hal.Pin
 }
 
-func New(mcu hal.MCU, rtc hal.Clock, rails hal.Rails, interruptPins []hal.Pin) *Device {
+func New(mcu hal.MCU, rtc hal.Clock, rails hal.Rails, sda, scl hal.Pin, interruptPins []hal.Pin) *Device {
 	return &Device{
 		mcu:      mcu,
 		rtc:      rtc,
 		rails:    rails,
+		sda:      sda,
+		scl:      scl,
 		wakePins: interruptPins,
 	}
-}
-
-// readTime returns the current time from the RTC, falling back to
-// time.Now() if the read fails.
-func (s *Device) readTime() (time.Time, error) {
-	t, err := s.rtc.ReadTime()
-	if err != nil {
-		return time.Now(), err
-	}
-	return t, nil
 }
 
 // PinFired reports whether the given pin fired during the most recent
@@ -50,32 +45,16 @@ func (s *Device) PinFired(pin hal.Pin) bool {
 // If target is already in the past, Sleep returns the current time
 // immediately without entering hardware sleep.
 func (s *Device) Sleep(target time.Time) (time.Time, error) {
-	s.mcu.PetWatchdog()
-
-	// Use ReadTime (not wall clock) so the RTC is the authoritative
-	// time source for the remaining-time calculation.
 	var errs []error
 	now, err := s.readTime()
 	errs = append(errs, err)
-	remaining := target.Sub(now)
-	// If readTime failed, now may be a bogus system time that makes
-	// remaining negative. Still sleep: the RTC alarm uses the absolute
-	// target and will fire correctly regardless of the time calculation.
-	shouldSleep := err != nil || remaining > 0
 
-	if shouldSleep {
+	remaining := target.Sub(now)
+	if remaining > 0 {
 		s.mcu.PetWatchdog()
 
-		_, hasAlarm := s.rtc.(hal.AlarmClock)
-		canDeepSleep := len(s.wakePins) > 0 && hasAlarm && remaining > minDeepSleep
-
-		if canDeepSleep {
-			// deepSleep only errors during setup (ClearAlarm/SetAlarm/ArmWake),
-			// before Standby is called. Fall back to idleSleep for the full
-			// remaining interval using the same absolute target.
+		if len(s.wakePins) > 0 && remaining > minDeepSleep {
 			if err := s.deepSleep(target); err != nil {
-				// deepSleep may have cut rails before failing. Restore core
-				// rails so idleSleep can reach the RTC via I2C.
 				s.rails.Power(hal.RailsCore)
 				errs = append(errs, s.idleSleep(target))
 			}
@@ -85,8 +64,9 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 
 		s.mcu.PetWatchdog()
 
-		// Restore core rails so the RTC and SD card are reachable.
 		s.rails.Power(hal.RailsCore)
+
+		s.mcu.ConfigureI2C(s.sda, s.scl)
 
 		if ac, ok := s.rtc.(hal.AlarmClock); ok {
 			errs = append(errs, ac.ClearAlarm())
@@ -98,6 +78,16 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 	wakeTime, err := s.readTime()
 	errs = append(errs, err)
 	return wakeTime, errors.Join(errs...)
+}
+
+func (s *Device) readTime() (time.Time, error) {
+	now, err := s.rtc.ReadTime()
+	if err != nil {
+		s.rtc = fallback.RTC{}
+		now, _ = s.rtc.ReadTime() // Fallback clock can't fail
+		err = errors.Join(err, errors.New("rtc failed; using fallback clock"))
+	}
+	return now, err
 }
 
 // deepSleep sets the RTC alarm (if present), arms all wake pins,

@@ -73,6 +73,7 @@ var _ hal.Rails = (*Controller)(nil)
 // an output. All rails start in the off state.
 func NewController(name string, rails ...Rail) *Controller {
 	c := &Controller{
+		name:  name,
 		rails: rails,
 		on:    make([]bool, len(rails)),
 	}
