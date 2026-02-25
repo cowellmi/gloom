@@ -78,6 +78,8 @@ type mockRails struct {
 	powerCalls []hal.RailState
 }
 
+func (m *mockRails) Identifier() string { return "mockRails" }
+
 func (m *mockRails) Power(state hal.RailState) {
 	m.powerCalls = append(m.powerCalls, state)
 }
@@ -588,4 +590,3 @@ func TestStep_NilCallbacks(t *testing.T) {
 	man, _ := newTestManager(sys, R, config.Config{}, nil, nil)
 	man.step() // should not panic
 }
-

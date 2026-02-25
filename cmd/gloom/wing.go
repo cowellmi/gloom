@@ -6,7 +6,7 @@ import (
 
 // A Wing (like a FeatherWing) provides hardware features.
 type Wing struct {
-	InterruptPins    []hal.Pin
+	RTCInterruptPin  hal.Pin
 	SDChipSelectPins []hal.Pin
 	Rails            hal.Rails
 }

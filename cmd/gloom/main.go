@@ -16,7 +16,6 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/notecard"
-	"github.com/cowellmi/gloom/internal/rtc/ds3231"
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sensor/vbat"
@@ -43,9 +42,6 @@ func main() {
 		statusLED.On()
 	}
 
-	debug.W = board.Serial
-	debug.Log("version: 0.0")
-
 	err := board.MCU.ConfigureI2C(board.SDA, board.SCL)
 	if err != nil {
 		board.MCU.DisableWatchdog()
@@ -53,11 +49,13 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
-	var rtc hal.Clock = fallback.RTC{}
-	if ds, rErr := ds3231.Probe(board.I2C); rErr != nil {
-		initWarns = append(initWarns, rErr)
+	var interruptPins []hal.Pin
+	rtc, err := wing.ProbeRTC(board.I2C)
+	if err != nil {
+		initErrs = append(initErrs, err)
+		rtc = fallback.Clock{}
 	} else {
-		rtc = ds
+		interruptPins = append(interruptPins, wing.RTCInterruptPin)
 	}
 
 	nc, ncErr := notecard.New(board.I2C.Tx)
@@ -67,7 +65,7 @@ func main() {
 	board.MCU.PetWatchdog()
 	runtime.GC()
 
-	cfg := config.Default(board.LEDPin, board.Sensors, wing.SDChipSelectPins, wing.InterruptPins)
+	cfg := config.Default(board.LEDPin, board.Sensors, wing.SDChipSelectPins, interruptPins)
 	if nc != nil {
 		debug.Log("loading config from Notehub...")
 		rsp, rErr := nc.RequestResponse(map[string]any{
@@ -128,23 +126,18 @@ func main() {
 
 	if nc == nil && card != nil {
 		raw, err := card.ReadFile("CONFIG.INI")
-		if err == nil {
-			debug.Log("loading config from SD card...")
-			if pErr := config.ParseINI(raw, &cfg); pErr != nil {
-				if joined, ok := pErr.(interface{ Unwrap() []error }); ok {
-					for _, e := range joined.Unwrap() {
-						initErrs = append(initErrs, errors.New("config: "+e.Error()))
-					}
-				} else {
-					initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
-				}
-			}
-		} else { // TODO: check for specific file not found err
+		if err != nil {
+			// TODO: check for specific file not found err
 			debug.Log("writing default config to SD card...")
 			if ini, mErr := cfg.MarshalINI(); mErr != nil {
 				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
 			} else if wErr := card.WriteFile("CONFIG.INI", ini); wErr != nil {
 				initErrs = append(initErrs, errors.New("sd: "+wErr.Error()))
+			}
+		} else {
+			debug.Log("loading config from SD card...")
+			if pErr := config.ParseINI(raw, &cfg); pErr != nil {
+				initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
 			}
 		}
 	}
@@ -156,7 +149,7 @@ func main() {
 	now, err := rtc.ReadTime()
 	if err != nil {
 		initErrs = append(initErrs, err)
-		rtc = fallback.RTC{}
+		rtc = fallback.Clock{}
 	}
 
 	logger := log.NewLogger(now)
@@ -273,7 +266,7 @@ func main() {
 
 	now, err = rtc.ReadTime()
 	if err != nil {
-		rtc = fallback.RTC{}
+		rtc = fallback.Clock{}
 		logger.LogError(config.LogLevelError, err, "rtc: ")
 	}
 	man.Run(now)

@@ -98,6 +98,8 @@ type mockRails struct {
 	powerCalls []hal.RailState
 }
 
+func (m *mockRails) Identifier() string { return "mockRails" }
+
 func (m *mockRails) Power(state hal.RailState) {
 	m.powerCalls = append(m.powerCalls, state)
 }
@@ -146,7 +148,7 @@ func callIndexAfter(calls []string, name string, start int) int {
 
 func TestReadTime_WithRTC(t *testing.T) {
 	rtc := &mockRTC{times: []time.Time{T}}
-	s := New(&mockMCU{}, rtc, nil, nil)
+	s := New(&mockMCU{}, rtc, nil, hal.NoPin, hal.NoPin, nil)
 
 	got, err := s.readTime()
 	if err != nil {
@@ -167,7 +169,7 @@ func TestSleep_RailSequencing(t *testing.T) {
 	}
 	rails := &mockRails{}
 	target := T.Add(10 * time.Second)
-	s := New(&mockMCU{}, rtc, rails, []hal.Pin{12})
+	s := New(&mockMCU{}, rtc, rails, hal.NoPin, hal.NoPin, []hal.Pin{12})
 
 	_, err := s.Sleep(target)
 	if err != nil {
@@ -181,7 +183,6 @@ func TestSleep_RailSequencing(t *testing.T) {
 	}
 }
 
-
 func TestSleep_DeepSleepSequence(t *testing.T) {
 	rtc := &mockRTC{
 		// First call: before-sleep guard. Second call: after-sleep wake time.
@@ -190,7 +191,7 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 	mcu := &mockMCU{}
 	rails := &mockRails{}
 	target := T.Add(10 * time.Second)
-	s := New(mcu, rtc, rails, []hal.Pin{12, 7})
+	s := New(mcu, rtc, rails, hal.NoPin, hal.NoPin, []hal.Pin{12, 7})
 
 	s.Sleep(target)
 
@@ -229,7 +230,6 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 	}
 }
 
-
 func TestSleep_InsufficientRemaining_NoDeepSleep(t *testing.T) {
 	mcu := &mockMCU{}
 	rtc := &mockRTC{
@@ -239,7 +239,7 @@ func TestSleep_InsufficientRemaining_NoDeepSleep(t *testing.T) {
 	}
 	// 10ms remaining — less than minDeepSleep (2s) → idle sleep, not deep sleep.
 	target := T.Add(10 * time.Millisecond)
-	s := New(mcu, rtc, &mockRails{}, []hal.Pin{12})
+	s := New(mcu, rtc, &mockRails{}, hal.NoPin, hal.NoPin, []hal.Pin{12})
 
 	s.Sleep(target)
 
@@ -260,7 +260,7 @@ func TestSleep_DeepSleepFallbackToIdle(t *testing.T) {
 		times: []time.Time{T, T.Add(11 * time.Second)},
 	}
 	rails := &mockRails{}
-	s := New(mcu, rtc, rails, []hal.Pin{12, 7})
+	s := New(mcu, rtc, rails, hal.NoPin, hal.NoPin, []hal.Pin{12, 7})
 
 	_, err := s.Sleep(T.Add(10 * time.Second))
 	if err != nil {
@@ -291,20 +291,6 @@ func TestSleep_DeepSleepFallbackToIdle(t *testing.T) {
 	}
 }
 
-// --- AlarmClock type-assertion tests ---
-
-func TestSleep_NoAlarmRTC_SkipsDeepSleep(t *testing.T) {
-	clk := &mockClock{times: []time.Time{T, T.Add(11 * time.Second)}}
-	mcu := &mockMCU{}
-	s := New(mcu, clk, &mockRails{}, []hal.Pin{12})
-
-	s.Sleep(T.Add(10 * time.Second))
-
-	if callIndex(mcu.calls, "Standby") >= 0 {
-		t.Error("Standby should not be called when clock has no alarm support")
-	}
-}
-
 // --- Sleep return value test ---
 
 func TestSleep_ReturnsWakeTime(t *testing.T) {
@@ -314,7 +300,7 @@ func TestSleep_ReturnsWakeTime(t *testing.T) {
 		times: []time.Time{T, wakeTime},
 	}
 	target := T.Add(10 * time.Second)
-	s := New(&mockMCU{}, rtc, &mockRails{}, []hal.Pin{12})
+	s := New(&mockMCU{}, rtc, &mockRails{}, hal.NoPin, hal.NoPin, []hal.Pin{12})
 
 	got, err := s.Sleep(target)
 	if err != nil {

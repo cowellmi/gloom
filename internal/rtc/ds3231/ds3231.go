@@ -48,7 +48,7 @@ const (
 // I2C address).
 var errNotFound = errors.New("ds3231: not found")
 
-func Probe(bus drivers.I2C) (*RTC, error) {
+func Probe(bus hal.I2C) (*RTC, error) {
 	dev := driver.New(bus)
 
 	if !dev.Configure() {

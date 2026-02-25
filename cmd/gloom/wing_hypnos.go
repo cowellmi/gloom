@@ -8,6 +8,7 @@ import (
 
 	"github.com/cowellmi/gloom/internal/hal"
 	"github.com/cowellmi/gloom/internal/power"
+	"github.com/cowellmi/gloom/internal/rtc/ds3231"
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
@@ -15,7 +16,7 @@ import (
 func initWing() Wing {
 	var wing Wing
 
-	wing.InterruptPins = []hal.Pin{hal.Pin(machine.D12)}
+	wing.RTCInterruptPin = hal.Pin(machine.D12)
 	wing.SDChipSelectPins = []hal.Pin{hal.Pin(machine.D11), hal.Pin(machine.D10)}
 
 	rail3v := power.NewRail(hal.Pin(machine.D5), power.ActiveLow, hal.RailsCore, 250*time.Millisecond)
@@ -29,4 +30,8 @@ func initWing() Wing {
 	wait.For(2 * time.Second)
 
 	return wing
+}
+
+func (hypnos Wing) ProbeRTC(bus hal.I2C) (hal.Clock, error) {
+	return ds3231.Probe(bus)
 }

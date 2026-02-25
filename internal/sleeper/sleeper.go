@@ -83,7 +83,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 func (s *Device) readTime() (time.Time, error) {
 	now, err := s.rtc.ReadTime()
 	if err != nil {
-		s.rtc = fallback.RTC{}
+		s.rtc = fallback.Clock{}
 		now, _ = s.rtc.ReadTime() // Fallback clock can't fail
 		err = errors.Join(err, errors.New("rtc failed; using fallback clock"))
 	}

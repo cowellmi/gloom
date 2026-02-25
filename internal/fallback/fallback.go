@@ -18,7 +18,7 @@ func (LED) Off()         {}
 func (LED) Blink()       {}
 func (LED) Pin() hal.Pin { return hal.NoPin }
 
-type RTC struct{}
+type Clock struct{}
 
-func (RTC) Identifier() string           { return "fallback" }
-func (RTC) ReadTime() (time.Time, error) { return time.Now(), nil }
+func (Clock) Identifier() string           { return "fallback" }
+func (Clock) ReadTime() (time.Time, error) { return time.Now(), nil }
