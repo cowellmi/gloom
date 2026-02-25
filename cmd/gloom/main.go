@@ -230,13 +230,13 @@ func main() {
 		}
 		logger.Log(config.LogLevelDebug, sd)
 	} else {
-		logger.Log(config.LogLevelDebug, "sd: NONE")
+		logger.Log(config.LogLevelDebug, "sd: none")
 	}
 
 	if nc != nil {
 		logger.Log(config.LogLevelDebug, "notecard: "+nc.UID)
 	} else {
-		logger.Log(config.LogLevelDebug, "notecard: NONE")
+		logger.Log(config.LogLevelDebug, "notecard: none")
 	}
 
 	var bootBuf [256]byte
@@ -257,7 +257,7 @@ func main() {
 
 	// Manager
 	sleeper := sleeper.New(board.MCU, rtc, wing.Rails, cfg.InterruptPins)
-	man := manager.New(sleeper, wing.Rails, cfg, sensors, dataSinks, logger)
+	man := manager.New(sleeper, wing.Rails, statusLED, cfg, sensors, dataSinks, logger)
 
 	// Validate there is at least one wake source.
 	if cfg.SampleInterval <= 0 && cfg.HeartbeatInterval <= 0 && len(cfg.InterruptPins) == 0 {
@@ -267,9 +267,6 @@ func main() {
 		fatal(err, statusLED)
 	}
 
-	if cfg.HeartbeatInterval > 0 && cfg.HeartbeatLedPin != hal.NoPin {
-		man.SetBlinkLED(statusLED.Blink)
-	}
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackUsed)
 

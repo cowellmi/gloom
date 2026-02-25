@@ -82,6 +82,15 @@ func (m *mockRails) Power(state hal.RailState) {
 	m.powerCalls = append(m.powerCalls, state)
 }
 
+type mockLED struct {
+	blinkCalled bool
+}
+
+func (m *mockLED) On()          {}
+func (m *mockLED) Off()         {}
+func (m *mockLED) Blink()       { m.blinkCalled = true }
+func (m *mockLED) Pin() hal.Pin { return hal.NoPin }
+
 type mockSensor struct {
 	id           string
 	readings     []sensor.Reading
@@ -110,7 +119,7 @@ func newTestManager(sys *mockSystem, rails hal.Rails, cfg config.Config, sensors
 	logger := log.NewLogger(time.Time{})
 	logger.AddSink(mo, config.LogLevelDebug)
 
-	man := New(sys, rails, cfg, sensors, dataSinks, logger)
+	man := New(sys, rails, fallback.LED{}, cfg, sensors, dataSinks, logger)
 	man.wakeTime = T
 	man.sampleDeadline.init(T)
 	man.hbDeadline.init(T)
@@ -447,55 +456,30 @@ func TestStep_SensorMeasureError(t *testing.T) {
 	}
 }
 
-func TestStep_LEDOnBlinkLED(t *testing.T) {
-	var blinked bool
-
-	sys := &mockSystem{
-		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
-	}
-
-	cfg := config.Config{HeartbeatInterval: 5 * time.Second, HeartbeatLedPin: hal.Pin(16)}
-	man, _ := newTestManager(sys, R, cfg, nil, nil)
-	man.SetBlinkLED(func() { blinked = true })
+func TestStep_LEDBlinksOnHeartbeat(t *testing.T) {
+	led := &mockLED{}
+	sys := &mockSystem{sleepFn: afterDeadlineSleep(T.Add(6 * time.Second))}
+	logger := log.NewLogger(time.Time{})
+	man := New(sys, R, led, config.Config{HeartbeatInterval: 5 * time.Second}, nil, nil, logger)
+	man.wakeTime = T
+	man.hbDeadline.init(T)
 	man.step()
 
-	if !blinked {
-		t.Error("blinkLED was not called")
+	if !led.blinkCalled {
+		t.Error("LED.Blink() was not called on heartbeat wake")
 	}
 }
 
-func TestStep_NoLEDWhenLedPinNone(t *testing.T) {
-	var blinked bool
-
-	sys := &mockSystem{
-		sleepFn: afterDeadlineSleep(T.Add(6 * time.Second)),
-	}
-
-	cfg := config.Config{HeartbeatInterval: 5 * time.Second, HeartbeatLedPin: hal.NoPin}
-	man, _ := newTestManager(sys, R, cfg, nil, nil)
-	man.SetBlinkLED(func() { blinked = true })
+func TestStep_LEDNoBlinkWhenHeartbeatDisabled(t *testing.T) {
+	led := &mockLED{}
+	sys := &mockSystem{sleepFn: afterDeadlineSleep(T)}
+	logger := log.NewLogger(time.Time{})
+	man := New(sys, R, led, config.Config{}, nil, nil, logger)
+	man.wakeTime = T
 	man.step()
 
-	if blinked {
-		t.Error("blinkLED should not be called when LedPin is NoPin")
-	}
-}
-
-func TestStep_NoLEDWhenHeartbeatDisabled(t *testing.T) {
-	var blinked bool
-
-	sys := &mockSystem{
-		sleepFn: afterDeadlineSleep(T),
-	}
-
-	// Heartbeat disabled (Interval=0) — never fires — no blink regardless of LedPin.
-	cfg := config.Config{HeartbeatLedPin: hal.Pin(16)}
-	man, _ := newTestManager(sys, R, cfg, nil, nil)
-	man.SetBlinkLED(func() { blinked = true })
-	man.step()
-
-	if blinked {
-		t.Error("blinkLED should not be called when heartbeat is disabled")
+	if led.blinkCalled {
+		t.Error("LED.Blink() should not be called when heartbeat is disabled")
 	}
 }
 

@@ -22,10 +22,6 @@ type Device struct {
 	idleFiredPins []hal.Pin
 }
 
-// New creates a Device. mcu and rails are required (pass fallback.Rails
-// for boards without power rail control). rtc may be nil (disables
-// timer-based deep sleep). interruptPins are the GPIO interrupt lines
-// used as wake sources.
 func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails, interruptPins []hal.Pin) *Device {
 	return &Device{
 		mcu:           mcu,
@@ -37,19 +33,13 @@ func New(mcu hal.MCU, rtc hal.RTC, rails hal.Rails, interruptPins []hal.Pin) *De
 }
 
 // readTime returns the current time from the RTC, falling back to
-// time.Now() if no RTC is attached or if the read fails.
+// time.Now() if the read fails.
 func (s *Device) readTime() (time.Time, error) {
-	if s.rtc != nil {
-		t, err := s.rtc.ReadTime()
-		if err != nil {
-			// Falling back to system time and reporting error.
-			return time.Now(), err
-		}
-		return t, nil
-	} else {
-		// No RTC; using system time.
-		return time.Now(), nil
+	t, err := s.rtc.ReadTime()
+	if err != nil {
+		return time.Now(), err
 	}
+	return t, nil
 }
 
 // PinFired reports whether the given pin fired in the most recent
@@ -96,11 +86,10 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		s.mcu.PetWatchdog()
 
 		// Deep sleep requires wake pins and either:
-		//   a) a timed target with an RTC and enough remaining time for an alarm, or
+		//   a) a timed target with an RTC alarm and enough remaining time, or
 		//   b) an external-interrupt-only configuration (zero target).
-		rtcAlarm := s.rtc != nil && s.rtc.HasAlarm()
 		canDeepSleep := len(s.wakePins) > 0 &&
-			(target.IsZero() || (rtcAlarm && remaining > minDeepSleep))
+			(target.IsZero() || (s.rtc.HasAlarm() && remaining > minDeepSleep))
 
 		if canDeepSleep {
 			// deepSleep only errors during setup (ClearAlarm/SetAlarm/ArmWake),
@@ -121,7 +110,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 		// Restore core rails so the RTC and SD card are reachable.
 		s.rails.Power(hal.RailsCore)
 
-		if s.rtc != nil && s.rtc.HasAlarm() {
+		if s.rtc.HasAlarm() {
 			_ = s.rtc.ClearAlarm() // best-effort
 		}
 
@@ -136,7 +125,7 @@ func (s *Device) Sleep(target time.Time) (time.Time, error) {
 // deepSleep sets the RTC alarm (if present), arms all wake pins,
 // cuts power, and enters MCU standby.
 func (s *Device) deepSleep(target time.Time) error {
-	if s.rtc != nil && s.rtc.HasAlarm() && !target.IsZero() {
+	if s.rtc.HasAlarm() && !target.IsZero() {
 		if err := s.rtc.ClearAlarm(); err != nil {
 			return err
 		}

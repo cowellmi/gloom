@@ -41,12 +41,12 @@ func (d *deadline) fired(wakeTime time.Time) bool {
 type Manager struct {
 	sleeper        sleeper
 	rails          hal.Rails
+	led            hal.LED
 	cfg            config.Config
 	sensors        []sensor.Sensor
 	dataSinks      []sink.DataSink
 	logger         *log.Logger
 	wakeTime       time.Time
-	blinkLED       func()
 	petWDT         func()
 	stackUsed      func() uint
 	buf            [128]byte
@@ -54,10 +54,11 @@ type Manager struct {
 	hbDeadline     deadline
 }
 
-func New(sleeper sleeper, rails hal.Rails, cfg config.Config, sensors []sensor.Sensor, dataSinks []sink.DataSink, logger *log.Logger) *Manager {
+func New(sleeper sleeper, rails hal.Rails, led hal.LED, cfg config.Config, sensors []sensor.Sensor, dataSinks []sink.DataSink, logger *log.Logger) *Manager {
 	return &Manager{
 		sleeper:        sleeper,
 		rails:          rails,
+		led:            led,
 		cfg:            cfg,
 		sensors:        sensors,
 		dataSinks:      dataSinks,
@@ -71,12 +72,6 @@ func New(sleeper sleeper, rails hal.Rails, cfg config.Config, sensors []sensor.S
 // watchdog at strategic points.
 func (m *Manager) EnableWatchdog(pet func()) {
 	m.petWDT = pet
-}
-
-// SetBlinkLED sets a callback the manager calls to blink the LED when
-// the heartbeat fires with blink_led enabled. Pass nil to disable.
-func (m *Manager) SetBlinkLED(fn func()) {
-	m.blinkLED = fn
 }
 
 // SetStackMonitor sets a callback the manager calls each cycle to
@@ -116,9 +111,7 @@ func (m *Manager) step() {
 	if hbFired {
 		b = fmtbuf.AppendByte(b, ' ')
 		b = fmtbuf.Append(b, "heartbeat")
-		if m.cfg.HeartbeatLedPin != hal.NoPin && m.blinkLED != nil {
-			m.blinkLED()
-		}
+		m.led.Blink()
 	}
 
 	if sampleFired || hbFired {

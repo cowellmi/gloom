@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cowellmi/gloom/internal/fallback"
 	"github.com/cowellmi/gloom/internal/hal"
 )
 
@@ -127,15 +128,6 @@ func callIndexAfter(calls []string, name string, start int) int {
 	return -1
 }
 
-// --- constructor tests ---
-
-func TestNewSleeper_NilRTC(t *testing.T) {
-	s := New(&mockMCU{}, nil, nil, nil)
-	if len(s.wakePins) != 0 {
-		t.Errorf("wakePins = %v, want empty", s.wakePins)
-	}
-}
-
 // --- ReadTime tests ---
 
 func TestReadTime_WithRTC(t *testing.T) {
@@ -148,21 +140,6 @@ func TestReadTime_WithRTC(t *testing.T) {
 	}
 	if !got.Equal(T) {
 		t.Errorf("ReadTime() = %v, want %v", got, T)
-	}
-}
-
-func TestReadTime_WithoutRTC(t *testing.T) {
-	s := New(&mockMCU{}, nil, nil, nil)
-
-	before := time.Now()
-	got, err := s.readTime()
-	after := time.Now()
-
-	if err != nil {
-		t.Fatalf("ReadTime() error: %v", err)
-	}
-	if got.Before(before) || got.After(after) {
-		t.Errorf("ReadTime() = %v, not between %v and %v", got, before, after)
 	}
 }
 
@@ -240,8 +217,9 @@ func TestSleep_DeepSleepSequence(t *testing.T) {
 
 func TestSleep_ZeroTarget_HasExtPins_DeepSleeps(t *testing.T) {
 	mcu := &mockMCU{}
-	// Use nil RTC so no RTC alarm is set; deep sleep driven by ext pin only.
-	s := New(mcu, nil, &mockRails{}, []hal.Pin{7})
+	// fallback.RTC has HasAlarm=false; zero target short-circuits the alarm
+	// check so deep sleep still fires on ext pin alone.
+	s := New(mcu, fallback.RTC{}, &mockRails{}, []hal.Pin{7})
 
 	// Sleep with zero target: external-interrupt-only deep sleep.
 	// In the test the mock Standby() returns immediately.

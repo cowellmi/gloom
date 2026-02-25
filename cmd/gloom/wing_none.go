@@ -2,8 +2,11 @@
 
 package main
 
-func initWing() Profile {
-	return Profile{
-		Rails: fallback.Rails,
+import "github.com/cowellmi/gloom/internal/fallback"
+
+// No wing attached; use fallbacks.
+func initWing() Wing {
+	return Wing{
+		Rails: fallback.Rails{},
 	}
 }
