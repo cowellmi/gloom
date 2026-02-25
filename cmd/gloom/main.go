@@ -16,11 +16,13 @@ import (
 	"github.com/cowellmi/gloom/internal/log"
 	"github.com/cowellmi/gloom/internal/manager"
 	"github.com/cowellmi/gloom/internal/notecard"
+	"github.com/cowellmi/gloom/internal/rtc/ds3231"
 	"github.com/cowellmi/gloom/internal/sdcard"
 	"github.com/cowellmi/gloom/internal/sensor"
 	"github.com/cowellmi/gloom/internal/sensor/vbat"
 	"github.com/cowellmi/gloom/internal/sink"
 	"github.com/cowellmi/gloom/internal/sleeper"
+	"github.com/cowellmi/gloom/internal/wait"
 )
 
 var ProductUID string
@@ -33,39 +35,48 @@ func main() {
 	board.MCU.PaintStack()
 	board.MCU.EnableWatchdog()
 
+	wing := initWing()
+	wing.Rails.Power(hal.RailsOff)
+	wait.For(250 * time.Millisecond)
+	board.MCU.PetWatchdog()
+	wing.Rails.Power(hal.RailsCore)
+	wait.For(2 * time.Second)
+	board.MCU.PetWatchdog()
+
+	var statusLED hal.LED
+	if board.LEDPin != hal.NoPin {
+		statusLED = led.New(board.LEDPin)
+		statusLED.On()
+	}
+
 	debug.W = board.Serial
 	debug.Log("version: 0.0")
 
 	err := board.MCU.ConfigureI2C(board.SDA, board.SCL)
 	if err != nil {
 		board.MCU.DisableWatchdog()
-		panic(err)
+		fatal(err, statusLED)
 	}
 	board.MCU.PetWatchdog()
 
-	dev, err := initDevices(board.MCU, board.I2C)
-	if err != nil {
-		board.MCU.DisableWatchdog()
-		panic(err)
-	}
-
-	if board.LEDPin != hal.NoPin {
-		dev.LED = led.New(board.LEDPin)
-		dev.LED.On()
-	}
-
-	if nic, ncErr := notecard.New(board.I2C.Tx); ncErr != nil {
-		initWarns = append(initWarns, ncErr)
+	var rtc hal.RTC
+	if ds, rErr := ds3231.Probe(board.I2C); rErr != nil {
+		initWarns = append(initWarns, rErr)
 	} else {
-		dev.NIC = nic
+		rtc = ds
+	}
+
+	nc, ncErr := notecard.New(board.I2C.Tx)
+	if ncErr != nil {
+		initWarns = append(initWarns, ncErr)
 	}
 	board.MCU.PetWatchdog()
 	runtime.GC()
 
-	cfg := config.Default(board.LEDPin, board.Sensors, dev.SDChipSelectPins, dev.InterruptPins)
-	if dev.NIC != nil {
+	cfg := config.Default(board.LEDPin, board.Sensors, wing.SDChipSelectPins, wing.InterruptPins)
+	if nc != nil {
 		debug.Log("loading config from Notehub...")
-		rsp, rErr := dev.NIC.RequestResponse(map[string]any{
+		rsp, rErr := nc.RequestResponse(map[string]any{
 			"req":  "note.get",
 			"file": "config.db",
 			"note": "config",
@@ -79,7 +90,7 @@ func main() {
 			}
 		case notecard.IsNotFound(rErr):
 			debug.Log("sending default config to Notehub...")
-			if _, wErr := dev.NIC.RequestResponse(map[string]any{
+			if _, wErr := nc.RequestResponse(map[string]any{
 				"req":  "note.add",
 				"file": "config.db",
 				"note": "config",
@@ -121,7 +132,7 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
-	if dev.NIC == nil && card != nil {
+	if nc == nil && card != nil {
 		debug.Log("loading config from SD card...")
 		raw, err := card.ReadFile("CONFIG.INI")
 		if err == nil {
@@ -145,12 +156,12 @@ func main() {
 	}
 
 	if cfg.HeartbeatLedPin != hal.NoPin {
-		dev.LED = led.New(cfg.HeartbeatLedPin)
+		statusLED = led.New(cfg.HeartbeatLedPin)
 	}
 
 	now := time.Now()
-	if dev.RTC != nil {
-		if t, err := dev.RTC.ReadTime(); err != nil {
+	if rtc != nil {
+		if t, err := rtc.ReadTime(); err != nil {
 			initErrs = append(initErrs, errors.New("rtc: "+err.Error()))
 		} else {
 			now = t
@@ -163,8 +174,7 @@ func main() {
 	logger.AddSink(serialSink, config.LogLevelDebug)
 	dataSinks := []sink.DataSink{serialSink}
 
-	nc, ok := dev.NIC.(*notecard.Device)
-	if ok {
+	if nc != nil {
 		notehubSink := sink.NewNotehubSink(nc, "data.qo", "log.qo")
 		dataSinks = append(dataSinks, notehubSink)
 		logger.AddSink(notehubSink, cfg.LogLevelBlues)
@@ -217,12 +227,12 @@ func main() {
 		board.MCU.PetWatchdog()
 	}
 
-	dev.LED.Off()
+	statusLED.Off()
 
 	logger.Log(config.LogLevelDebug, "mcu: "+board.MCU.Identifier())
 
-	if dev.RTC != nil {
-		logger.Log(config.LogLevelDebug, "rtc: "+dev.RTC.Identifier())
+	if rtc != nil {
+		logger.Log(config.LogLevelDebug, "rtc: "+rtc.Identifier())
 	} else {
 		logger.Log(config.LogLevelDebug, "rtc: NONE")
 	}
@@ -260,23 +270,23 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	// Manager
-	sleeper := sleeper.New(board.MCU, dev.RTC, dev.Rails, cfg.InterruptPins)
+	sleeper := sleeper.New(board.MCU, rtc, wing.Rails, cfg.InterruptPins)
 	man := manager.New(sleeper, cfg, sensors, dataSinks, logger)
 
 	// Validate there is at least one wake source.
 	if cfg.SampleInterval <= 0 && cfg.HeartbeatInterval <= 0 && len(cfg.InterruptPins) == 0 {
 		logger.Log(config.LogLevelError, "config: no wake sources configured")
-		fatal(err, dev.LED)
+		fatal(err, statusLED)
 	}
 
 	if cfg.HeartbeatInterval > 0 && cfg.HeartbeatLedPin != hal.NoPin {
-		man.SetBlinkLED(dev.LED.Blink)
+		man.SetBlinkLED(statusLED.Blink)
 	}
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackUsed)
 
-	if dev.RTC != nil {
-		if t, err := dev.RTC.ReadTime(); err == nil {
+	if rtc != nil {
+		if t, err := rtc.ReadTime(); err == nil {
 			now = t
 		}
 	} else {
@@ -287,11 +297,11 @@ func main() {
 
 // fatal blinks the LED forever to signal a hard failure when no
 // serial monitor is connected.
-func fatal(err error, led hal.LED) {
+func fatal(err error, statusLED hal.LED) {
 	debug.Log("FATAL: " + err.Error())
 	for {
-		if led != nil {
-			led.Blink()
+		if statusLED != nil {
+			statusLED.Blink()
 		}
 	}
 }
