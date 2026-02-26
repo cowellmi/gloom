@@ -8,6 +8,7 @@ import (
 
 	tinyjson "github.com/andreyvit/tinyjson"
 
+	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
@@ -15,10 +16,21 @@ import (
 // It matches the signature of hal.I2C.Tx.
 type I2CTxFn func(addr uint16, w, r []byte) error
 
+// RawJSON is a pre-encoded JSON value for embedding directly as a field value
+// in a RequestResponse call, bypassing recursive encoding.
+type RawJSON []byte
+
+// Marshal serializes m to compact JSON bytes. Pre-encode nested structures
+// before passing them to RequestResponse to limit marshalMap recursion depth
+// and avoid goroutine stack overflow on fixed-stack targets.
+func Marshal(m map[string]any) []byte {
+	return marshalMap(nil, m)
+}
+
 const (
-	i2cAddr = 0x17  // Blues Notecard default I2C address
-	i2cMax  = 253   // max bytes per I2C chunk (Notecard spec: 255 minus 2-byte header)
-	segMax  = 250   // bytes sent before an inter-segment pause
+	i2cAddr = 0x17 // Blues Notecard default I2C address
+	i2cMax  = 253  // max bytes per I2C chunk (Notecard spec: 255 minus 2-byte header)
+	segMax  = 250  // bytes sent before an inter-segment pause
 )
 
 // Device is a Blues Notecard attached via I2C.
@@ -60,18 +72,25 @@ func (d *Device) Request(req map[string]any) error {
 // Returns an error if the Notecard responds with an {"err":"..."} field
 // or if the I2C transaction fails.
 func (d *Device) RequestResponse(req map[string]any) (map[string]any, error) {
+	debug.Log("cp1")
 	js := marshalMap(nil, req)
+	debug.Log("cp2")
 	rspJSON, err := d.transaction(js)
+	debug.Log("cp3")
 	if err != nil {
 		return nil, err
 	}
+	debug.Log("cp4")
 	rsp, err := unmarshalMap(rspJSON)
+	debug.Log("cp5")
 	if err != nil {
 		return nil, err
 	}
+	debug.Log("cp6")
 	if e, ok := rsp["err"].(string); ok && e != "" {
 		return nil, errors.New(e)
 	}
+	debug.Log("cp7")
 	return rsp, nil
 }
 
@@ -230,6 +249,8 @@ func marshalValue(buf []byte, v any) []byte {
 		return strconv.AppendFloat(buf, x, 'f', -1, 64)
 	case string:
 		return strconv.AppendQuote(buf, x)
+	case RawJSON:
+		return append(buf, x...)
 	case map[string]any:
 		return marshalMap(buf, x)
 	default:
@@ -240,8 +261,9 @@ func marshalValue(buf []byte, v any) []byte {
 // --- JSON decoding ---
 
 // unmarshalMap decodes a JSON object into a map[string]any.
-// Panics from the tinyjson parser on malformed input are caught and
-// returned as errors.
+// Nested objects and arrays are stored as raw []byte to avoid the recursive
+// tinyjson.Value() call, which overflows the goroutine stack on deeply nested data.
+// Panics from the tinyjson parser on malformed input are caught and returned as errors.
 func unmarshalMap(data []byte) (result map[string]any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -256,9 +278,52 @@ func unmarshalMap(data []byte) (result map[string]any, err error) {
 		}
 	}()
 	raw := tinyjson.Raw(data)
-	v := raw.Value()
-	if m, ok := v.(map[string]any); ok {
-		return m, nil
+	result = make(map[string]any)
+	for key := raw.StartObject(); key != nil; key = raw.ContinueObject() {
+		k := key.Str()
+		switch raw.Peek() {
+		case tinyjson.StartObject, tinyjson.StartArray:
+			// Extract nested value as raw JSON bytes without recursing.
+			// tinyjson.Value() is recursive and overflows on 4+ levels of nesting.
+			start := []byte(raw)
+			scanNestedValue(&raw)
+			result[k] = start[:len(start)-len([]byte(raw))]
+		default:
+			result[k] = raw.Next().Scalar()
+		}
 	}
-	return map[string]any{}, nil
+	return result, nil
+}
+
+// scanNestedValue advances raw past a JSON object or array using an iterative
+// depth counter. raw must be positioned at the opening '{' or '[' (after Peek).
+// This is safe on tiny goroutine stacks unlike tinyjson.Skip() which recurses.
+func scanNestedValue(raw *tinyjson.Raw) {
+	data := []byte(*raw)
+	depth := 0
+	inStr := false
+	for i := 0; i < len(data); i++ {
+		c := data[i]
+		if inStr {
+			if c == '\\' {
+				i++ // skip escaped char
+			} else if c == '"' {
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inStr = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+			if depth == 0 {
+				*raw = tinyjson.Raw(data[i+1:])
+				return
+			}
+		}
+	}
+	panic("invalid JSON: unterminated object/array")
 }

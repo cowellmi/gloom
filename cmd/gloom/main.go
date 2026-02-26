@@ -93,9 +93,6 @@ func main() {
 	if ncErr != nil {
 		initWarns = append(initWarns, ncErr)
 	}
-	if nc != nil {
-		nc.SetWatchdog(board.MCU.PetWatchdog)
-	}
 	board.MCU.PetWatchdog()
 	runtime.GC()
 
@@ -112,18 +109,19 @@ func main() {
 		})
 		switch {
 		case rErr == nil:
-			if body, ok := rsp["body"].(map[string]any); ok {
-				if pErr := config.ParseMap(&cfg, body); pErr != nil {
+			// unmarshalMap stores nested objects as []byte; pass the body bytes
+			// directly to ParseJSON which uses the iterative streaming tinyjson API.
+			if bodyJSON, ok := rsp["body"].([]byte); ok {
+				if pErr := config.ParseJSON(bodyJSON, &cfg); pErr != nil {
 					initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
 				}
 			}
 		case notecard.IsNotFound(rErr):
 			debug.Log("sending default config to Notehub...")
-			// Pre-serialize the body before calling RequestResponse so that the
-			// deep marshalMap recursion over the nested Config map completes and
-			// unwinds before the outer request encoding begins. Passing the nested
-			// map directly would combine both recursion chains on the stack and
-			// overflow the goroutine's fixed-size stack.
+			// MarshalMap + notecard.Marshal produces compact single-line JSON.
+			// MarshalJSON is pretty-printed (contains \n) which breaks the Notecard
+			// line-terminated protocol — the first embedded newline is treated as
+			// end-of-request, corrupting subsequent requests in the same session.
 			bodyJSON := notecard.Marshal(cfg.MarshalMap())
 			board.MCU.PetWatchdog()
 			if _, wErr := nc.RequestResponse(map[string]any{

@@ -226,7 +226,7 @@ func (c *Config) MarshalMap() map[string]interface{} {
 				gmap["interrupt_pins"] = s
 			}
 			if g.PulseLED {
-				gmap["pulse_led"] = "true"
+				gmap["pulse_led"] = true
 			}
 			groups[name] = gmap
 		}

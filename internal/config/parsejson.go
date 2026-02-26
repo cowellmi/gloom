@@ -35,29 +35,59 @@ func ParseJSON(data []byte, cfg *Config) (parseErr error) {
 	for key := raw.StartObject(); key != nil; key = raw.ContinueObject() {
 		switch key.Str() {
 		case "led_pin":
-			n := raw.Int()
-			if n < 0 || n > 254 {
-				errs = append(errs, errors.New("led_pin: invalid pin"))
+			// Accept string ("17", "none") from MarshalMap or integer (17) from MarshalJSON.
+			if raw.Peek() == tinyjson.String {
+				pin, e := parsePin("led_pin", raw.Str())
+				if e != nil {
+					errs = append(errs, e)
+				} else {
+					cfg.LEDPin = pin
+				}
 			} else {
-				cfg.LEDPin = hal.Pin(n)
+				n := raw.Int()
+				if n < 0 || n > 254 {
+					errs = append(errs, errors.New("led_pin: invalid pin"))
+				} else {
+					cfg.LEDPin = hal.Pin(n)
+				}
 			}
 
 		case "rtc_int_pin":
-			n := raw.Int()
-			if n < 0 || n > 254 {
-				errs = append(errs, errors.New("rtc_int_pin: invalid pin"))
+			// Accept string ("6") from MarshalMap or integer (6) from MarshalJSON.
+			if raw.Peek() == tinyjson.String {
+				pin, e := parsePin("rtc_int_pin", raw.Str())
+				if e != nil {
+					errs = append(errs, e)
+				} else {
+					cfg.RTCIntPin = pin
+				}
 			} else {
-				cfg.RTCIntPin = hal.Pin(n)
+				n := raw.Int()
+				if n < 0 || n > 254 {
+					errs = append(errs, errors.New("rtc_int_pin: invalid pin"))
+				} else {
+					cfg.RTCIntPin = hal.Pin(n)
+				}
 			}
 
 		case "sd_chip_select_pins":
+			// Accept string ("10, 11") from MarshalMap or array ([10, 11]) from MarshalJSON.
 			cfg.SDChipSelectPins = cfg.SDChipSelectPins[:0]
-			for raw.StartArray(); raw.ContinueArray(); {
-				n := raw.Int()
-				if n < 0 || n > 254 {
-					errs = append(errs, errors.New("sd_chip_select_pins: invalid pin"))
+			if raw.Peek() == tinyjson.String {
+				pins, e := parsePinList("sd_chip_select_pins", raw.Str())
+				if e != nil {
+					errs = append(errs, e)
 				} else {
-					cfg.SDChipSelectPins = append(cfg.SDChipSelectPins, hal.Pin(n))
+					cfg.SDChipSelectPins = pins
+				}
+			} else {
+				for raw.StartArray(); raw.ContinueArray(); {
+					n := raw.Int()
+					if n < 0 || n > 254 {
+						errs = append(errs, errors.New("sd_chip_select_pins: invalid pin"))
+					} else {
+						cfg.SDChipSelectPins = append(cfg.SDChipSelectPins, hal.Pin(n))
+					}
 				}
 			}
 
@@ -101,20 +131,47 @@ func ParseJSON(data []byte, cfg *Config) (parseErr error) {
 							g.Interval = d
 						}
 					case "sensors":
-						for raw.StartArray(); raw.ContinueArray(); {
-							g.Sensors = append(g.Sensors, raw.Str())
+						// Accept string ("vbat, other") from MarshalMap or array from MarshalJSON.
+						if raw.Peek() == tinyjson.String {
+							g.Sensors = parseStringList(raw.Str())
+						} else {
+							for raw.StartArray(); raw.ContinueArray(); {
+								g.Sensors = append(g.Sensors, raw.Str())
+							}
 						}
 					case "interrupt_pins":
-						for raw.StartArray(); raw.ContinueArray(); {
-							n := raw.Int()
-							if n < 0 || n > 254 {
-								errs = append(errs, errors.New("groups."+name+".interrupt_pins: invalid pin"))
+						// Accept string ("6, 7") from MarshalMap or array from MarshalJSON.
+						if raw.Peek() == tinyjson.String {
+							pins, e := parsePinList("interrupt_pins", raw.Str())
+							if e != nil {
+								errs = append(errs, e)
 							} else {
-								g.InterruptPins = append(g.InterruptPins, hal.Pin(n))
+								g.InterruptPins = pins
+							}
+						} else {
+							for raw.StartArray(); raw.ContinueArray(); {
+								n := raw.Int()
+								if n < 0 || n > 254 {
+									errs = append(errs, errors.New("groups."+name+".interrupt_pins: invalid pin"))
+								} else {
+									g.InterruptPins = append(g.InterruptPins, hal.Pin(n))
+								}
 							}
 						}
 					case "pulse_led":
-						g.PulseLED = raw.Bool()
+						// Accept string ("true") from MarshalMap or boolean from MarshalJSON.
+						if raw.Peek() == tinyjson.String {
+							switch raw.Str() {
+							case "true":
+								g.PulseLED = true
+							case "false":
+								g.PulseLED = false
+							default:
+								errs = append(errs, errors.New("groups."+name+".pulse_led: expected true or false"))
+							}
+						} else {
+							g.PulseLED = raw.Bool()
+						}
 					default:
 						errs = append(errs, errors.New("groups."+name+": unknown key: "+fieldKey.Str()))
 						raw.Skip()
