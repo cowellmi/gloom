@@ -3,6 +3,7 @@ package manager
 import (
 	"errors"
 	"runtime"
+	"sort"
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
@@ -38,33 +39,62 @@ func (d *deadline) fired(wakeTime time.Time) bool {
 	return true
 }
 
-type Manager struct {
-	sleeper        sleeper
-	rails          hal.Rails
-	led            hal.LED
-	cfg            config.Config
-	sensors        []sensor.Sensor
-	dataSinks      []sink.DataSink
-	logger         *log.Logger
-	wakeTime       time.Time
-	petWDT         func()
-	stackUsed      func() uint
-	buf            [128]byte
-	sampleDeadline deadline
-	hbDeadline     deadline
+// Group is a named schedule group with its own deadline and config.
+// Use BuildGroup to construct one from a name and config.Group.
+type Group struct {
+	name     string
+	cfg      config.Group
+	deadline deadline
 }
 
-func New(sleeper sleeper, rails hal.Rails, led hal.LED, cfg config.Config, sensors []sensor.Sensor, dataSinks []sink.DataSink, logger *log.Logger) *Manager {
+// BuildGroup constructs a Group from the given name and config.Group.
+func BuildGroup(name string, cfg config.Group) Group {
+	return Group{
+		name:     name,
+		cfg:      cfg,
+		deadline: deadline{interval: cfg.Interval},
+	}
+}
+
+type Manager struct {
+	sleeper   sleeper
+	rails     hal.Rails
+	led       hal.LED
+	groups    []Group
+	sensors   map[string]sensor.Sensor
+	dataSinks []sink.DataSink
+	logger    *log.Logger
+	wakeTime  time.Time
+	petWDT    func()
+	stackUsed func() uint
+	buf       [128]byte
+}
+
+// New creates a Manager from a map of config groups.
+// Group names are sorted alphabetically for stable bit assignments across runs.
+func New(sleeper sleeper, rails hal.Rails, led hal.LED,
+	groups map[string]config.Group, sensors map[string]sensor.Sensor,
+	dataSinks []sink.DataSink, logger *log.Logger) *Manager {
+
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	gs := make([]Group, len(names))
+	for i, name := range names {
+		gs[i] = BuildGroup(name, groups[name])
+	}
+
 	return &Manager{
-		sleeper:        sleeper,
-		rails:          rails,
-		led:            led,
-		cfg:            cfg,
-		sensors:        sensors,
-		dataSinks:      dataSinks,
-		logger:         logger,
-		sampleDeadline: deadline{interval: cfg.SampleInterval},
-		hbDeadline:     deadline{interval: cfg.HeartbeatInterval},
+		sleeper:   sleeper,
+		rails:     rails,
+		led:       led,
+		groups:    gs,
+		sensors:   sensors,
+		dataSinks: dataSinks,
+		logger:    logger,
 	}
 }
 
@@ -86,8 +116,9 @@ func (m *Manager) SetStackMonitor(used func() uint) {
 func (m *Manager) Run(now time.Time) {
 	runtime.GC()
 	m.wakeTime = now
-	m.sampleDeadline.init(now)
-	m.hbDeadline.init(now)
+	for i := range m.groups {
+		m.groups[i].deadline.init(now)
+	}
 	for {
 		m.step()
 	}
@@ -95,36 +126,43 @@ func (m *Manager) Run(now time.Time) {
 
 // step executes a single sleep/wake cycle.
 func (m *Manager) step() {
-	sampleFired, hbFired := m.doSleep()
+	fired := m.doSleep()
 
 	b := m.buf[:0]
 	b = fmtbuf.Append(b, "wake:")
 	needSensors := false
+	pulseLED := false
 
-	if sampleFired {
+	for i := range m.groups {
+		if fired&(1<<uint(i)) == 0 {
+			continue
+		}
+		g := &m.groups[i]
 		b = fmtbuf.AppendByte(b, ' ')
-		b = fmtbuf.Append(b, "sample")
-		if len(m.sensors) > 0 {
+		b = fmtbuf.Append(b, g.name)
+		if len(g.cfg.Sensors) > 0 {
 			needSensors = true
 		}
-	}
-	if hbFired {
-		b = fmtbuf.AppendByte(b, ' ')
-		b = fmtbuf.Append(b, "heartbeat")
-		m.led.Blink()
+		if g.cfg.PulseLED {
+			pulseLED = true
+		}
 	}
 
-	if sampleFired || hbFired {
+	if fired != 0 {
 		m.logger.Log(config.LogLevelDebug, string(b))
+	}
+
+	if pulseLED {
+		m.led.Blink()
 	}
 
 	if needSensors {
 		m.rails.Power(hal.RailsFull)
-		m.measureSensors()
+		m.measureFiredSensors(fired)
 		m.rails.Power(hal.RailsCore)
 	}
 
-	if !sampleFired && !hbFired {
+	if fired == 0 {
 		m.logger.Log(config.LogLevelDebug, "external wake")
 	}
 
@@ -132,26 +170,54 @@ func (m *Manager) step() {
 	runtime.GC()
 }
 
-// measureSensors measures each sample sensor and records results.
-func (m *Manager) measureSensors() {
-	for _, s := range m.sensors {
+// measureFiredSensors measures the deduplicated union of sensor IDs from
+// all fired groups. Each unique sensor is measured exactly once.
+// Uses O(n²) deduplication with a fixed-size stack buffer — no heap allocation.
+func (m *Manager) measureFiredSensors(fired uint32) {
+	var ids [32]string
+	n := 0
+
+	for i := range m.groups {
+		if fired&(1<<uint(i)) == 0 {
+			continue // group did not fire
+		}
+		for _, id := range m.groups[i].cfg.Sensors {
+			dup := false
+			for j := 0; j < n; j++ {
+				if ids[j] == id {
+					dup = true
+					break
+				}
+			}
+			if !dup && n < len(ids) {
+				ids[n] = id
+				n++
+			}
+		}
+	}
+
+	for _, id := range ids[:n] {
+		s, ok := m.sensors[id]
+		if !ok {
+			continue
+		}
 		m.pet()
 
 		readings, err := s.Measure()
 		if err != nil {
-			m.logger.LogError(config.LogLevelError, err, "measure: "+s.ID()+": ")
+			m.logger.LogError(config.LogLevelError, err, "measure: "+id+": ")
 			continue
 		}
 
 		for _, ds := range m.dataSinks {
-			if err := ds.Data(m.wakeTime, s.ID(), readings); err != nil {
-				m.logger.LogError(config.LogLevelError, err, "record: "+s.ID()+": ")
+			if err := ds.Data(m.wakeTime, id, readings); err != nil {
+				m.logger.LogError(config.LogLevelError, err, "record: "+id+": ")
 			}
 		}
 	}
 }
 
-func (m *Manager) doSleep() (sampleFired, hbFired bool) {
+func (m *Manager) doSleep() uint32 {
 	now := m.wakeTime
 
 	target := m.earliestDeadline()
@@ -174,23 +240,29 @@ func (m *Manager) doSleep() (sampleFired, hbFired bool) {
 	m.wakeTime = wakeTime
 	m.logger.SetTime(wakeTime)
 
-	sampleFired = m.sampleDeadline.fired(wakeTime)
-	hbFired = m.hbDeadline.fired(wakeTime)
-	for _, pin := range m.cfg.InterruptPins {
-		if m.sleeper.PinFired(pin) {
-			sampleFired = true
-			break
+	var fired uint32
+	for i := range m.groups {
+		g := &m.groups[i]
+		if g.deadline.fired(wakeTime) {
+			fired |= 1 << uint(i)
+		}
+		for _, pin := range g.cfg.InterruptPins {
+			if m.sleeper.PinFired(pin) {
+				fired |= 1 << uint(i)
+				break
+			}
 		}
 	}
 
-	return
+	return fired
 }
 
-// earliestDeadline returns the earlier of the two non-zero deadlines,
-// or the zero time if neither is set.
+// earliestDeadline returns the earliest non-zero deadline across all groups,
+// or the zero time if no group has a periodic interval.
 func (m *Manager) earliestDeadline() time.Time {
 	var best time.Time
-	for _, t := range []time.Time{m.sampleDeadline.next, m.hbDeadline.next} {
+	for i := range m.groups {
+		t := m.groups[i].deadline.next
 		if t.IsZero() {
 			continue
 		}

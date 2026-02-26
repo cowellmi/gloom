@@ -59,13 +59,14 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
-	var interruptPins []hal.Pin
+	// Probe RTC; only use its interrupt pin if the hardware is present.
+	rtcIntPin := hal.NoPin
 	rtc, err := wing.ProbeRTC(board.I2C)
 	if err != nil {
 		initWarns = append(initWarns, err)
 		rtc = fallback.Clock{}
 	} else {
-		interruptPins = append(interruptPins, wing.RTCInterruptPin)
+		rtcIntPin = wing.RTCInterruptPin
 	}
 
 	nc, ncErr := notecard.New(board.I2C.Tx)
@@ -75,7 +76,7 @@ func main() {
 	board.MCU.PetWatchdog()
 	runtime.GC()
 
-	cfg := config.Default(board.LEDPin, board.Sensors, wing.SDChipSelectPins, interruptPins)
+	cfg := config.Default(board.LEDPin, rtcIntPin, board.Sensors, wing.SDChipSelectPins)
 	if nc != nil {
 		debug.Log("loading config from Notehub...")
 		rsp, rErr := nc.RequestResponse(map[string]any{
@@ -132,25 +133,25 @@ func main() {
 	board.MCU.PetWatchdog()
 
 	if nc == nil && card != nil {
-		raw, err := card.ReadFile("CONFIG.INI")
+		raw, err := card.ReadFile("CONFIG.JSON")
 		if err != nil {
 			// TODO: check for specific file not found err
 			debug.Log("writing default config to SD card...")
-			if ini, mErr := cfg.MarshalINI(); mErr != nil {
+			if js, mErr := cfg.MarshalJSON(); mErr != nil {
 				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
-			} else if wErr := card.WriteFile("CONFIG.INI", ini); wErr != nil {
+			} else if wErr := card.WriteFile("CONFIG.JSON", js); wErr != nil {
 				initErrs = append(initErrs, errors.New("sd: "+wErr.Error()))
 			}
 		} else {
 			debug.Log("loading config from SD card...")
-			if pErr := config.ParseINI(raw, &cfg); pErr != nil {
+			if pErr := config.ParseJSON(raw, &cfg); pErr != nil {
 				initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
 			}
 		}
 	}
 
-	if cfg.HeartbeatLedPin != hal.NoPin {
-		statusLED = led.New(cfg.HeartbeatLedPin)
+	if cfg.LEDPin != hal.NoPin {
+		statusLED = led.New(cfg.LEDPin)
 	}
 
 	now, err := rtc.ReadTime()
@@ -161,17 +162,30 @@ func main() {
 
 	logger := log.NewLogger(now)
 
-	serialSink := sink.NewSerial(board.Serial)
-	logger.AddSink(serialSink, config.LogLevelDebug)
-	dataSinks := []sink.DataSink{serialSink}
+	var dataSinks []sink.DataSink
 
+	// Serial: always available (hardware always present).
+	if sc, ok := cfg.Sinks["serial"]; ok {
+		serialSink := sink.NewSerial(board.Serial)
+		if sc.LogLevel < config.LogLevelOff {
+			logger.AddSink(serialSink, sc.LogLevel)
+		}
+		dataSinks = append(dataSinks, serialSink)
+	}
+
+	// Blues: only if Notecard is present.
 	if nc != nil {
-		notehubSink := sink.NewNotehubSink(nc, "data.qo", "log.qo")
-		dataSinks = append(dataSinks, notehubSink)
-		logger.AddSink(notehubSink, cfg.LogLevelBlues)
+		if sc, ok := cfg.Sinks["blues"]; ok {
+			notehubSink := sink.NewNotehubSink(nc, "data.qo", "log.qo")
+			if sc.LogLevel < config.LogLevelOff {
+				logger.AddSink(notehubSink, sc.LogLevel)
+			}
+			dataSinks = append(dataSinks, notehubSink)
+		}
 		board.MCU.PetWatchdog()
 	}
 
+	// SD: only if card is present.
 	if card != nil {
 		if err := card.Mkdir("GLOOM"); err != nil {
 			initErrs = append(initErrs, errors.New("sd: "+err.Error()))
@@ -189,8 +203,12 @@ func main() {
 		if err != nil {
 			initErrs = append(initErrs, errors.New("file: "+err.Error()))
 		} else {
-			dataSinks = append(dataSinks, sdCardFileSink)
-			logger.AddSink(sdCardFileSink, cfg.LogLevelSD)
+			if sc, ok := cfg.Sinks["sd"]; ok {
+				if sc.LogLevel < config.LogLevelOff {
+					logger.AddSink(sdCardFileSink, sc.LogLevel)
+				}
+				dataSinks = append(dataSinks, sdCardFileSink)
+			}
 		}
 		board.MCU.PetWatchdog()
 	}
@@ -198,7 +216,7 @@ func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			board.MCU.DisableWatchdog()
-			msg := "panic: "
+			msg := "PANICKED: "
 			switch v := r.(type) {
 			case error:
 				msg += v.Error()
@@ -214,20 +232,20 @@ func main() {
 	}
 	for _, err := range initErrs {
 		logger.LogError(config.LogLevelError, err, "init: ")
-
 	}
 
-	var sensors []sensor.Sensor
-	for _, id := range cfg.SampleSensors {
-		switch id {
-		case "vbat":
-			if board.ADCPin != hal.NoPin {
-				sensors = append(sensors, vbat.NewDevice(board.ADCPin))
-			} else {
-				logger.Log(config.LogLevelWarn, "sensors: vbat: no ADC pin")
+	// Build shared sensor registry (one instance per sensor ID).
+	sensors := map[string]sensor.Sensor{}
+	if board.ADCPin != hal.NoPin {
+		sensors["vbat"] = vbat.NewDevice(board.ADCPin)
+	}
+
+	// Warn about sensor IDs referenced in config but not in registry.
+	for _, g := range cfg.Groups {
+		for _, id := range g.Sensors {
+			if _, ok := sensors[id]; !ok {
+				logger.Log(config.LogLevelWarn, "sensors: unknown id: "+id)
 			}
-		default:
-			logger.Log(config.LogLevelWarn, "sensors: unknown id: "+id)
 		}
 		board.MCU.PetWatchdog()
 	}
@@ -269,17 +287,36 @@ func main() {
 
 	board.MCU.PetWatchdog()
 
-	// Manager
-	sleeper := sleeper.New(board.MCU, rtc, wing.Rails, board.SDA, board.SCL, cfg.InterruptPins)
-	man := manager.New(sleeper, wing.Rails, statusLED, cfg, sensors, dataSinks, logger)
+	// Collect all unique interrupt pins: RTC pin (from config) + per-group pins.
+	var allPins []hal.Pin
+	if cfg.RTCIntPin != hal.NoPin {
+		allPins = append(allPins, cfg.RTCIntPin)
+	}
+	for _, g := range cfg.Groups {
+		for _, pin := range g.InterruptPins {
+			found := false
+			for _, p := range allPins {
+				if p == pin {
+					found = true
+					break
+				}
+			}
+			if !found {
+				allPins = append(allPins, pin)
+			}
+		}
+	}
 
-	// Validate there is at least one wake source.
-	if cfg.SampleInterval <= 0 && cfg.HeartbeatInterval <= 0 && len(cfg.InterruptPins) == 0 {
-		err := errors.New("config: no wake sources configured")
+	// Manager
+	slp := sleeper.New(board.MCU, rtc, wing.Rails, board.SDA, board.SCL, allPins)
+
+	// Validate that at least one wake source is configured.
+	if err := config.Validate(&cfg); err != nil {
 		logger.LogError(config.LogLevelError, err, "")
 		panic(err)
 	}
 
+	man := manager.New(slp, wing.Rails, statusLED, cfg.Groups, sensors, dataSinks, logger)
 	man.EnableWatchdog(board.MCU.PetWatchdog)
 	man.SetStackMonitor(board.MCU.StackUsed)
 

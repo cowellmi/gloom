@@ -29,124 +29,165 @@ func (l LogLevel) String() string {
 		return "warn"
 	case LogLevelError:
 		return "error"
+	case LogLevelOff:
+		return "off"
 	default:
 		return strconv.FormatUint(uint64(l), 10)
 	}
 }
 
-type HeartbeatPayload uint8
+// SinkConfig holds per-sink configuration.
+// Presence in Config.Sinks means the sink receives sensor data.
+// LogLevel controls log output; LogLevelOff means data flows but no log output.
+type SinkConfig struct {
+	LogLevel LogLevel
+}
 
-const (
-	HeartbeatPayloadNone HeartbeatPayload = iota
-	HeartbeatPayloadMin
-	HeartbeatPayloadFull
-)
+// Group is a schedule group with its own interval, interrupt pins,
+// sensor list, and LED pulse option. The name is the map key in Config.Groups.
+type Group struct {
+	Interval      time.Duration // 0 = no periodic wake
+	InterruptPins []hal.Pin     // owned by this group only
+	Sensors       []string      // sensor IDs
+	PulseLED      bool
+}
 
+// Config holds the device-level configuration and schedule groups.
 type Config struct {
-	HeartbeatInterval time.Duration
-	HeartbeatLedPin   hal.Pin
-	HeartbeatPayload  HeartbeatPayload
-	InterruptPins     []hal.Pin
-	LogLevelSD        LogLevel
-	LogLevelBlues     LogLevel
-	SampleInterval    time.Duration
-	SampleSensors     []string
-	SDChipSelectPins  []hal.Pin
+	LEDPin           hal.Pin               // status LED pin; hal.NoPin = none
+	RTCIntPin        hal.Pin               // RTC interrupt pin; hal.NoPin = use wing-detected pin
+	SDChipSelectPins []hal.Pin
+	Sinks            map[string]SinkConfig // keyed by "serial", "blues", "sd"
+	Groups           map[string]Group      // keyed by group name
 }
 
 // Default returns a Config seeded with board-supplied hardware defaults.
 // ledPin is the board's LED pin (use hal.NoPin if absent).
+// rtcIntPin is the RTC interrupt pin detected by the wing (use hal.NoPin if absent).
 // sensors is the board's default sensor list (may be nil).
-// Sample is disabled by default (interval=0); heartbeat is enabled with a 3s interval.
-func Default(ledPin hal.Pin, sensors []string, csPins []hal.Pin, interruptPins []hal.Pin) Config {
+// csPins is the list of SD card chip-select pins.
+func Default(ledPin hal.Pin, rtcIntPin hal.Pin, sensors []string, csPins []hal.Pin) Config {
 	return Config{
-		HeartbeatInterval: 5 * time.Second,
-		HeartbeatLedPin:   ledPin,
-		HeartbeatPayload:  HeartbeatPayloadNone,
-		InterruptPins:     interruptPins,
-		LogLevelBlues:     LogLevelOff,
-		LogLevelSD:        LogLevelDebug,
-		SampleInterval:    0, // disabled
-		SampleSensors:     sensors,
-		SDChipSelectPins:  csPins,
+		LEDPin:           ledPin,
+		RTCIntPin:        rtcIntPin,
+		SDChipSelectPins: csPins,
+		Sinks: map[string]SinkConfig{
+			"serial": {LogLevel: LogLevelDebug},
+			"blues":  {LogLevel: LogLevelOff},
+			"sd":     {LogLevel: LogLevelDebug},
+		},
+		Groups: map[string]Group{
+			"sample": {
+				Interval: 5 * time.Second,
+				Sensors:  sensors,
+				PulseLED: true,
+			},
+		},
 	}
-}
-
-// ParseINI reads a flat key=value config from data into cfg.
-// Section headers (lines starting with '[') are silently skipped for
-// backwards compatibility. All parse errors are collected and returned
-// together via errors.Join so the caller can report every problem at once.
-// After parsing, validates that at least one wake source is configured.
-//
-// ParseINI should be called on a Default()-initialised cfg so that fields
-// absent from the file keep their sensible defaults (including NoPin sentinels).
-func ParseINI(data []byte, cfg *Config) error {
-	var errs []error
-
-	for line := range strings.SplitSeq(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Skip section headers (ignored in flat format).
-		if strings.HasPrefix(line, "[") {
-			continue
-		}
-
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-
-		// Strip inline comments (require preceding space to avoid
-		// truncating URLs with # fragments).
-		if i := strings.Index(value, " #"); i >= 0 {
-			value = strings.TrimSpace(value[:i])
-		}
-
-		if err := parseKey(cfg, key, value); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if err := validate(cfg); err != nil {
-		errs = append(errs, err)
-	}
-
-	return errors.Join(errs...)
 }
 
 // ParseMap applies a Notecard env.get response body to cfg.
 // Keys prefixed with '_' (Notehub-internal) are silently skipped.
 // Empty string values are skipped (env var unset in Notehub).
-// No structural validation is performed — the caller is responsible for
-// ensuring the resulting cfg is sane (e.g. via the wake-source guard in main.go).
+// The "groups" key must be a map[string]interface{} keyed by group name.
+// On seeing a "groups" key, existing groups are cleared and replaced.
+// The "sinks" key must be a map[string]interface{} keyed by sink name.
+// On seeing a "sinks" key, only sinks already in cfg.Sinks are updated (merge).
 func ParseMap(cfg *Config, body map[string]interface{}) error {
 	var errs []error
 	for k, v := range body {
-		if err := parseKey(cfg, k, v); err != nil {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+
+		if k == "groups" {
+			gmap, ok := v.(map[string]interface{})
+			if !ok {
+				errs = append(errs, errors.New("groups: expected object"))
+				continue
+			}
+			cfg.Groups = make(map[string]Group)
+			for name, elem := range gmap {
+				gdata, ok := elem.(map[string]interface{})
+				if !ok {
+					errs = append(errs, errors.New("groups."+name+": expected object"))
+					continue
+				}
+				var g Group
+				for gk, gv := range gdata {
+					value, ok := gv.(string)
+					if !ok {
+						errs = append(errs, errors.New("groups."+name+"."+gk+": expected string"))
+						continue
+					}
+					if err := parseGroupKey(&g, gk, value); err != nil {
+						errs = append(errs, err)
+					}
+				}
+				cfg.Groups[name] = g
+			}
+			continue
+		}
+
+		if k == "sinks" {
+			smap, ok := v.(map[string]interface{})
+			if !ok {
+				errs = append(errs, errors.New("sinks: expected object"))
+				continue
+			}
+			for name, elem := range smap {
+				if _, exists := cfg.Sinks[name]; !exists {
+					continue // only update known sinks
+				}
+				sdata, ok := elem.(map[string]interface{})
+				if !ok {
+					errs = append(errs, errors.New("sinks."+name+": expected object"))
+					continue
+				}
+				sc := cfg.Sinks[name]
+				for sk, sv := range sdata {
+					value, ok := sv.(string)
+					if !ok {
+						errs = append(errs, errors.New("sinks."+name+"."+sk+": expected string"))
+						continue
+					}
+					switch sk {
+					case "log_level":
+						level, err := parseLevel(value)
+						if err != nil {
+							errs = append(errs, err)
+							continue
+						}
+						sc.LogLevel = level
+					default:
+						errs = append(errs, errors.New("sinks."+name+": unknown key: "+sk))
+					}
+				}
+				cfg.Sinks[name] = sc
+			}
+			continue
+		}
+
+		value, ok := v.(string)
+		if !ok {
+			errs = append(errs, errors.New(k+": expected string"))
+			continue
+		}
+		if value == "" {
+			continue
+		}
+		if err := parseDeviceKey(cfg, k, value); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// parseKey dispatches a single key/value pair into cfg.
-// v must be a string for all keys.
-// Called by ParseINI (v is always string) and ParseMap (v may be a native type).
-func parseKey(cfg *Config, key string, v interface{}) error {
+// parseDeviceKey dispatches a single device-scope key/value pair into cfg.
+func parseDeviceKey(cfg *Config, key, value string) error {
 	// Skip Notehub-internal keys.
 	if strings.HasPrefix(key, "_") {
 		return nil
-	}
-
-	value, ok := v.(string)
-	if !ok {
-		return errors.New(key + ": expected string")
 	}
 
 	// Skip empty values (unset Notehub env vars).
@@ -155,65 +196,75 @@ func parseKey(cfg *Config, key string, v interface{}) error {
 	}
 
 	switch key {
-	case "sd_log_level":
-		level, err := parseLevel(value)
+	case "led_pin":
+		pin, err := parsePin(key, value)
 		if err != nil {
 			return err
 		}
-		cfg.LogLevelSD = level
-	case "blues_log_level":
-		level, err := parseLevel(value)
+		cfg.LEDPin = pin
+	case "rtc_int_pin":
+		pin, err := parsePin(key, value)
 		if err != nil {
 			return err
 		}
-		cfg.LogLevelBlues = level
-	case "sample_interval":
-		d, err := parseDuration(key, value)
-		if err != nil {
-			return err
-		}
-		cfg.SampleInterval = d
-	case "sample_sensors":
-		cfg.SampleSensors = parseStringList(value)
-	case "interrupt_pins":
-		pins, err := parsePinList(key, value)
-		if err != nil {
-			return err
-		}
-		cfg.InterruptPins = pins
+		cfg.RTCIntPin = pin
 	case "sd_chip_select_pins":
 		pins, err := parsePinList(key, value)
 		if err != nil {
 			return err
 		}
 		cfg.SDChipSelectPins = pins
-	case "heartbeat_interval":
-		d, err := parseDuration(key, value)
-		if err != nil {
-			return err
-		}
-		cfg.HeartbeatInterval = d
-	case "heartbeat_payload":
-		p, err := parsePayload(value)
-		if err != nil {
-			return err
-		}
-		cfg.HeartbeatPayload = p
-	case "heartbeat_led_pin":
-		pin, err := parsePin(key, value)
-		if err != nil {
-			return err
-		}
-		cfg.HeartbeatLedPin = pin
 	default:
 		return errors.New("unknown key: " + key)
 	}
 	return nil
 }
 
-func validate(cfg *Config) error {
-	if cfg.SampleInterval <= 0 && len(cfg.InterruptPins) == 0 && cfg.HeartbeatInterval <= 0 {
-		return errors.New("config: no wake sources (needs sample_interval, interrupt_pins, or heartbeat_interval)")
+// parseGroupKey dispatches a single group-scope key/value pair into g.
+func parseGroupKey(g *Group, key, value string) error {
+	if value == "" {
+		return nil
+	}
+
+	switch key {
+	case "interval":
+		d, err := parseDuration(key, value)
+		if err != nil {
+			return err
+		}
+		g.Interval = d
+	case "interrupt_pins":
+		pins, err := parsePinList(key, value)
+		if err != nil {
+			return err
+		}
+		g.InterruptPins = pins
+	case "sensors":
+		g.Sensors = parseStringList(value)
+	case "pulse_led":
+		switch value {
+		case "true":
+			g.PulseLED = true
+		case "false":
+			g.PulseLED = false
+		default:
+			return errors.New("pulse_led: expected true or false, got: " + value)
+		}
+	default:
+		return errors.New("unknown key: " + key)
+	}
+	return nil
+}
+
+// Validate checks that every group has at least one wake source.
+func Validate(cfg *Config) error {
+	if len(cfg.Groups) == 0 {
+		return errors.New("config: no groups defined")
+	}
+	for name, g := range cfg.Groups {
+		if g.Interval == 0 && len(g.InterruptPins) == 0 {
+			return errors.New("config: group \"" + name + "\" has no wake source (needs interval or interrupt_pins)")
+		}
 	}
 	return nil
 }
@@ -230,21 +281,10 @@ func parseLevel(s string) (LogLevel, error) {
 		return LogLevelWarn, nil
 	case "error":
 		return LogLevelError, nil
+	case "off":
+		return LogLevelOff, nil
 	default:
 		return 0, errors.New("unknown log level: " + s)
-	}
-}
-
-func parsePayload(value string) (HeartbeatPayload, error) {
-	switch value {
-	case "none", "":
-		return HeartbeatPayloadNone, nil
-	case "min":
-		return HeartbeatPayloadMin, nil
-	case "full":
-		return HeartbeatPayloadFull, nil
-	default:
-		return HeartbeatPayloadNone, errors.New("unknown payload: " + value)
 	}
 }
 

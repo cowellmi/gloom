@@ -1,108 +1,150 @@
 package config
 
 import (
-	"errors"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/cowellmi/gloom/internal/hal"
 )
 
-// MarshalINI serializes the Config to flat key=value format.
-// Only non-zero / non-NoPin fields are emitted. The output round-trips
-// through ParseINI when called on a Default()-initialised destination.
-func (c *Config) MarshalINI() ([]byte, error) {
+// MarshalJSON serializes the Config to compact human-readable JSON.
+// One key per line, indented with spaces. Pins emitted as integers; omitted
+// when NoPin. Sinks emitted in fixed order ["serial","blues","sd"]. Group
+// names emitted sorted alphabetically. Only non-zero fields per group.
+// Interval emitted as a string ("5s", "1m", "2h").
+func (c *Config) MarshalJSON() ([]byte, error) {
 	var buf []byte
+	buf = append(buf, "{\n"...)
+	first := true
 
-	buf = append(buf, "# See example.config.ini for full documentation.\n"...)
-
-	// SD
-	sdLvl, err := levelString(c.LogLevelSD)
-	if err != nil {
-		return nil, err
-	}
-	buf = append(buf, "sd_log_level = "...)
-	buf = append(buf, sdLvl...)
-	buf = append(buf, '\n')
-
-	// Blues
-	bluesLvl, err := levelString(c.LogLevelBlues)
-	if err != nil {
-		return nil, err
-	}
-	buf = append(buf, "blues_log_level = "...)
-	buf = append(buf, bluesLvl...)
-	buf = append(buf, '\n')
-
-	// Sample
-	if c.SampleInterval > 0 {
-		buf = append(buf, "sample_interval = "...)
-		buf = appendDuration(buf, c.SampleInterval)
-		buf = append(buf, '\n')
-	}
-
-	if len(c.SampleSensors) > 0 {
-		buf = append(buf, "sample_sensors = "...)
-		for i, s := range c.SampleSensors {
-			if i > 0 {
-				buf = append(buf, ", "...)
-			}
-			buf = append(buf, s...)
+	emit := func() {
+		if !first {
+			buf = append(buf, ",\n"...)
 		}
-		buf = append(buf, '\n')
+		first = false
 	}
 
-	if len(c.InterruptPins) > 0 {
-		buf = append(buf, "interrupt_pins = "...)
-		for i, pin := range c.InterruptPins {
-			if i > 0 {
-				buf = append(buf, ", "...)
-			}
-			buf = strconv.AppendUint(buf, uint64(pin), 10)
-		}
-		buf = append(buf, '\n')
+	if c.LEDPin != hal.NoPin {
+		emit()
+		buf = append(buf, `  "led_pin": `...)
+		buf = strconv.AppendUint(buf, uint64(c.LEDPin), 10)
+	}
+
+	if c.RTCIntPin != hal.NoPin {
+		emit()
+		buf = append(buf, `  "rtc_int_pin": `...)
+		buf = strconv.AppendUint(buf, uint64(c.RTCIntPin), 10)
 	}
 
 	if len(c.SDChipSelectPins) > 0 {
-		buf = append(buf, "sd_chip_select_pins = "...)
+		emit()
+		buf = append(buf, `  "sd_chip_select_pins": [`...)
 		for i, pin := range c.SDChipSelectPins {
 			if i > 0 {
 				buf = append(buf, ", "...)
 			}
 			buf = strconv.AppendUint(buf, uint64(pin), 10)
 		}
-		buf = append(buf, '\n')
+		buf = append(buf, ']')
 	}
 
-	// Heartbeat
-	if c.HeartbeatInterval > 0 {
-		buf = append(buf, "heartbeat_interval = "...)
-		buf = appendDuration(buf, c.HeartbeatInterval)
-		buf = append(buf, '\n')
-	}
-
-	if c.HeartbeatPayload != HeartbeatPayloadNone {
-		buf = append(buf, "heartbeat_payload = "...)
-		ps, err := payloadString(c.HeartbeatPayload)
-		if err != nil {
-			return nil, err
+	if len(c.Sinks) > 0 {
+		emit()
+		buf = append(buf, `  "sinks": {`...)
+		sinkFirst := true
+		for _, name := range []string{"serial", "blues", "sd"} {
+			sc, ok := c.Sinks[name]
+			if !ok {
+				continue
+			}
+			if !sinkFirst {
+				buf = append(buf, ',')
+			}
+			sinkFirst = false
+			buf = append(buf, "\n    \""...)
+			buf = append(buf, name...)
+			buf = append(buf, `": {"log_level": "`...)
+			buf = append(buf, sc.LogLevel.String()...)
+			buf = append(buf, `"}`...)
 		}
-		buf = append(buf, ps...)
-		buf = append(buf, '\n')
+		buf = append(buf, "\n  }"...)
 	}
 
-	if c.HeartbeatLedPin != hal.NoPin {
-		buf = append(buf, "heartbeat_led_pin = "...)
-		buf = strconv.AppendUint(buf, uint64(c.HeartbeatLedPin), 10)
-		buf = append(buf, '\n')
+	if len(c.Groups) > 0 {
+		emit()
+		buf = append(buf, `  "groups": {`...)
+		names := make([]string, 0, len(c.Groups))
+		for name := range c.Groups {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		groupFirst := true
+		for _, name := range names {
+			g := c.Groups[name]
+			if !groupFirst {
+				buf = append(buf, ',')
+			}
+			groupFirst = false
+			buf = append(buf, "\n    \""...)
+			buf = append(buf, name...)
+			buf = append(buf, `": {`...)
+
+			gFirst := true
+			if g.Interval > 0 {
+				buf = append(buf, `"interval": "`...)
+				buf = appendDuration(buf, g.Interval)
+				buf = append(buf, '"')
+				gFirst = false
+			}
+			if len(g.Sensors) > 0 {
+				if !gFirst {
+					buf = append(buf, ", "...)
+				}
+				gFirst = false
+				buf = append(buf, `"sensors": [`...)
+				for i, s := range g.Sensors {
+					if i > 0 {
+						buf = append(buf, ", "...)
+					}
+					buf = append(buf, '"')
+					buf = append(buf, s...)
+					buf = append(buf, '"')
+				}
+				buf = append(buf, ']')
+			}
+			if len(g.InterruptPins) > 0 {
+				if !gFirst {
+					buf = append(buf, ", "...)
+				}
+				gFirst = false
+				buf = append(buf, `"interrupt_pins": [`...)
+				for i, pin := range g.InterruptPins {
+					if i > 0 {
+						buf = append(buf, ", "...)
+					}
+					buf = strconv.AppendUint(buf, uint64(pin), 10)
+				}
+				buf = append(buf, ']')
+			}
+			if g.PulseLED {
+				if !gFirst {
+					buf = append(buf, ", "...)
+				}
+				buf = append(buf, `"pulse_led": true`...)
+			}
+			buf = append(buf, '}')
+		}
+		buf = append(buf, "\n  }"...)
 	}
 
+	buf = append(buf, "\n}\n"...)
 	return buf, nil
 }
 
-// appendDuration writes a human-friendly duration. Go's
-// time.Duration.String() works but produces "1m0s" instead of "1m".
-// This emits clean single-unit forms when possible (5s, 3m, 2h) and
+// appendDuration writes a human-friendly duration.
+// Emits clean single-unit forms when possible (5s, 3m, 2h) and
 // falls back to time.Duration.String() for mixed durations (1m30s).
 func appendDuration(buf []byte, d time.Duration) []byte {
 	switch {
@@ -120,68 +162,21 @@ func appendDuration(buf []byte, d time.Duration) []byte {
 	}
 }
 
-func levelString(l LogLevel) (string, error) {
-	switch l {
-	case LogLevelDebug:
-		return "debug", nil
-	case LogLevelInfo:
-		return "info", nil
-	case LogLevelWarn:
-		return "warn", nil
-	case LogLevelError:
-		return "error", nil
-	default:
-		return "", errors.New("unknown log level: " + strconv.Itoa(int(l)))
-	}
-}
-
-func payloadString(p HeartbeatPayload) (string, error) {
-	switch p {
-	case HeartbeatPayloadNone:
-		return "none", nil
-	case HeartbeatPayloadMin:
-		return "min", nil
-	case HeartbeatPayloadFull:
-		return "full", nil
-	default:
-		return "", errors.New("unknown payload: " + strconv.Itoa(int(p)))
-	}
-}
-
 // MarshalMap serializes the Config to a map suitable for a Notecard note.add body.
+// Sinks are emitted as a nested map[string]interface{} under "sinks".
+// Groups are emitted as a nested map[string]interface{} under "groups".
+// led_pin is emitted as "none" when hal.NoPin.
 func (c *Config) MarshalMap() map[string]interface{} {
 	m := make(map[string]interface{})
 
-	sdLvl, _ := levelString(c.LogLevelSD)
-	m["sd_log_level"] = sdLvl
-
-	bluesLvl, _ := levelString(c.LogLevelBlues)
-	m["blues_log_level"] = bluesLvl
-
-	if c.SampleInterval > 0 {
-		m["sample_interval"] = durationString(c.SampleInterval)
+	if c.LEDPin != hal.NoPin {
+		m["led_pin"] = strconv.FormatUint(uint64(c.LEDPin), 10)
+	} else {
+		m["led_pin"] = "none"
 	}
 
-	if len(c.SampleSensors) > 0 {
-		var s string
-		for i, sensor := range c.SampleSensors {
-			if i > 0 {
-				s += ", "
-			}
-			s += sensor
-		}
-		m["sample_sensors"] = s
-	}
-
-	if len(c.InterruptPins) > 0 {
-		var s string
-		for i, pin := range c.InterruptPins {
-			if i > 0 {
-				s += ", "
-			}
-			s += strconv.FormatUint(uint64(pin), 10)
-		}
-		m["interrupt_pins"] = s
+	if c.RTCIntPin != hal.NoPin {
+		m["rtc_int_pin"] = strconv.FormatUint(uint64(c.RTCIntPin), 10)
 	}
 
 	if len(c.SDChipSelectPins) > 0 {
@@ -195,19 +190,47 @@ func (c *Config) MarshalMap() map[string]interface{} {
 		m["sd_chip_select_pins"] = s
 	}
 
-	if c.HeartbeatInterval > 0 {
-		m["heartbeat_interval"] = durationString(c.HeartbeatInterval)
+	if len(c.Sinks) > 0 {
+		sinks := make(map[string]interface{})
+		for name, sc := range c.Sinks {
+			sinks[name] = map[string]interface{}{"log_level": sc.LogLevel.String()}
+		}
+		m["sinks"] = sinks
 	}
 
-	if c.HeartbeatPayload != HeartbeatPayloadNone {
-		ps, _ := payloadString(c.HeartbeatPayload)
-		m["heartbeat_payload"] = ps
-	}
-
-	if c.HeartbeatLedPin != hal.NoPin {
-		m["heartbeat_led_pin"] = strconv.FormatUint(uint64(c.HeartbeatLedPin), 10)
-	} else {
-		m["heartbeat_led_pin"] = "none"
+	if len(c.Groups) > 0 {
+		groups := make(map[string]interface{})
+		for name, g := range c.Groups {
+			gmap := make(map[string]interface{})
+			if g.Interval > 0 {
+				gmap["interval"] = durationString(g.Interval)
+			}
+			if len(g.Sensors) > 0 {
+				var s string
+				for j, id := range g.Sensors {
+					if j > 0 {
+						s += ", "
+					}
+					s += id
+				}
+				gmap["sensors"] = s
+			}
+			if len(g.InterruptPins) > 0 {
+				var s string
+				for j, pin := range g.InterruptPins {
+					if j > 0 {
+						s += ", "
+					}
+					s += strconv.FormatUint(uint64(pin), 10)
+				}
+				gmap["interrupt_pins"] = s
+			}
+			if g.PulseLED {
+				gmap["pulse_led"] = "true"
+			}
+			groups[name] = gmap
+		}
+		m["groups"] = groups
 	}
 
 	return m
