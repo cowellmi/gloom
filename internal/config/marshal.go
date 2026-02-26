@@ -64,9 +64,9 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 			sinkFirst = false
 			buf = append(buf, "\n    \""...)
 			buf = append(buf, name...)
-			buf = append(buf, `": {"log_level": "`...)
+			buf = append(buf, "\": {\n      \"log_level\": \""...)
 			buf = append(buf, sc.LogLevel.String()...)
-			buf = append(buf, `"}`...)
+			buf = append(buf, "\"\n    }"...)
 		}
 		buf = append(buf, "\n  }"...)
 	}
@@ -93,17 +93,17 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 
 			gFirst := true
 			if g.Interval > 0 {
-				buf = append(buf, `"interval": "`...)
+				buf = append(buf, "\n      \"interval\": \""...)
 				buf = appendDuration(buf, g.Interval)
 				buf = append(buf, '"')
 				gFirst = false
 			}
 			if len(g.Sensors) > 0 {
 				if !gFirst {
-					buf = append(buf, ", "...)
+					buf = append(buf, ',')
 				}
 				gFirst = false
-				buf = append(buf, `"sensors": [`...)
+				buf = append(buf, "\n      \"sensors\": ["...)
 				for i, s := range g.Sensors {
 					if i > 0 {
 						buf = append(buf, ", "...)
@@ -116,10 +116,10 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 			}
 			if len(g.InterruptPins) > 0 {
 				if !gFirst {
-					buf = append(buf, ", "...)
+					buf = append(buf, ',')
 				}
 				gFirst = false
-				buf = append(buf, `"interrupt_pins": [`...)
+				buf = append(buf, "\n      \"interrupt_pins\": ["...)
 				for i, pin := range g.InterruptPins {
 					if i > 0 {
 						buf = append(buf, ", "...)
@@ -130,17 +130,32 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 			}
 			if g.PulseLED {
 				if !gFirst {
-					buf = append(buf, ", "...)
+					buf = append(buf, ',')
 				}
-				buf = append(buf, `"pulse_led": true`...)
+				buf = append(buf, "\n      \"pulse_led\": true"...)
 			}
-			buf = append(buf, '}')
+			buf = append(buf, "\n    }"...)
 		}
 		buf = append(buf, "\n  }"...)
 	}
 
 	buf = append(buf, "\n}\n"...)
 	return buf, nil
+}
+
+// MarshalSerial returns the same JSON as MarshalJSON but with CRLF line
+// endings, suitable for writing directly to a serial terminal.
+func (c *Config) MarshalSerial() []byte {
+	src, _ := c.MarshalJSON()
+	out := make([]byte, 0, len(src)+16)
+	for _, b := range src {
+		if b == '\n' {
+			out = append(out, '\r', '\n')
+		} else {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // appendDuration writes a human-friendly duration.

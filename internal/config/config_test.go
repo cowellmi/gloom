@@ -36,8 +36,8 @@ func TestDefault(t *testing.T) {
 	if !ok {
 		t.Fatal("Sinks missing 'sd'")
 	}
-	if sd.LogLevel != LogLevelDebug {
-		t.Errorf("sd log level = %v, want debug", sd.LogLevel)
+	if sd.LogLevel != LogLevelError {
+		t.Errorf("sd log level = %v, want error", sd.LogLevel)
 	}
 
 	// Pins

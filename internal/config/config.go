@@ -73,7 +73,7 @@ func Default(ledPin hal.Pin, rtcIntPin hal.Pin, sensors []string, csPins []hal.P
 		SDChipSelectPins: csPins,
 		Sinks: map[string]SinkConfig{
 			"serial": {LogLevel: LogLevelDebug},
-			"sd":     {LogLevel: LogLevelDebug},
+			"sd":     {LogLevel: LogLevelError},
 		},
 		Groups: map[string]Group{
 			"sample": {

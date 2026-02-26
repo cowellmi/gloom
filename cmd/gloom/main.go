@@ -75,8 +75,6 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
-	logMem(board.MCU.StackUsed)
-
 	// Probe RTC; only use its interrupt pin if the hardware is present.
 	rtcIntPin := hal.NoPin
 	rtc, err := wing.ProbeRTC(board.I2C)
@@ -87,16 +85,12 @@ func main() {
 		rtcIntPin = wing.RTCInterruptPin
 	}
 
-	logMem(board.MCU.StackUsed)
-
 	nc, ncErr := notecard.New(board.I2C.Tx)
 	if ncErr != nil {
 		initWarns = append(initWarns, ncErr)
 	}
 	board.MCU.PetWatchdog()
 	runtime.GC()
-
-	logMem(board.MCU.StackUsed)
 
 	cfg := config.Default(board.LEDPin, rtcIntPin, board.Sensors, wing.SDChipSelectPins)
 	if nc != nil {
@@ -180,6 +174,9 @@ func main() {
 			}
 		}
 	}
+
+	debug.Log("loaded config:")
+	debug.W.Write(cfg.MarshalSerial())
 
 	if cfg.LEDPin != hal.NoPin {
 		statusLED = led.New(cfg.LEDPin)
@@ -291,9 +288,9 @@ func main() {
 		for _, e := range cards {
 			sd += " " + strconv.Itoa(int(e.cs))
 		}
-		logger.Log(config.LogLevelDebug, sd)
+		logger.Log(config.LogLevelInfo, sd)
 	} else {
-		logger.Log(config.LogLevelDebug, "sd: none")
+		logger.Log(config.LogLevelInfo, "sd: none")
 	}
 
 	if nc != nil {
@@ -303,9 +300,22 @@ func main() {
 	}
 
 	var bootBuf [256]byte
+
+	b := bootBuf[:0]
+	b = fmtbuf.Append(b, "sinks:")
+	sep := " "
+	for _, name := range []string{"serial", "sd", "blues"} {
+		if _, ok := cfg.Sinks[name]; ok {
+			b = fmtbuf.Append(b, sep)
+			b = fmtbuf.Append(b, name)
+			sep = ", "
+		}
+	}
+	logger.Log(config.LogLevelDebug, string(b))
+
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	b := bootBuf[:0]
+	b = bootBuf[:0]
 	b = fmtbuf.Append(b, "mem: heap_sys=")
 	b = fmtbuf.AppendUint(b, ms.HeapSys/1024, 10)
 	b = fmtbuf.Append(b, "KB")

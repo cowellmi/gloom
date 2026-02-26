@@ -58,8 +58,8 @@ func TestParseJSON_DefaultRoundTrip(t *testing.T) {
 	if got.Sinks["serial"].LogLevel != LogLevelDebug {
 		t.Errorf("serial = %v, want debug", got.Sinks["serial"].LogLevel)
 	}
-	if got.Sinks["sd"].LogLevel != LogLevelDebug {
-		t.Errorf("sd = %v, want debug", got.Sinks["sd"].LogLevel)
+	if got.Sinks["sd"].LogLevel != LogLevelError {
+		t.Errorf("sd = %v, want error", got.Sinks["sd"].LogLevel)
 	}
 	if _, ok := got.Sinks["blues"]; ok {
 		t.Error("blues should not be present in default config")
