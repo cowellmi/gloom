@@ -32,6 +32,6 @@ func initWing() Wing {
 	return wing
 }
 
-func (hypnos Wing) ProbeRTC(bus hal.I2C) (hal.Clock, error) {
+func (Wing) ProbeRTC(bus hal.I2C) (hal.Clock, error) {
 	return ds3231.Probe(bus)
 }

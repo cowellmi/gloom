@@ -6,6 +6,7 @@ import (
 	"errors"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
@@ -21,6 +22,7 @@ import (
 	"github.com/cowellmi/gloom/internal/sensor/vbat"
 	"github.com/cowellmi/gloom/internal/sink"
 	"github.com/cowellmi/gloom/internal/sleeper"
+	"github.com/cowellmi/gloom/internal/wait"
 )
 
 var ProductUID string
@@ -33,6 +35,8 @@ func main() {
 	board.MCU.PaintStack()
 	board.MCU.EnableWatchdog()
 
+	debug.W = board.Serial
+
 	wing := initWing()
 	board.MCU.PetWatchdog()
 
@@ -42,17 +46,23 @@ func main() {
 		statusLED.On()
 	}
 
+	for i := 0; i < 5; i++ {
+		debug.W.Write([]byte("."))
+		wait.For(time.Second)
+		board.MCU.PetWatchdog()
+	}
+	debug.W.Write([]byte("\r\n"))
+
 	err := board.MCU.ConfigureI2C(board.SDA, board.SCL)
 	if err != nil {
-		board.MCU.DisableWatchdog()
-		fatal(err, statusLED)
+		panic(err)
 	}
 	board.MCU.PetWatchdog()
 
 	var interruptPins []hal.Pin
 	rtc, err := wing.ProbeRTC(board.I2C)
 	if err != nil {
-		initErrs = append(initErrs, err)
+		initWarns = append(initWarns, err)
 		rtc = fallback.Clock{}
 	} else {
 		interruptPins = append(interruptPins, wing.RTCInterruptPin)
@@ -97,9 +107,6 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
-	debug.Log("probing SD card...")
-
-	// SD Card
 	type sdEntry struct {
 		card *sdcard.Card
 		cs   hal.Pin
@@ -111,7 +118,7 @@ func main() {
 		c, err := sdcard.NewCard(board.SPI, board.SCK, board.SDO, board.SDI, cs)
 		if err != nil {
 			if len(cards) == 0 {
-				initWarns = append(initWarns, errors.New("CS "+pin+": "+err.Error()))
+				initWarns = append(initWarns, errors.New("sd cs "+pin+": "+err.Error()))
 			}
 		} else {
 			cards = append(cards, sdEntry{card: c, cs: cs})
@@ -188,6 +195,20 @@ func main() {
 		board.MCU.PetWatchdog()
 	}
 
+	defer func() {
+		if r := recover(); r != nil {
+			board.MCU.DisableWatchdog()
+			msg := "panic: "
+			switch v := r.(type) {
+			case error:
+				msg += v.Error()
+			case string:
+				msg += v
+			}
+			logger.Log(config.LogLevelError, msg)
+		}
+	}()
+
 	for _, err := range initWarns {
 		logger.LogError(config.LogLevelWarn, err, "init: ")
 	}
@@ -212,15 +233,14 @@ func main() {
 	}
 
 	statusLED.Off()
-
 	logger.Log(config.LogLevelInfo, "mcu: "+board.MCU.Identifier())
 	logger.Log(config.LogLevelInfo, "rtc: "+rtc.Identifier())
 	logger.Log(config.LogLevelInfo, "rails: "+wing.Rails.Identifier())
 
 	if len(cards) > 0 {
-		sd := "sd:"
+		sd := "sd: cs"
 		for _, e := range cards {
-			sd += " CS " + strconv.Itoa(int(e.cs))
+			sd += " " + strconv.Itoa(int(e.cs))
 		}
 		logger.Log(config.LogLevelDebug, sd)
 	} else {
@@ -257,8 +277,7 @@ func main() {
 	if cfg.SampleInterval <= 0 && cfg.HeartbeatInterval <= 0 && len(cfg.InterruptPins) == 0 {
 		err := errors.New("config: no wake sources configured")
 		logger.LogError(config.LogLevelError, err, "")
-		board.MCU.DisableWatchdog()
-		fatal(err, statusLED)
+		panic(err)
 	}
 
 	man.EnableWatchdog(board.MCU.PetWatchdog)
@@ -270,13 +289,4 @@ func main() {
 		logger.LogError(config.LogLevelError, err, "rtc: ")
 	}
 	man.Run(now)
-}
-
-// fatal blinks the LED forever to signal a hard failure when no
-// serial monitor is connected.
-func fatal(err error, statusLED hal.LED) {
-	debug.Log("FATAL: " + err.Error())
-	for {
-		statusLED.Blink()
-	}
 }

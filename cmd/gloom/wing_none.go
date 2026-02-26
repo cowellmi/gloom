@@ -12,7 +12,8 @@ import (
 // No wing attached; use fallbacks.
 func initWing() Wing {
 	return Wing{
-		Rails: fallback.Rails{},
+		RTCInterruptPin: hal.NoPin,
+		Rails:           fallback.Rails{},
 	}
 }
 

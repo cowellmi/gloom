@@ -20,5 +20,5 @@ func (LED) Pin() hal.Pin { return hal.NoPin }
 
 type Clock struct{}
 
-func (Clock) Identifier() string           { return "fallback" }
+func (Clock) Identifier() string           { return "none" }
 func (Clock) ReadTime() (time.Time, error) { return time.Now(), nil }

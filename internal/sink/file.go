@@ -142,8 +142,8 @@ func (s *RotaryFileSink) Log(t time.Time, level config.LogLevel, msg string) err
 		return err
 	}
 	if err := s.logRec.write(t, level, msg); err != nil {
-		_ = s.dataFile.Sync()
-		_ = s.dataFile.Close()
+		_ = s.logFile.Sync()
+		_ = s.logFile.Close()
 		s.logFile = nil
 		s.logRec = nil
 		return err
