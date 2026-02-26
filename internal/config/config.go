@@ -9,7 +9,6 @@ import (
 	"github.com/cowellmi/gloom/internal/hal"
 )
 
-// LogLevel represents log severity.
 type LogLevel uint
 
 const (
@@ -35,7 +34,6 @@ func (l LogLevel) String() string {
 	}
 }
 
-// HeartbeatPayload identifies a predefined heartbeat payload profile.
 type HeartbeatPayload uint8
 
 const (
@@ -44,7 +42,6 @@ const (
 	HeartbeatPayloadFull
 )
 
-// Config holds the complete parsed configuration.
 type Config struct {
 	HeartbeatInterval time.Duration
 	HeartbeatLedPin   hal.Pin
