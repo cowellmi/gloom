@@ -254,14 +254,13 @@ func TestParseMap_NotehubInternalKeysSkipped(t *testing.T) {
 }
 
 func TestParseMap_UnknownKey(t *testing.T) {
+	// Unknown device-level keys are silently ignored for forward/backward
+	// compatibility with configs written by other firmware versions.
 	body := map[string]interface{}{"bad_key": "x"}
 	cfg := testDefault()
 	err := ParseMap(&cfg, body)
-	if err == nil {
-		t.Fatal("expected error for unknown key, got nil")
-	}
-	if !strings.Contains(err.Error(), "unknown key: bad_key") {
-		t.Errorf("unexpected error: %v", err)
+	if err != nil {
+		t.Fatalf("unexpected error for unknown key: %v", err)
 	}
 }
 

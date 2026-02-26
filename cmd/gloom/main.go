@@ -26,6 +26,22 @@ import (
 )
 
 var ProductUID string
+var buf [128]byte
+
+func logMem(stackUsed func() uint) {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	b := buf[:0]
+	b = fmtbuf.Append(b, "mem: heap_alloc=")
+	b = fmtbuf.AppendUint(b, ms.HeapAlloc, 10)
+	b = fmtbuf.AppendByte(b, 'B')
+	if stackUsed != nil {
+		b = fmtbuf.Append(b, " stack_alloc=")
+		b = fmtbuf.AppendUint(b, uint64(stackUsed()), 10)
+		b = fmtbuf.AppendByte(b, 'B')
+	}
+	debug.Log(string(b))
+}
 
 func main() {
 	var initErrs []error
@@ -59,6 +75,8 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
+	logMem(board.MCU.StackUsed)
+
 	// Probe RTC; only use its interrupt pin if the hardware is present.
 	rtcIntPin := hal.NoPin
 	rtc, err := wing.ProbeRTC(board.I2C)
@@ -69,15 +87,23 @@ func main() {
 		rtcIntPin = wing.RTCInterruptPin
 	}
 
+	logMem(board.MCU.StackUsed)
+
 	nc, ncErr := notecard.New(board.I2C.Tx)
 	if ncErr != nil {
 		initWarns = append(initWarns, ncErr)
 	}
+	if nc != nil {
+		nc.SetWatchdog(board.MCU.PetWatchdog)
+	}
 	board.MCU.PetWatchdog()
 	runtime.GC()
 
+	logMem(board.MCU.StackUsed)
+
 	cfg := config.Default(board.LEDPin, rtcIntPin, board.Sensors, wing.SDChipSelectPins)
 	if nc != nil {
+		board.MCU.PetWatchdog()
 		debug.Log("loading config from Notehub...")
 		rsp, rErr := nc.RequestResponse(map[string]any{
 			"req":  "note.get",
@@ -93,11 +119,18 @@ func main() {
 			}
 		case notecard.IsNotFound(rErr):
 			debug.Log("sending default config to Notehub...")
+			// Pre-serialize the body before calling RequestResponse so that the
+			// deep marshalMap recursion over the nested Config map completes and
+			// unwinds before the outer request encoding begins. Passing the nested
+			// map directly would combine both recursion chains on the stack and
+			// overflow the goroutine's fixed-size stack.
+			bodyJSON := notecard.Marshal(cfg.MarshalMap())
+			board.MCU.PetWatchdog()
 			if _, wErr := nc.RequestResponse(map[string]any{
 				"req":  "note.add",
 				"file": "config.db",
 				"note": "config",
-				"body": cfg.MarshalMap(),
+				"body": notecard.RawJSON(bodyJSON),
 				"sync": true,
 			}); wErr != nil {
 				initErrs = append(initErrs, errors.New("notecard: config.db: "+wErr.Error()))

@@ -215,7 +215,8 @@ func parseDeviceKey(cfg *Config, key, value string) error {
 		}
 		cfg.SDChipSelectPins = pins
 	default:
-		return errors.New("unknown key: " + key)
+		// Unknown keys are silently ignored to remain compatible with
+		// configs written by older firmware versions.
 	}
 	return nil
 }
@@ -251,7 +252,7 @@ func parseGroupKey(g *Group, key, value string) error {
 			return errors.New("pulse_led: expected true or false, got: " + value)
 		}
 	default:
-		return errors.New("unknown key: " + key)
+		// Unknown keys are silently ignored.
 	}
 	return nil
 }
