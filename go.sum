@@ -1,12 +1,8 @@
-github.com/blues/note-tinygo v0.0.0-20211128142428-6d595f1248a7 h1:taoB+oMGMVBFSXfsS/4FQnzUl350gHicmgF80se+Zo8=
-github.com/blues/note-tinygo v0.0.0-20211128142428-6d595f1248a7/go.mod h1:12Lo3nR6n8jvAcn5Nf/VoHIJQ/bnlIS8fTy03xIibvg=
+github.com/andreyvit/tinyjson v0.0.2 h1:J8Na35wNDDQN85ctqbMUj3lHVUzJvJrtBX6ir360VuA=
+github.com/andreyvit/tinyjson v0.0.2/go.mod h1:PehmHRJYtIIe3CZv7+HaDU9b/whWURaUSjJKcYC+dKg=
 github.com/cowellmi/drivers v0.34.1-0.20260222013331-70fcaddea195 h1:BZ+xZj9OeGge/FejhUC04oQrexSH/SCjFU3MEV5BzsI=
 github.com/cowellmi/drivers v0.34.1-0.20260222013331-70fcaddea195/go.mod h1:ZdErNrApSABdVXjA1RejD67R8SNRI6RKVfYgQDZtKtk=
 github.com/cowellmi/tinyfs v0.5.1-0.20260215224512-3de04b468176 h1:hN1mWN7ZGyXJKPZH/OnZzYAax8iLjcWTYZ/kv+qu3+c=
 github.com/cowellmi/tinyfs v0.5.1-0.20260215224512-3de04b468176/go.mod h1:45hZCJ5e4rJxc3BaJTy1qhe5N+LbF/CpuFS4jPhhYuo=
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 h1:El6M4kTTCOh6aBiKaUGG7oYTSPP8MxqL4YI3kZKwcP4=
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510/go.mod h1:pupxD2MaaD3pAXIBCelhxNneeOaAeabZDe5s4K6zSpQ=
-github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFFd8Hwg//Y=
-github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
-github.com/valyala/fastjson v1.6.3 h1:tAKFnnwmeMGPbwJ7IwxcTPCNr3uIzoIj3/Fh90ra4xc=
-github.com/valyala/fastjson v1.6.3/go.mod h1:CLCAqky6SMuOcxStkYQvblddUtoRxhYMGLrsQns1aXY=
