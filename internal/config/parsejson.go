@@ -11,7 +11,7 @@ import (
 // Top-level keys: led_pin, rtc_int_pin, sd_chip_select_pins, sinks, groups.
 // Unknown top-level keys return an error.
 // groups: clear-and-replace semantics.
-// sinks: merge semantics — only update sinks already in cfg.Sinks.
+// sinks: clear-and-replace semantics — cfg.Sinks is replaced entirely by whatever is in the JSON.
 // After parsing, Validate is called to ensure every group has a wake source.
 //
 // tinyjson panics on malformed JSON; those panics are caught and returned as errors.
@@ -92,13 +92,10 @@ func ParseJSON(data []byte, cfg *Config) (parseErr error) {
 			}
 
 		case "sinks":
+			cfg.Sinks = make(map[string]SinkConfig)
 			for sinkKey := raw.StartObject(); sinkKey != nil; sinkKey = raw.ContinueObject() {
 				name := sinkKey.Str()
-				if _, exists := cfg.Sinks[name]; !exists {
-					raw.Skip()
-					continue
-				}
-				sc := cfg.Sinks[name]
+				var sc SinkConfig
 				for fieldKey := raw.StartObject(); fieldKey != nil; fieldKey = raw.ContinueObject() {
 					switch fieldKey.Str() {
 					case "log_level":

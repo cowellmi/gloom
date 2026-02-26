@@ -8,7 +8,6 @@ import (
 
 	tinyjson "github.com/andreyvit/tinyjson"
 
-	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/wait"
 )
 
@@ -72,25 +71,18 @@ func (d *Device) Request(req map[string]any) error {
 // Returns an error if the Notecard responds with an {"err":"..."} field
 // or if the I2C transaction fails.
 func (d *Device) RequestResponse(req map[string]any) (map[string]any, error) {
-	debug.Log("cp1")
 	js := marshalMap(nil, req)
-	debug.Log("cp2")
 	rspJSON, err := d.transaction(js)
-	debug.Log("cp3")
 	if err != nil {
 		return nil, err
 	}
-	debug.Log("cp4")
 	rsp, err := unmarshalMap(rspJSON)
-	debug.Log("cp5")
 	if err != nil {
 		return nil, err
 	}
-	debug.Log("cp6")
 	if e, ok := rsp["err"].(string); ok && e != "" {
 		return nil, errors.New(e)
 	}
-	debug.Log("cp7")
 	return rsp, nil
 }
 

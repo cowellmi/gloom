@@ -19,6 +19,9 @@ func TestDefault(t *testing.T) {
 	cfg := testDefault()
 
 	// Sinks
+	if len(cfg.Sinks) != 2 {
+		t.Fatalf("Sinks len = %d, want 2 (serial, sd)", len(cfg.Sinks))
+	}
 	serial, ok := cfg.Sinks["serial"]
 	if !ok {
 		t.Fatal("Sinks missing 'serial'")
@@ -26,12 +29,8 @@ func TestDefault(t *testing.T) {
 	if serial.LogLevel != LogLevelDebug {
 		t.Errorf("serial log level = %v, want debug", serial.LogLevel)
 	}
-	blues, ok := cfg.Sinks["blues"]
-	if !ok {
-		t.Fatal("Sinks missing 'blues'")
-	}
-	if blues.LogLevel != LogLevelOff {
-		t.Errorf("blues log level = %v, want off", blues.LogLevel)
+	if _, ok := cfg.Sinks["blues"]; ok {
+		t.Error("Sinks should not contain 'blues' by default")
 	}
 	sd, ok := cfg.Sinks["sd"]
 	if !ok {
@@ -114,8 +113,8 @@ func TestParseMap_Sinks(t *testing.T) {
 	}
 }
 
-func TestParseMap_SinksMerge(t *testing.T) {
-	// Only "serial" updated; "blues" and "sd" keep defaults.
+func TestParseMap_SinksPartial(t *testing.T) {
+	// Only "serial" in sinks body; clear-and-replace removes other sinks.
 	body := map[string]interface{}{
 		"sinks": map[string]interface{}{
 			"serial": map[string]interface{}{"log_level": "warn"},
@@ -128,16 +127,13 @@ func TestParseMap_SinksMerge(t *testing.T) {
 	if cfg.Sinks["serial"].LogLevel != LogLevelWarn {
 		t.Errorf("serial = %v, want warn", cfg.Sinks["serial"].LogLevel)
 	}
-	if cfg.Sinks["blues"].LogLevel != LogLevelOff {
-		t.Errorf("blues should remain off, got %v", cfg.Sinks["blues"].LogLevel)
-	}
-	if cfg.Sinks["sd"].LogLevel != LogLevelDebug {
-		t.Errorf("sd should remain debug, got %v", cfg.Sinks["sd"].LogLevel)
+	if len(cfg.Sinks) != 1 {
+		t.Errorf("Sinks len = %d, want 1 (only serial)", len(cfg.Sinks))
 	}
 }
 
-func TestParseMap_SinksUnknownNameIgnored(t *testing.T) {
-	// Unknown sink names are silently skipped (merge semantics).
+func TestParseMap_SinksUnknownName(t *testing.T) {
+	// Unknown sink names are accepted; they'll simply be ignored at wiring time.
 	body := map[string]interface{}{
 		"sinks": map[string]interface{}{
 			"unknown": map[string]interface{}{"log_level": "warn"},
@@ -146,6 +142,9 @@ func TestParseMap_SinksUnknownNameIgnored(t *testing.T) {
 	cfg := testDefault()
 	if err := ParseMap(&cfg, body); err != nil {
 		t.Fatalf("ParseMap() error: %v", err)
+	}
+	if _, ok := cfg.Sinks["unknown"]; !ok {
+		t.Error("unknown sink should be present in cfg.Sinks")
 	}
 }
 
@@ -162,6 +161,9 @@ func TestParseMap_SinksLogLevelOff(t *testing.T) {
 	if cfg.Sinks["blues"].LogLevel != LogLevelOff {
 		t.Errorf("blues = %v, want off", cfg.Sinks["blues"].LogLevel)
 	}
+	if len(cfg.Sinks) != 1 {
+		t.Errorf("Sinks len = %d, want 1 (only blues)", len(cfg.Sinks))
+	}
 }
 
 func TestParseMap_Groups(t *testing.T) {
@@ -170,7 +172,7 @@ func TestParseMap_Groups(t *testing.T) {
 			"sample": map[string]interface{}{
 				"interval":  "5m",
 				"sensors":   "vbat, temp",
-				"pulse_led": "true",
+				"pulse_led": true,
 			},
 			"rain": map[string]interface{}{
 				"interrupt_pins": "7",

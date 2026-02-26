@@ -17,7 +17,6 @@ func TestParseJSON_BasicRoundTrip(t *testing.T) {
 		t.Fatalf("MarshalJSON() error: %v", err)
 	}
 
-	// Seed from Default() so merge semantics on sinks have a base to work from.
 	got := Default(hal.Pin(13), hal.Pin(5), []string{"vbat"}, []hal.Pin{11})
 	if err := ParseJSON(data, &got); err != nil {
 		t.Fatalf("ParseJSON(MarshalJSON()) error: %v\nJSON:\n%s", err, data)
@@ -31,9 +30,6 @@ func TestParseJSON_BasicRoundTrip(t *testing.T) {
 	}
 	if len(got.SDChipSelectPins) != 1 || got.SDChipSelectPins[0] != hal.Pin(11) {
 		t.Errorf("SDChipSelectPins = %v, want [11]", got.SDChipSelectPins)
-	}
-	if got.Sinks["blues"].LogLevel != LogLevelOff {
-		t.Errorf("blues log level = %v, want off", got.Sinks["blues"].LogLevel)
 	}
 	if len(got.Groups) != 1 {
 		t.Fatalf("Groups len = %d, want 1", len(got.Groups))
@@ -62,11 +58,11 @@ func TestParseJSON_DefaultRoundTrip(t *testing.T) {
 	if got.Sinks["serial"].LogLevel != LogLevelDebug {
 		t.Errorf("serial = %v, want debug", got.Sinks["serial"].LogLevel)
 	}
-	if got.Sinks["blues"].LogLevel != LogLevelOff {
-		t.Errorf("blues = %v, want off", got.Sinks["blues"].LogLevel)
-	}
 	if got.Sinks["sd"].LogLevel != LogLevelDebug {
 		t.Errorf("sd = %v, want debug", got.Sinks["sd"].LogLevel)
+	}
+	if _, ok := got.Sinks["blues"]; ok {
+		t.Error("blues should not be present in default config")
 	}
 }
 
@@ -127,8 +123,8 @@ func TestParseJSON_Sinks(t *testing.T) {
 	}
 }
 
-func TestParseJSON_SinksMerge(t *testing.T) {
-	// Only "serial" updated; other sinks keep defaults.
+func TestParseJSON_SinksPartial(t *testing.T) {
+	// Only "serial" in sinks JSON; clear-and-replace removes other sinks.
 	input := []byte(`{
   "sinks": {"serial": {"log_level": "warn"}},
   "groups": {"s": {"interval": "5s"}}
@@ -140,8 +136,8 @@ func TestParseJSON_SinksMerge(t *testing.T) {
 	if cfg.Sinks["serial"].LogLevel != LogLevelWarn {
 		t.Errorf("serial = %v, want warn", cfg.Sinks["serial"].LogLevel)
 	}
-	if cfg.Sinks["blues"].LogLevel != LogLevelOff {
-		t.Errorf("blues should remain off, got %v", cfg.Sinks["blues"].LogLevel)
+	if len(cfg.Sinks) != 1 {
+		t.Errorf("Sinks len = %d, want 1 (only serial)", len(cfg.Sinks))
 	}
 }
 
@@ -153,6 +149,9 @@ func TestParseJSON_SinksLogLevelOff(t *testing.T) {
 	}
 	if cfg.Sinks["blues"].LogLevel != LogLevelOff {
 		t.Errorf("blues = %v, want off", cfg.Sinks["blues"].LogLevel)
+	}
+	if len(cfg.Sinks) != 1 {
+		t.Errorf("Sinks len = %d, want 1 (only blues)", len(cfg.Sinks))
 	}
 }
 

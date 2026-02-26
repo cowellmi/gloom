@@ -54,8 +54,8 @@ type Group struct {
 
 // Config holds the device-level configuration and schedule groups.
 type Config struct {
-	LEDPin           hal.Pin               // status LED pin; hal.NoPin = none
-	RTCIntPin        hal.Pin               // RTC interrupt pin; hal.NoPin = use wing-detected pin
+	LEDPin           hal.Pin // status LED pin; hal.NoPin = none
+	RTCIntPin        hal.Pin // RTC interrupt pin; hal.NoPin = use wing-detected pin
 	SDChipSelectPins []hal.Pin
 	Sinks            map[string]SinkConfig // keyed by "serial", "blues", "sd"
 	Groups           map[string]Group      // keyed by group name
@@ -73,7 +73,6 @@ func Default(ledPin hal.Pin, rtcIntPin hal.Pin, sensors []string, csPins []hal.P
 		SDChipSelectPins: csPins,
 		Sinks: map[string]SinkConfig{
 			"serial": {LogLevel: LogLevelDebug},
-			"blues":  {LogLevel: LogLevelOff},
 			"sd":     {LogLevel: LogLevelDebug},
 		},
 		Groups: map[string]Group{
@@ -92,7 +91,7 @@ func Default(ledPin hal.Pin, rtcIntPin hal.Pin, sensors []string, csPins []hal.P
 // The "groups" key must be a map[string]interface{} keyed by group name.
 // On seeing a "groups" key, existing groups are cleared and replaced.
 // The "sinks" key must be a map[string]interface{} keyed by sink name.
-// On seeing a "sinks" key, only sinks already in cfg.Sinks are updated (merge).
+// On seeing a "sinks" key, cfg.Sinks is cleared and replaced entirely.
 func ParseMap(cfg *Config, body map[string]interface{}) error {
 	var errs []error
 	for k, v := range body {
@@ -115,6 +114,15 @@ func ParseMap(cfg *Config, body map[string]interface{}) error {
 				}
 				var g Group
 				for gk, gv := range gdata {
+					if gk == "pulse_led" {
+						v, ok := gv.(bool)
+						if !ok {
+							errs = append(errs, errors.New("groups."+name+".pulse_led: expected bool"))
+						} else {
+							g.PulseLED = v
+						}
+						continue
+					}
 					value, ok := gv.(string)
 					if !ok {
 						errs = append(errs, errors.New("groups."+name+"."+gk+": expected string"))
@@ -135,16 +143,14 @@ func ParseMap(cfg *Config, body map[string]interface{}) error {
 				errs = append(errs, errors.New("sinks: expected object"))
 				continue
 			}
+			cfg.Sinks = make(map[string]SinkConfig)
 			for name, elem := range smap {
-				if _, exists := cfg.Sinks[name]; !exists {
-					continue // only update known sinks
-				}
 				sdata, ok := elem.(map[string]interface{})
 				if !ok {
 					errs = append(errs, errors.New("sinks."+name+": expected object"))
 					continue
 				}
-				sc := cfg.Sinks[name]
+				var sc SinkConfig
 				for sk, sv := range sdata {
 					value, ok := sv.(string)
 					if !ok {
@@ -242,15 +248,6 @@ func parseGroupKey(g *Group, key, value string) error {
 		g.InterruptPins = pins
 	case "sensors":
 		g.Sensors = parseStringList(value)
-	case "pulse_led":
-		switch value {
-		case "true":
-			g.PulseLED = true
-		case "false":
-			g.PulseLED = false
-		default:
-			return errors.New("pulse_led: expected true or false, got: " + value)
-		}
 	default:
 		// Unknown keys are silently ignored.
 	}

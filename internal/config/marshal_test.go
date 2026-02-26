@@ -29,9 +29,6 @@ func TestMarshalJSON_Default(t *testing.T) {
 	if !strings.Contains(s, `"serial"`) {
 		t.Errorf("expected serial sink:\n%s", s)
 	}
-	if !strings.Contains(s, `"blues"`) {
-		t.Errorf("expected blues sink:\n%s", s)
-	}
 	if !strings.Contains(s, `"sample"`) {
 		t.Errorf("expected sample group:\n%s", s)
 	}
@@ -59,7 +56,14 @@ func TestMarshalJSON_NoPinOmitted(t *testing.T) {
 }
 
 func TestMarshalJSON_SinksFixedOrder(t *testing.T) {
-	cfg := Default(hal.NoPin, hal.NoPin, nil, nil)
+	cfg := Config{
+		Sinks: map[string]SinkConfig{
+			"serial": {LogLevel: LogLevelDebug},
+			"blues":  {LogLevel: LogLevelOff},
+			"sd":     {LogLevel: LogLevelDebug},
+		},
+		Groups: map[string]Group{"s": {Interval: 5 * time.Second}},
+	}
 	data, err := cfg.MarshalJSON()
 	if err != nil {
 		t.Fatalf("MarshalJSON() error: %v", err)
@@ -236,7 +240,7 @@ func TestMarshalMap_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestMarshalMap_SinksAlwaysEmitted(t *testing.T) {
+func TestMarshalMap_SinksEmitted(t *testing.T) {
 	cfg := Default(hal.NoPin, hal.NoPin, nil, nil)
 	m := cfg.MarshalMap()
 
@@ -244,10 +248,13 @@ func TestMarshalMap_SinksAlwaysEmitted(t *testing.T) {
 	if !ok {
 		t.Fatalf("sinks should be map[string]interface{}, got %T", m["sinks"])
 	}
-	for _, name := range []string{"serial", "blues", "sd"} {
+	for _, name := range []string{"serial", "sd"} {
 		if _, ok := sinks[name]; !ok {
 			t.Errorf("sinks missing %q", name)
 		}
+	}
+	if _, ok := sinks["blues"]; ok {
+		t.Error("blues should not be in default sinks")
 	}
 }
 
@@ -256,9 +263,9 @@ func TestMarshalMap_SinkLogLevel(t *testing.T) {
 	m := cfg.MarshalMap()
 
 	sinks := m["sinks"].(map[string]interface{})
-	blues := sinks["blues"].(map[string]interface{})
-	if blues["log_level"] != "off" {
-		t.Errorf("blues log_level = %v, want off", blues["log_level"])
+	serial := sinks["serial"].(map[string]interface{})
+	if serial["log_level"] != "debug" {
+		t.Errorf("serial log_level = %v, want debug", serial["log_level"])
 	}
 }
 
@@ -306,8 +313,8 @@ func TestMarshalMap_GroupsObject(t *testing.T) {
 	if gmap["sensors"] != "vbat" {
 		t.Errorf("sensors = %v, want vbat", gmap["sensors"])
 	}
-	if gmap["pulse_led"] != "true" {
-		t.Errorf("pulse_led = %v, want true", gmap["pulse_led"])
+	if gmap["pulse_led"] != true {
+		t.Errorf("pulse_led = %v, want true (bool)", gmap["pulse_led"])
 	}
 }
 
