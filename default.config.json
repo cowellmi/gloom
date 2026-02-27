@@ -1,0 +1,20 @@
+{
+  "led_pin": 17,
+  "rtc_int_pin": 19,
+  "sd_chip_select_pins": [16, 18],
+  "sinks": {
+    "serial": {
+      "log_level": "debug"
+    },
+    "sd": {
+      "log_level": "error"
+    }
+  },
+  "groups": {
+    "sample": {
+      "interval": "5s",
+      "sensors": ["vbat"],
+      "pulse_led": true
+    }
+  }
+}
