@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/buger/jsonparser"
+
 	"github.com/cowellmi/gloom/internal/config"
 	"github.com/cowellmi/gloom/internal/debug"
 	"github.com/cowellmi/gloom/internal/fallback"
@@ -95,30 +97,28 @@ func main() {
 	if nc != nil {
 		board.MCU.PetWatchdog()
 		debug.Log("loading config from Notehub...")
-		rsp, rErr := nc.RequestResponse(map[string]any{
-			"req":  "note.get",
-			"file": "config.db",
-			"note": "config",
-		})
+		rsp, rErr := nc.Do([]byte(`{"req":"note.get","file":"config.db","note":"config"}`))
 		switch {
 		case rErr == nil:
-			if bodyJSON, ok := rsp["body"].([]byte); ok {
+			if bodyJSON, _, _, bErr := jsonparser.Get(rsp, "body"); bErr == nil {
 				if pErr := config.ParseJSON(bodyJSON, &cfg); pErr != nil {
 					initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
 				}
 			}
 		case notecard.IsNotFound(rErr):
 			debug.Log("sending default config to Notehub...")
-			bodyJSON := notecard.Marshal(cfg.MarshalMap())
+			bodyJSON, mErr := cfg.MarshalJSON()
 			board.MCU.PetWatchdog()
-			if _, wErr := nc.RequestResponse(map[string]any{
-				"req":  "note.add",
-				"file": "config.db",
-				"note": "config",
-				"body": notecard.RawJSON(bodyJSON),
-				"sync": true,
-			}); wErr != nil {
-				initErrs = append(initErrs, errors.New("notecard: config.db: "+wErr.Error()))
+			if mErr != nil {
+				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
+			} else {
+				var b []byte
+				b = append(b, `{"req":"note.add","file":"config.db","note":"config","body":`...)
+				b = append(b, bodyJSON...)
+				b = append(b, `,"sync":true}`...)
+				if _, wErr := nc.Do(b); wErr != nil {
+					initErrs = append(initErrs, errors.New("notecard: config.db: "+wErr.Error()))
+				}
 			}
 		default:
 			initErrs = append(initErrs, errors.New("notecard: config.db: "+rErr.Error()))

@@ -1,6 +1,7 @@
 package sink
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
@@ -9,19 +10,21 @@ import (
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
-// queue is an outbound Blues Notefile (.qo) that appends one Note per writeMap call.
+// queue is an outbound Blues Notefile (.qo) that appends one Note per write call.
 type queue struct {
-	nc   *notecard.Device
+	nc   *notecard.Client
 	name string
 }
 
-func (q *queue) writeMap(body map[string]any) error {
-	return q.nc.Request(map[string]any{
-		"req":  "note.add",
-		"file": q.name,
-		"body": body,
-		"sync": true,
-	})
+func (q *queue) write(body []byte) error {
+	var b []byte
+	b = append(b, `{"req":"note.add","file":`...)
+	b = strconv.AppendQuote(b, q.name)
+	b = append(b, `,"body":`...)
+	b = append(b, body...)
+	b = append(b, `,"sync":true}`...)
+	_, err := q.nc.Do(b)
+	return err
 }
 
 // NotehubSink implements DataSink and log.Sink by sending structured
@@ -39,7 +42,7 @@ type NotehubSink struct {
 
 // NewNotehubSink creates a NotehubSink backed by two outbound Notefile queues.
 // Pass an empty string to disable that output stream.
-func NewNotehubSink(nc *notecard.Device, dataName, logName string) *NotehubSink {
+func NewNotehubSink(nc *notecard.Client, dataName, logName string) *NotehubSink {
 	var s NotehubSink
 	if dataName != "" {
 		s.data = &queue{nc: nc, name: dataName}
@@ -55,14 +58,19 @@ func (s *NotehubSink) Data(t time.Time, id string, readings []sensor.Reading) er
 		return nil
 	}
 	for _, r := range readings {
-		body := map[string]any{
-			"ts":     formatISO(t),
-			"sensor": id,
-			"label":  r.Label,
-			"value":  r.Value,
-			"unit":   r.Unit,
-		}
-		if err := s.data.writeMap(body); err != nil {
+		var b []byte
+		b = append(b, `{"ts":`...)
+		b = strconv.AppendQuote(b, formatISO(t))
+		b = append(b, `,"sensor":`...)
+		b = strconv.AppendQuote(b, id)
+		b = append(b, `,"label":`...)
+		b = strconv.AppendQuote(b, r.Label)
+		b = append(b, `,"value":`...)
+		b = strconv.AppendInt(b, int64(r.Value), 10)
+		b = append(b, `,"unit":`...)
+		b = strconv.AppendQuote(b, r.Unit)
+		b = append(b, '}')
+		if err := s.data.write(b); err != nil {
 			return err
 		}
 	}
@@ -73,12 +81,15 @@ func (s *NotehubSink) Log(t time.Time, level config.LogLevel, msg string) error 
 	if s.logf == nil {
 		return nil
 	}
-	body := map[string]any{
-		"ts":    formatISO(t),
-		"level": level.String(),
-		"msg":   msg,
-	}
-	return s.logf.writeMap(body)
+	var b []byte
+	b = append(b, `{"ts":`...)
+	b = strconv.AppendQuote(b, formatISO(t))
+	b = append(b, `,"level":`...)
+	b = strconv.AppendQuote(b, level.String())
+	b = append(b, `,"msg":`...)
+	b = strconv.AppendQuote(b, msg)
+	b = append(b, '}')
+	return s.logf.write(b)
 }
 
 func (s *NotehubSink) Flush() error { return nil }

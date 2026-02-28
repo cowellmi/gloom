@@ -2,7 +2,6 @@ package notecard
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,25 +14,14 @@ import (
 // It matches the signature of hal.I2C.Tx.
 type I2CTxFn func(addr uint16, w, r []byte) error
 
-// RawJSON is a pre-encoded JSON value for embedding directly as a field value
-// in a RequestResponse call, bypassing recursive encoding.
-type RawJSON []byte
-
-// Marshal serializes m to compact JSON bytes. Pre-encode nested structures
-// before passing them to RequestResponse to limit marshalMap recursion depth
-// and avoid goroutine stack overflow on fixed-stack targets.
-func Marshal(m map[string]any) []byte {
-	return marshalMap(nil, m)
-}
-
 const (
 	i2cAddr = 0x17 // Blues Notecard default I2C address
 	i2cMax  = 253  // max bytes per I2C chunk (Notecard spec: 255 minus 2-byte header)
 	segMax  = 250  // bytes sent before an inter-segment pause
 )
 
-// Device is a Blues Notecard attached via I2C.
-type Device struct {
+// Client is a Blues Notecard attached via I2C.
+type Client struct {
 	UID string
 	tx  I2CTxFn
 }
@@ -41,46 +29,33 @@ type Device struct {
 // New probes the Notecard at the default I2C address, reads its device UID,
 // and triggers a hub sync. Returns nil and an error if the Notecard is absent
 // or unresponsive.
-func New(tx I2CTxFn) (*Device, error) {
-	d := &Device{tx: tx}
+func New(tx I2CTxFn) (*Client, error) {
+	c := &Client{tx: tx}
 
-	rsp, err := d.RequestResponse(map[string]any{"req": "card.version"})
+	rsp, err := c.Do([]byte(`{"req":"card.version"}`))
 	if err != nil {
 		return nil, err
 	}
-	if uid, ok := rsp["device"].(string); ok {
-		d.UID = uid
+	if uid, err := jsonparser.GetString(rsp, "device"); err == nil {
+		c.UID = uid
 	}
 
-	if err := d.Request(map[string]any{"req": "hub.sync"}); err != nil {
+	if _, err := c.Do([]byte(`{"req":"hub.sync"}`)); err != nil {
 		return nil, err
 	}
 
-	return d, nil
+	return c, nil
 }
 
-// Request sends a request to the Notecard and returns an error if the
-// Notecard responds with an error field or the I2C transaction fails.
-// The response body is discarded.
-func (d *Device) Request(req map[string]any) error {
-	_, err := d.RequestResponse(req)
-	return err
-}
-
-// RequestResponse sends a request and returns the parsed response body.
-// Returns an error if the Notecard responds with an {"err":"..."} field
-// or if the I2C transaction fails.
-func (d *Device) RequestResponse(req map[string]any) (map[string]any, error) {
-	js := marshalMap(nil, req)
-	rspJSON, err := d.transaction(js)
+// Do sends a raw JSON request to the Notecard and returns the raw JSON response.
+// Returns an error if the Notecard responds with an {"err":"..."} field or if
+// the I2C transaction fails.
+func (c *Client) Do(req []byte) ([]byte, error) {
+	rsp, err := c.transaction(req)
 	if err != nil {
 		return nil, err
 	}
-	rsp, err := unmarshalMap(rspJSON)
-	if err != nil {
-		return nil, err
-	}
-	if e, ok := rsp["err"].(string); ok && e != "" {
+	if e, err := jsonparser.GetString(rsp, "err"); err == nil && e != "" {
 		return nil, errors.New(e)
 	}
 	return rsp, nil
@@ -95,25 +70,25 @@ func IsNotFound(err error) bool {
 
 // i2cWrite sends data to the Notecard using the Blues I2C framing protocol.
 // Each write is preceded by a 1ms busy-wait as required by the spec.
-func (d *Device) i2cWrite(data []byte) error {
+func (c *Client) i2cWrite(data []byte) error {
 	wait.For(time.Millisecond)
 	buf := make([]byte, 1+len(data))
 	buf[0] = byte(len(data))
 	copy(buf[1:], data)
-	return d.tx(i2cAddr, buf, nil)
+	return c.tx(i2cAddr, buf, nil)
 }
 
 // i2cRead reads up to datalen bytes from the Notecard. The Notecard responds
 // with a 2-byte header [available, good] followed by 'good' data bytes.
 // Returns the data, the number of bytes still available, and any error.
 // Each read is preceded by a 1ms busy-wait as required by the spec.
-func (d *Device) i2cRead(datalen int) (data []byte, available int, err error) {
+func (c *Client) i2cRead(datalen int) (data []byte, available int, err error) {
 	wait.For(time.Millisecond)
 	readbuf := make([]byte, datalen+2)
 	var req [2]byte
 	req[1] = byte(datalen)
 	for i := 0; ; i++ {
-		err = d.tx(i2cAddr, req[:], readbuf)
+		err = c.tx(i2cAddr, req[:], readbuf)
 		if err == nil {
 			break
 		}
@@ -136,7 +111,7 @@ func (d *Device) i2cRead(datalen int) (data []byte, available int, err error) {
 // transaction sends the JSON request bytes to the Notecard (appending a
 // newline terminator) and reads back the JSON response. The Notecard protocol
 // sends requests and responses as newline-terminated JSON over I2C chunks.
-func (d *Device) transaction(req []byte) ([]byte, error) {
+func (c *Client) transaction(req []byte) ([]byte, error) {
 	// Append newline terminator required by the Notecard protocol.
 	req = append(req, '\n')
 
@@ -148,7 +123,7 @@ func (d *Device) transaction(req []byte) ([]byte, error) {
 		if n > i2cMax {
 			n = i2cMax
 		}
-		if err := d.i2cWrite(req[offset : offset+n]); err != nil {
+		if err := c.i2cWrite(req[offset : offset+n]); err != nil {
 			return nil, err
 		}
 		offset += n
@@ -167,7 +142,7 @@ func (d *Device) transaction(req []byte) ([]byte, error) {
 	chunklen := 0
 	pollIter := 0
 	for {
-		data, available, err := d.i2cRead(chunklen)
+		data, available, err := c.i2cRead(chunklen)
 		if err != nil {
 			return nil, err
 		}
@@ -192,101 +167,4 @@ func (d *Device) transaction(req []byte) ([]byte, error) {
 			wait.For(10 * time.Millisecond)
 		}
 	}
-}
-
-// --- JSON encoding ---
-
-// marshalMap encodes a map[string]any as compact JSON, appending to buf.
-// Supports string, bool, int/int32/int64, uint/uint32/uint64,
-// float32/float64, and nested map[string]any values.
-func marshalMap(buf []byte, m map[string]any) []byte {
-	buf = append(buf, '{')
-	first := true
-	for k, v := range m {
-		if !first {
-			buf = append(buf, ',')
-		}
-		first = false
-		buf = strconv.AppendQuote(buf, k)
-		buf = append(buf, ':')
-		buf = marshalValue(buf, v)
-	}
-	return append(buf, '}')
-}
-
-func marshalValue(buf []byte, v any) []byte {
-	switch x := v.(type) {
-	case nil:
-		return append(buf, "null"...)
-	case bool:
-		if x {
-			return append(buf, "true"...)
-		}
-		return append(buf, "false"...)
-	case int:
-		return strconv.AppendInt(buf, int64(x), 10)
-	case int32:
-		return strconv.AppendInt(buf, int64(x), 10)
-	case int64:
-		return strconv.AppendInt(buf, x, 10)
-	case uint:
-		return strconv.AppendUint(buf, uint64(x), 10)
-	case uint32:
-		return strconv.AppendUint(buf, uint64(x), 10)
-	case uint64:
-		return strconv.AppendUint(buf, x, 10)
-	case float32:
-		return strconv.AppendFloat(buf, float64(x), 'f', -1, 32)
-	case float64:
-		return strconv.AppendFloat(buf, x, 'f', -1, 64)
-	case string:
-		return strconv.AppendQuote(buf, x)
-	case RawJSON:
-		return append(buf, x...)
-	case map[string]any:
-		return marshalMap(buf, x)
-	default:
-		return append(buf, "null"...)
-	}
-}
-
-// --- JSON decoding ---
-
-// unmarshalMap decodes a JSON object into a map[string]any.
-// Scalars are stored as Go values; nested objects and arrays are stored as
-// raw []byte so callers can re-parse them without risking stack overflow.
-func unmarshalMap(data []byte) (map[string]any, error) {
-	result := make(map[string]any)
-	err := jsonparser.ObjectEach(data, func(key, value []byte, dataType jsonparser.ValueType, _ int) error {
-		k := string(key)
-		switch dataType {
-		case jsonparser.String:
-			s, err := jsonparser.ParseString(value)
-			if err != nil {
-				return errors.New("notecard: json: " + err.Error())
-			}
-			result[k] = s
-		case jsonparser.Number:
-			if i, err := jsonparser.ParseInt(value); err == nil {
-				result[k] = i
-			} else if f, err := jsonparser.ParseFloat(value); err == nil {
-				result[k] = f
-			}
-		case jsonparser.Boolean:
-			b, err := jsonparser.ParseBoolean(value)
-			if err != nil {
-				return errors.New("notecard: json: " + err.Error())
-			}
-			result[k] = b
-		case jsonparser.Null:
-			result[k] = nil
-		case jsonparser.Object, jsonparser.Array:
-			// Store raw bytes — callers use rsp["body"].([]byte) and re-parse.
-			cp := make([]byte, len(value))
-			copy(cp, value)
-			result[k] = cp
-		}
-		return nil
-	})
-	return result, err
 }
