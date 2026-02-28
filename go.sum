@@ -1,6 +1,5 @@
-github.com/andreyvit/tinyjson v0.0.2 h1:J8Na35wNDDQN85ctqbMUj3lHVUzJvJrtBX6ir360VuA=
-github.com/andreyvit/tinyjson v0.0.2/go.mod h1:PehmHRJYtIIe3CZv7+HaDU9b/whWURaUSjJKcYC+dKg=
-
+github.com/buger/jsonparser v1.1.1 h1:2PnMjfWD7wBILjqQbt530v576A/cAbQvEW9gGIpYMUs=
+github.com/buger/jsonparser v1.1.1/go.mod h1:6RYKKt7H4d4+iWqouImQ9R2FZql3VbhNgx27UK13J/0=
 github.com/cowellmi/drivers v0.34.1-0.20260222013331-70fcaddea195 h1:BZ+xZj9OeGge/FejhUC04oQrexSH/SCjFU3MEV5BzsI=
 github.com/cowellmi/drivers v0.34.1-0.20260222013331-70fcaddea195/go.mod h1:ZdErNrApSABdVXjA1RejD67R8SNRI6RKVfYgQDZtKtk=
 github.com/cowellmi/tinyfs v0.5.1-0.20260215224512-3de04b468176 h1:hN1mWN7ZGyXJKPZH/OnZzYAax8iLjcWTYZ/kv+qu3+c=

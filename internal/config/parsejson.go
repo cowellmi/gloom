@@ -3,7 +3,7 @@ package config
 import (
 	"errors"
 
-	"github.com/andreyvit/tinyjson"
+	"github.com/buger/jsonparser"
 	"github.com/cowellmi/gloom/internal/hal"
 )
 
@@ -13,39 +13,24 @@ import (
 // groups: clear-and-replace semantics.
 // sinks: clear-and-replace semantics — cfg.Sinks is replaced entirely by whatever is in the JSON.
 // After parsing, Validate is called to ensure every group has a wake source.
-//
-// tinyjson panics on malformed JSON; those panics are caught and returned as errors.
-func ParseJSON(data []byte, cfg *Config) (parseErr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			switch v := r.(type) {
-			case error:
-				parseErr = errors.New("config: json: " + v.Error())
-			case string:
-				parseErr = errors.New("config: json: " + v)
-			default:
-				parseErr = errors.New("config: json: parse error")
-			}
-		}
-	}()
-
+func ParseJSON(data []byte, cfg *Config) error {
 	var errs []error
-	raw := tinyjson.Raw(data)
 
-	for key := raw.StartObject(); key != nil; key = raw.ContinueObject() {
-		switch key.Str() {
+	if err := jsonparser.ObjectEach(data, func(key, value []byte, dataType jsonparser.ValueType, _ int) error {
+		switch string(key) {
 		case "led_pin":
 			// Accept string ("17", "none") from MarshalMap or integer (17) from MarshalJSON.
-			if raw.Peek() == tinyjson.String {
-				pin, e := parsePin("led_pin", raw.Str())
+			if dataType == jsonparser.String {
+				s, _ := jsonparser.ParseString(value)
+				pin, e := parsePin("led_pin", s)
 				if e != nil {
 					errs = append(errs, e)
 				} else {
 					cfg.LEDPin = pin
 				}
 			} else {
-				n := raw.Int()
-				if n < 0 || n > 254 {
+				n, e := jsonparser.ParseInt(value)
+				if e != nil || n < 0 || n > 254 {
 					errs = append(errs, errors.New("led_pin: invalid pin"))
 				} else {
 					cfg.LEDPin = hal.Pin(n)
@@ -54,16 +39,17 @@ func ParseJSON(data []byte, cfg *Config) (parseErr error) {
 
 		case "rtc_int_pin":
 			// Accept string ("6") from MarshalMap or integer (6) from MarshalJSON.
-			if raw.Peek() == tinyjson.String {
-				pin, e := parsePin("rtc_int_pin", raw.Str())
+			if dataType == jsonparser.String {
+				s, _ := jsonparser.ParseString(value)
+				pin, e := parsePin("rtc_int_pin", s)
 				if e != nil {
 					errs = append(errs, e)
 				} else {
 					cfg.RTCIntPin = pin
 				}
 			} else {
-				n := raw.Int()
-				if n < 0 || n > 254 {
+				n, e := jsonparser.ParseInt(value)
+				if e != nil || n < 0 || n > 254 {
 					errs = append(errs, errors.New("rtc_int_pin: invalid pin"))
 				} else {
 					cfg.RTCIntPin = hal.Pin(n)
@@ -73,55 +59,59 @@ func ParseJSON(data []byte, cfg *Config) (parseErr error) {
 		case "sd_chip_select_pins":
 			// Accept string ("10, 11") from MarshalMap or array ([10, 11]) from MarshalJSON.
 			cfg.SDChipSelectPins = cfg.SDChipSelectPins[:0]
-			if raw.Peek() == tinyjson.String {
-				pins, e := parsePinList("sd_chip_select_pins", raw.Str())
+			if dataType == jsonparser.String {
+				s, _ := jsonparser.ParseString(value)
+				pins, e := parsePinList("sd_chip_select_pins", s)
 				if e != nil {
 					errs = append(errs, e)
 				} else {
 					cfg.SDChipSelectPins = pins
 				}
 			} else {
-				for raw.StartArray(); raw.ContinueArray(); {
-					n := raw.Int()
-					if n < 0 || n > 254 {
+				jsonparser.ArrayEach(value, func(v []byte, _ jsonparser.ValueType, _ int, _ error) {
+					n, e := jsonparser.ParseInt(v)
+					if e != nil || n < 0 || n > 254 {
 						errs = append(errs, errors.New("sd_chip_select_pins: invalid pin"))
 					} else {
 						cfg.SDChipSelectPins = append(cfg.SDChipSelectPins, hal.Pin(n))
 					}
-				}
+				})
 			}
 
 		case "sinks":
 			cfg.Sinks = make(map[string]SinkConfig)
-			for sinkKey := raw.StartObject(); sinkKey != nil; sinkKey = raw.ContinueObject() {
-				name := sinkKey.Str()
+			jsonparser.ObjectEach(value, func(sinkKey, sinkValue []byte, _ jsonparser.ValueType, _ int) error {
+				name := string(sinkKey)
 				var sc SinkConfig
-				for fieldKey := raw.StartObject(); fieldKey != nil; fieldKey = raw.ContinueObject() {
-					switch fieldKey.Str() {
+				jsonparser.ObjectEach(sinkValue, func(fk, fv []byte, _ jsonparser.ValueType, _ int) error {
+					switch string(fk) {
 					case "log_level":
-						level, e := parseLevel(raw.Str())
+						s, _ := jsonparser.ParseString(fv)
+						level, e := parseLevel(s)
 						if e != nil {
 							errs = append(errs, e)
 						} else {
 							sc.LogLevel = level
 						}
 					default:
-						errs = append(errs, errors.New("sinks."+name+": unknown key: "+fieldKey.Str()))
-						raw.Skip()
+						errs = append(errs, errors.New("sinks."+name+": unknown key: "+string(fk)))
 					}
-				}
+					return nil
+				})
 				cfg.Sinks[name] = sc
-			}
+				return nil
+			})
 
 		case "groups":
 			cfg.Groups = make(map[string]Group)
-			for groupKey := raw.StartObject(); groupKey != nil; groupKey = raw.ContinueObject() {
-				name := groupKey.Str()
+			jsonparser.ObjectEach(value, func(groupKey, groupValue []byte, _ jsonparser.ValueType, _ int) error {
+				name := string(groupKey)
 				var g Group
-				for fieldKey := raw.StartObject(); fieldKey != nil; fieldKey = raw.ContinueObject() {
-					switch fieldKey.Str() {
+				jsonparser.ObjectEach(groupValue, func(fk, fv []byte, fdataType jsonparser.ValueType, _ int) error {
+					switch string(fk) {
 					case "interval":
-						d, e := parseDuration("interval", raw.Str())
+						s, _ := jsonparser.ParseString(fv)
+						d, e := parseDuration("interval", s)
 						if e != nil {
 							errs = append(errs, e)
 						} else {
@@ -129,36 +119,40 @@ func ParseJSON(data []byte, cfg *Config) (parseErr error) {
 						}
 					case "sensors":
 						// Accept string ("vbat, other") from MarshalMap or array from MarshalJSON.
-						if raw.Peek() == tinyjson.String {
-							g.Sensors = parseStringList(raw.Str())
+						if fdataType == jsonparser.String {
+							s, _ := jsonparser.ParseString(fv)
+							g.Sensors = parseStringList(s)
 						} else {
-							for raw.StartArray(); raw.ContinueArray(); {
-								g.Sensors = append(g.Sensors, raw.Str())
-							}
+							jsonparser.ArrayEach(fv, func(v []byte, _ jsonparser.ValueType, _ int, _ error) {
+								s, _ := jsonparser.ParseString(v)
+								g.Sensors = append(g.Sensors, s)
+							})
 						}
 					case "interrupt_pins":
 						// Accept string ("6, 7") from MarshalMap or array from MarshalJSON.
-						if raw.Peek() == tinyjson.String {
-							pins, e := parsePinList("interrupt_pins", raw.Str())
+						if fdataType == jsonparser.String {
+							s, _ := jsonparser.ParseString(fv)
+							pins, e := parsePinList("interrupt_pins", s)
 							if e != nil {
 								errs = append(errs, e)
 							} else {
 								g.InterruptPins = pins
 							}
 						} else {
-							for raw.StartArray(); raw.ContinueArray(); {
-								n := raw.Int()
-								if n < 0 || n > 254 {
+							jsonparser.ArrayEach(fv, func(v []byte, _ jsonparser.ValueType, _ int, _ error) {
+								n, e := jsonparser.ParseInt(v)
+								if e != nil || n < 0 || n > 254 {
 									errs = append(errs, errors.New("groups."+name+".interrupt_pins: invalid pin"))
 								} else {
 									g.InterruptPins = append(g.InterruptPins, hal.Pin(n))
 								}
-							}
+							})
 						}
 					case "pulse_led":
 						// Accept string ("true") from MarshalMap or boolean from MarshalJSON.
-						if raw.Peek() == tinyjson.String {
-							switch raw.Str() {
+						if fdataType == jsonparser.String {
+							s, _ := jsonparser.ParseString(fv)
+							switch s {
 							case "true":
 								g.PulseLED = true
 							case "false":
@@ -167,20 +161,28 @@ func ParseJSON(data []byte, cfg *Config) (parseErr error) {
 								errs = append(errs, errors.New("groups."+name+".pulse_led: expected true or false"))
 							}
 						} else {
-							g.PulseLED = raw.Bool()
+							b, e := jsonparser.ParseBoolean(fv)
+							if e != nil {
+								errs = append(errs, errors.New("groups."+name+".pulse_led: "+e.Error()))
+							} else {
+								g.PulseLED = b
+							}
 						}
 					default:
-						errs = append(errs, errors.New("groups."+name+": unknown key: "+fieldKey.Str()))
-						raw.Skip()
+						errs = append(errs, errors.New("groups."+name+": unknown key: "+string(fk)))
 					}
-				}
+					return nil
+				})
 				cfg.Groups[name] = g
-			}
+				return nil
+			})
 
 		default:
-			errs = append(errs, errors.New("unknown key: "+key.Str()))
-			raw.Skip()
+			errs = append(errs, errors.New("unknown key: "+string(key)))
 		}
+		return nil
+	}); err != nil {
+		errs = append(errs, err)
 	}
 
 	if err := Validate(cfg); err != nil {

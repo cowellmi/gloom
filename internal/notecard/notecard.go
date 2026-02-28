@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	tinyjson "github.com/andreyvit/tinyjson"
+	"github.com/buger/jsonparser"
 
 	"github.com/cowellmi/gloom/internal/wait"
 )
@@ -253,69 +253,40 @@ func marshalValue(buf []byte, v any) []byte {
 // --- JSON decoding ---
 
 // unmarshalMap decodes a JSON object into a map[string]any.
-// Nested objects and arrays are stored as raw []byte to avoid the recursive
-// tinyjson.Value() call, which overflows the goroutine stack on deeply nested data.
-// Panics from the tinyjson parser on malformed input are caught and returned as errors.
-func unmarshalMap(data []byte) (result map[string]any, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			switch v := r.(type) {
-			case error:
-				err = errors.New("notecard: json: " + v.Error())
-			case string:
-				err = errors.New("notecard: json: " + v)
-			default:
-				err = errors.New("notecard: json: parse error")
+// Scalars are stored as Go values; nested objects and arrays are stored as
+// raw []byte so callers can re-parse them without risking stack overflow.
+func unmarshalMap(data []byte) (map[string]any, error) {
+	result := make(map[string]any)
+	err := jsonparser.ObjectEach(data, func(key, value []byte, dataType jsonparser.ValueType, _ int) error {
+		k := string(key)
+		switch dataType {
+		case jsonparser.String:
+			s, err := jsonparser.ParseString(value)
+			if err != nil {
+				return errors.New("notecard: json: " + err.Error())
 			}
-		}
-	}()
-	raw := tinyjson.Raw(data)
-	result = make(map[string]any)
-	for key := raw.StartObject(); key != nil; key = raw.ContinueObject() {
-		k := key.Str()
-		switch raw.Peek() {
-		case tinyjson.StartObject, tinyjson.StartArray:
-			// Extract nested value as raw JSON bytes without recursing.
-			// tinyjson.Value() is recursive and overflows on 4+ levels of nesting.
-			start := []byte(raw)
-			scanNestedValue(&raw)
-			result[k] = start[:len(start)-len([]byte(raw))]
-		default:
-			result[k] = raw.Next().Scalar()
-		}
-	}
-	return result, nil
-}
-
-// scanNestedValue advances raw past a JSON object or array using an iterative
-// depth counter. raw must be positioned at the opening '{' or '[' (after Peek).
-// This is safe on tiny goroutine stacks unlike tinyjson.Skip() which recurses.
-func scanNestedValue(raw *tinyjson.Raw) {
-	data := []byte(*raw)
-	depth := 0
-	inStr := false
-	for i := 0; i < len(data); i++ {
-		c := data[i]
-		if inStr {
-			if c == '\\' {
-				i++ // skip escaped char
-			} else if c == '"' {
-				inStr = false
+			result[k] = s
+		case jsonparser.Number:
+			if i, err := jsonparser.ParseInt(value); err == nil {
+				result[k] = i
+			} else if f, err := jsonparser.ParseFloat(value); err == nil {
+				result[k] = f
 			}
-			continue
-		}
-		switch c {
-		case '"':
-			inStr = true
-		case '{', '[':
-			depth++
-		case '}', ']':
-			depth--
-			if depth == 0 {
-				*raw = tinyjson.Raw(data[i+1:])
-				return
+		case jsonparser.Boolean:
+			b, err := jsonparser.ParseBoolean(value)
+			if err != nil {
+				return errors.New("notecard: json: " + err.Error())
 			}
+			result[k] = b
+		case jsonparser.Null:
+			result[k] = nil
+		case jsonparser.Object, jsonparser.Array:
+			// Store raw bytes — callers use rsp["body"].([]byte) and re-parse.
+			cp := make([]byte, len(value))
+			copy(cp, value)
+			result[k] = cp
 		}
-	}
-	panic("invalid JSON: unterminated object/array")
+		return nil
+	})
+	return result, err
 }
