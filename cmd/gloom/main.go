@@ -105,7 +105,7 @@ func main() {
 					initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
 				}
 			}
-		case notecard.IsNotFound(rErr):
+		case errors.Is(rErr, notecard.NoteNotFound):
 			debug.Log("sending default config to Notehub...")
 			bodyJSON, mErr := cfg.MarshalJSON()
 			board.MCU.PetWatchdog()
