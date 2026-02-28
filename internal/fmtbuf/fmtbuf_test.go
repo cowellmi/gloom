@@ -3,9 +3,69 @@ package fmtbuf_test
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/cowellmi/gloom/internal/fmtbuf"
 )
+
+func TestAppend2(t *testing.T) {
+	tests := []struct {
+		n    int
+		want string
+	}{
+		{0, "00"},
+		{5, "05"},
+		{9, "09"},
+		{10, "10"},
+		{59, "59"},
+	}
+	for _, tt := range tests {
+		var buf [4]byte
+		got := string(fmtbuf.Append2(buf[:0], tt.n))
+		if got != tt.want {
+			t.Errorf("Append2(%d) = %q, want %q", tt.n, got, tt.want)
+		}
+	}
+}
+
+func TestAppend4(t *testing.T) {
+	tests := []struct {
+		n    int
+		want string
+	}{
+		{0, "0000"},
+		{5, "0005"},
+		{2026, "2026"},
+		{9999, "9999"},
+	}
+	for _, tt := range tests {
+		var buf [4]byte
+		got := string(fmtbuf.Append4(buf[:0], tt.n))
+		if got != tt.want {
+			t.Errorf("Append4(%d) = %q, want %q", tt.n, got, tt.want)
+		}
+	}
+}
+
+func TestAppendTimestamp(t *testing.T) {
+	ts := time.Date(2026, 2, 14, 9, 5, 7, 0, time.UTC)
+	var buf [20]byte
+	got := string(fmtbuf.AppendTimestamp(buf[:0], ts))
+	want := "2026-02-14T09:05:07"
+	if got != want {
+		t.Errorf("AppendTimestamp = %q, want %q", got, want)
+	}
+}
+
+func TestAppendSerialTimestamp(t *testing.T) {
+	ts := time.Date(2026, 2, 14, 9, 5, 7, 0, time.UTC)
+	var buf [16]byte
+	got := string(fmtbuf.AppendSerialTimestamp(buf[:0], ts))
+	want := "[09:05:07] "
+	if got != want {
+		t.Errorf("AppendSerialTimestamp = %q, want %q", got, want)
+	}
+}
 
 // cap5 returns a []byte backed by a 5-byte array with cap=5.
 func cap5() []byte {

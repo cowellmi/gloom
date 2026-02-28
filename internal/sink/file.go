@@ -46,7 +46,7 @@ func newCSVWriter(w io.Writer) *csvWriter { return &csvWriter{w: w} }
 func (r *csvWriter) record(t time.Time, id string, readings []sensor.Reading) error {
 	for _, rd := range readings {
 		b := r.buf[:0]
-		b = appendTimestamp(b, t)
+		b = fmtbuf.AppendTimestamp(b, t)
 		b = fmtbuf.AppendByte(b, ',')
 		b = fmtbuf.Append(b, id)
 		b = fmtbuf.AppendByte(b, ',')
@@ -73,7 +73,7 @@ func newLogWriter(w io.Writer) *logWriter { return &logWriter{w: w} }
 
 func (w *logWriter) write(t time.Time, level config.LogLevel, msg string) error {
 	b := w.buf[:0]
-	b = appendTimestamp(b, t)
+	b = fmtbuf.AppendTimestamp(b, t)
 	b = fmtbuf.AppendByte(b, ' ')
 	b = fmtbuf.AppendLevel(b, level)
 	b = fmtbuf.AppendByte(b, ' ')
@@ -225,41 +225,10 @@ func buildFilename(spec FileSpec, t time.Time) string {
 	b := make([]byte, 0, len(spec.Dir)+1+8+len(spec.Ext))
 	b = append(b, spec.Dir...)
 	b = append(b, '/')
-	b = append4(b, y)
-	b = append2(b, int(m))
-	b = append2(b, d)
+	b = fmtbuf.Append4(b, y)
+	b = fmtbuf.Append2(b, int(m))
+	b = fmtbuf.Append2(b, d)
 	b = append(b, spec.Ext...)
 	return string(b)
 }
 
-// --- shared ISO timestamp helper (used by csvWriter and NotehubSink) ---
-
-func appendTimestamp(buf []byte, t time.Time) []byte {
-	y, mon, d := t.Date()
-	h, min, sec := t.Clock()
-	buf = append4(buf, y)
-	buf = fmtbuf.AppendByte(buf, '-')
-	buf = append2(buf, int(mon))
-	buf = fmtbuf.AppendByte(buf, '-')
-	buf = append2(buf, d)
-	buf = fmtbuf.AppendByte(buf, 'T')
-	buf = append2(buf, h)
-	buf = fmtbuf.AppendByte(buf, ':')
-	buf = append2(buf, min)
-	buf = fmtbuf.AppendByte(buf, ':')
-	buf = append2(buf, sec)
-	return buf
-}
-
-func append2(buf []byte, n int) []byte {
-	return append(buf, byte('0'+n/10), byte('0'+n%10))
-}
-
-func append4(buf []byte, n int) []byte {
-	return append(buf,
-		byte('0'+n/1000),
-		byte('0'+(n/100)%10),
-		byte('0'+(n/10)%10),
-		byte('0'+n%10),
-	)
-}

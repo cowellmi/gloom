@@ -75,19 +75,18 @@ func main() {
 	}
 	board.MCU.PetWatchdog()
 
-	// Probe RTC; only use its interrupt pin if the hardware is present.
 	rtcIntPin := hal.NoPin
 	rtc, err := wing.ProbeRTC(board.I2C)
 	if err != nil {
 		initWarns = append(initWarns, err)
 		rtc = fallback.Clock{}
-	} else {
+	} else if wing.RTCInterruptPin != hal.NoPin {
 		rtcIntPin = wing.RTCInterruptPin
 	}
 
-	nc, ncErr := notecard.New(board.I2C.Tx)
-	if ncErr != nil {
-		initWarns = append(initWarns, ncErr)
+	nc, err := notecard.New(board.I2C.Tx)
+	if err != nil {
+		initWarns = append(initWarns, err)
 	}
 	board.MCU.PetWatchdog()
 	runtime.GC()
@@ -103,8 +102,6 @@ func main() {
 		})
 		switch {
 		case rErr == nil:
-			// unmarshalMap stores nested objects as []byte; pass the body bytes
-			// directly to ParseJSON which uses the iterative streaming tinyjson API.
 			if bodyJSON, ok := rsp["body"].([]byte); ok {
 				if pErr := config.ParseJSON(bodyJSON, &cfg); pErr != nil {
 					initErrs = append(initErrs, errors.New("config: "+pErr.Error()))
@@ -112,10 +109,6 @@ func main() {
 			}
 		case notecard.IsNotFound(rErr):
 			debug.Log("sending default config to Notehub...")
-			// MarshalMap + notecard.Marshal produces compact single-line JSON.
-			// MarshalJSON is pretty-printed (contains \n) which breaks the Notecard
-			// line-terminated protocol — the first embedded newline is treated as
-			// end-of-request, corrupting subsequent requests in the same session.
 			bodyJSON := notecard.Marshal(cfg.MarshalMap())
 			board.MCU.PetWatchdog()
 			if _, wErr := nc.RequestResponse(map[string]any{
@@ -161,6 +154,7 @@ func main() {
 		raw, err := card.ReadFile("CONFIG.JSON")
 		if err != nil {
 			// TODO: check for specific file not found err
+			debug.Log(err.Error())
 			debug.Log("writing default config to SD card...")
 			if js, mErr := cfg.MarshalJSON(); mErr != nil {
 				initErrs = append(initErrs, errors.New("config: "+mErr.Error()))
@@ -192,7 +186,6 @@ func main() {
 
 	var dataSinks []sink.DataSink
 
-	// Serial: always available (hardware always present).
 	if sc, ok := cfg.Sinks["serial"]; ok {
 		serialSink := sink.NewSerial(board.Serial)
 		if sc.LogLevel < config.LogLevelOff {
@@ -201,7 +194,6 @@ func main() {
 		dataSinks = append(dataSinks, serialSink)
 	}
 
-	// Blues: only if Notecard is present.
 	if nc != nil {
 		if sc, ok := cfg.Sinks["blues"]; ok {
 			notehubSink := sink.NewNotehubSink(nc, "data.qo", "log.qo")
@@ -213,7 +205,6 @@ func main() {
 		board.MCU.PetWatchdog()
 	}
 
-	// SD: only if card is present.
 	if card != nil {
 		if err := card.Mkdir("GLOOM"); err != nil {
 			initErrs = append(initErrs, errors.New("sd: "+err.Error()))
@@ -262,13 +253,11 @@ func main() {
 		logger.LogError(config.LogLevelError, err, "init: ")
 	}
 
-	// Build shared sensor registry (one instance per sensor ID).
 	sensors := map[string]sensor.Sensor{}
 	if board.ADCPin != hal.NoPin {
 		sensors["vbat"] = vbat.NewDevice(board.ADCPin)
 	}
 
-	// Warn about sensor IDs referenced in config but not in registry.
 	for _, g := range cfg.Groups {
 		for _, id := range g.Sensors {
 			if _, ok := sensors[id]; !ok {
@@ -276,6 +265,11 @@ func main() {
 			}
 		}
 		board.MCU.PetWatchdog()
+	}
+
+	if err := config.Validate(&cfg); err != nil {
+		logger.LogError(config.LogLevelError, err, "")
+		panic(err)
 	}
 
 	statusLED.Off()
@@ -350,12 +344,6 @@ func main() {
 
 	// Manager
 	slp := sleeper.New(board.MCU, rtc, wing.Rails, board.SDA, board.SCL, allPins)
-
-	// Validate that at least one wake source is configured.
-	if err := config.Validate(&cfg); err != nil {
-		logger.LogError(config.LogLevelError, err, "")
-		panic(err)
-	}
 
 	man := manager.New(slp, wing.Rails, statusLED, cfg.Groups, sensors, dataSinks, logger)
 	man.EnableWatchdog(board.MCU.PetWatchdog)

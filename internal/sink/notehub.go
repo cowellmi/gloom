@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
+	"github.com/cowellmi/gloom/internal/fmtbuf"
 	"github.com/cowellmi/gloom/internal/notecard"
 	"github.com/cowellmi/gloom/internal/sensor"
 )
@@ -84,5 +85,5 @@ func (s *NotehubSink) Flush() error { return nil }
 
 func formatISO(t time.Time) string {
 	var buf [20]byte
-	return string(appendTimestamp(buf[:0], t))
+	return string(fmtbuf.AppendTimestamp(buf[:0], t))
 }

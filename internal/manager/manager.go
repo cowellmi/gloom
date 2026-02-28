@@ -285,30 +285,9 @@ func (m *Manager) logNextWake(d time.Duration) {
 	if d <= 0 {
 		b = fmtbuf.Append(b, "external")
 	} else {
-		b = appendDuration(b, d)
+		b = fmtbuf.AppendDuration(b, d)
 	}
 	m.logger.Log(config.LogLevelDebug, string(b))
-}
-
-func appendDuration(b []byte, d time.Duration) []byte {
-	switch {
-	case d < time.Minute:
-		secs := (d + time.Second/2) / time.Second
-		b = fmtbuf.AppendInt(b, int64(secs), 10)
-		return fmtbuf.AppendByte(b, 's')
-	case d < time.Hour:
-		mins := (d + time.Minute/2) / time.Minute
-		b = fmtbuf.AppendInt(b, int64(mins), 10)
-		return fmtbuf.AppendByte(b, 'm')
-	case d < 24*time.Hour:
-		hrs := (d + time.Hour/2) / time.Hour
-		b = fmtbuf.AppendInt(b, int64(hrs), 10)
-		return fmtbuf.AppendByte(b, 'h')
-	default:
-		days := (d + 12*time.Hour) / (24 * time.Hour)
-		b = fmtbuf.AppendInt(b, int64(days), 10)
-		return fmtbuf.AppendByte(b, 'd')
-	}
 }
 
 func (m *Manager) logMem() {

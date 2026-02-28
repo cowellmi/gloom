@@ -3,8 +3,6 @@
 package main
 
 import (
-	"errors"
-
 	"github.com/cowellmi/gloom/internal/fallback"
 	"github.com/cowellmi/gloom/internal/hal"
 )
@@ -18,5 +16,5 @@ func initWing() Wing {
 }
 
 func (Wing) ProbeRTC(hal.I2C) (hal.Clock, error) {
-	return nil, errors.New("no rtc present")
+	return fallback.Clock{}, nil
 }

@@ -19,8 +19,6 @@ func New(pin hal.Pin) LED {
 	return LED(pin)
 }
 
-func (p LED) Pin() hal.Pin { return hal.Pin(p) }
-
 func (p LED) On() {
 	machine.Pin(p).High()
 }
@@ -29,6 +27,7 @@ func (p LED) Off() {
 	machine.Pin(p).Low()
 }
 
+// Turns the LED on/off on/off.
 func (p LED) Blink() {
 	p.On()
 	wait.For(50 * time.Millisecond)

@@ -29,7 +29,7 @@ func (s *SerialSink) Data(t time.Time, id string, readings []sensor.Reading) err
 	}
 	for _, r := range readings {
 		b := s.buf[:0]
-		b = appendSerialTimestamp(b, t)
+		b = fmtbuf.AppendSerialTimestamp(b, t)
 		b = fmtbuf.Append(b, "SEN | ")
 		b = fmtbuf.Append(b, id)
 		b = fmtbuf.Append(b, ": ")
@@ -50,7 +50,7 @@ func (s *SerialSink) Log(t time.Time, level config.LogLevel, msg string) error {
 		return nil
 	}
 	b := s.buf[:0]
-	b = appendSerialTimestamp(b, t)
+	b = fmtbuf.AppendSerialTimestamp(b, t)
 	b = fmtbuf.AppendLevel(b, level)
 	b = fmtbuf.Append(b, " | ")
 	b = fmtbuf.Append(b, msg)
@@ -62,14 +62,3 @@ func (s *SerialSink) Log(t time.Time, level config.LogLevel, msg string) error {
 
 func (*SerialSink) Flush() error { return nil }
 
-func appendSerialTimestamp(buf []byte, t time.Time) []byte {
-	buf = fmtbuf.AppendByte(buf, '[')
-	buf = append2(buf, t.Hour())
-	buf = fmtbuf.AppendByte(buf, ':')
-	buf = append2(buf, t.Minute())
-	buf = fmtbuf.AppendByte(buf, ':')
-	buf = append2(buf, t.Second())
-	buf = fmtbuf.AppendByte(buf, ']')
-	buf = fmtbuf.AppendByte(buf, ' ')
-	return buf
-}

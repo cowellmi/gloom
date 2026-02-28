@@ -12,6 +12,7 @@ package fmtbuf
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/cowellmi/gloom/internal/config"
 )
@@ -92,5 +93,74 @@ func AppendLevel(b []byte, level config.LogLevel) []byte {
 		return append(b, "ERR"...)
 	default:
 		return append(b, "LVL"...)
+	}
+}
+
+// Append2 appends a two-digit zero-padded decimal representation of n (0–99).
+func Append2(buf []byte, n int) []byte {
+	return append(buf, byte('0'+n/10), byte('0'+n%10))
+}
+
+// Append4 appends a four-digit zero-padded decimal representation of n (0–9999).
+func Append4(buf []byte, n int) []byte {
+	return append(buf,
+		byte('0'+n/1000),
+		byte('0'+(n/100)%10),
+		byte('0'+(n/10)%10),
+		byte('0'+n%10),
+	)
+}
+
+// AppendTimestamp appends an ISO 8601 timestamp without timezone: YYYY-MM-DDTHH:MM:SS.
+func AppendTimestamp(buf []byte, t time.Time) []byte {
+	y, mon, d := t.Date()
+	h, min, sec := t.Clock()
+	buf = Append4(buf, y)
+	buf = AppendByte(buf, '-')
+	buf = Append2(buf, int(mon))
+	buf = AppendByte(buf, '-')
+	buf = Append2(buf, d)
+	buf = AppendByte(buf, 'T')
+	buf = Append2(buf, h)
+	buf = AppendByte(buf, ':')
+	buf = Append2(buf, min)
+	buf = AppendByte(buf, ':')
+	buf = Append2(buf, sec)
+	return buf
+}
+
+// AppendSerialTimestamp appends a bracketed HH:MM:SS timestamp followed by a space: "[HH:MM:SS] ".
+func AppendSerialTimestamp(buf []byte, t time.Time) []byte {
+	buf = AppendByte(buf, '[')
+	buf = Append2(buf, t.Hour())
+	buf = AppendByte(buf, ':')
+	buf = Append2(buf, t.Minute())
+	buf = AppendByte(buf, ':')
+	buf = Append2(buf, t.Second())
+	buf = AppendByte(buf, ']')
+	buf = AppendByte(buf, ' ')
+	return buf
+}
+
+// AppendDuration appends a rounded human-readable duration (e.g. "5s", "3m", "2h", "1d").
+// It rounds to the nearest whole unit rather than truncating.
+func AppendDuration(b []byte, d time.Duration) []byte {
+	switch {
+	case d < time.Minute:
+		secs := (d + time.Second/2) / time.Second
+		b = AppendInt(b, int64(secs), 10)
+		return AppendByte(b, 's')
+	case d < time.Hour:
+		mins := (d + time.Minute/2) / time.Minute
+		b = AppendInt(b, int64(mins), 10)
+		return AppendByte(b, 'm')
+	case d < 24*time.Hour:
+		hrs := (d + time.Hour/2) / time.Hour
+		b = AppendInt(b, int64(hrs), 10)
+		return AppendByte(b, 'h')
+	default:
+		days := (d + 12*time.Hour) / (24 * time.Hour)
+		b = AppendInt(b, int64(days), 10)
+		return AppendByte(b, 'd')
 	}
 }
