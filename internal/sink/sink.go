@@ -7,16 +7,12 @@ import (
 	"github.com/cowellmi/gloom/internal/sensor"
 )
 
-type Sink interface {
+type LogSink interface {
+	Log(t time.Time, level config.LogLevel, msg string) error
 	Flush() error
 }
 
-type LogSink interface {
-	Sink
-	Log(t time.Time, level config.LogLevel, msg string) error
-}
-
 type DataSink interface {
-	Sink
 	Data(t time.Time, id string, readings []sensor.Reading) error
+	Flush() error
 }
